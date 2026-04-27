@@ -12,10 +12,11 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     
     // Enrich users with stats
     const enrichedUsers = await Promise.all(users.map(async (u) => {
-      const appCount = await Application.countDocuments({ user_id: u._id });
-      const certCount = await Certificate.countDocuments({ user_id: u._id, status: 'active' });
+      const appCount = await Application.countDocuments({ client_id: u._id });
+      const approvedAppCount = await Application.countDocuments({ client_id: u._id, status: 'approved' });
+      const certCount = await Certificate.countDocuments({ client_id: u._id, status: 'active' });
       const userObj = u.toJSON();
-      return { ...userObj, appCount, certCount };
+      return { ...userObj, appCount, approvedAppCount, certCount };
     }));
 
     res.json({ data: enrichedUsers });
