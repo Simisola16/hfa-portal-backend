@@ -161,4 +161,72 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
   }
 });
 
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.reset_password_token = resetToken;
+    user.reset_password_expiry = Date.now() + 3600000; // 1 hour
+    await user.save();
+
+    const resetUrl = `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+
+    try {
+      await resend.emails.send({
+        from: 'HFA Portal <info@theyoungpioneers.com>',
+        to: email,
+        subject: 'Reset Your Password - HFA Portal',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9fafb;padding:32px">
+            <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
+              <h1 style="color:white;margin:0;font-size:28px">Halal Food Authority</h1>
+              <p style="color:#bbf7d0;margin-top:8px">Password Reset Request</p>
+            </div>
+            <div style="background:white;border-radius:12px;padding:32px">
+              <h2 style="color:#166534">Hello, ${user.full_name}!</h2>
+              <p style="color:#4b5563">We received a request to reset your password. If you didn't make this request, you can safely ignore this email.</p>
+              <div style="text-align:center;margin:32px 0">
+                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">Reset Password</a>
+              </div>
+              <p style="color:#94a3b8;font-size:12px;text-align:center">This link will expire in 1 hour.<br>If the button doesn't work, copy and paste this link:<br>${resetUrl}</p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error('Resend Reset Email Error:', emailErr);
+    }
+
+    res.json({ message: 'Password reset link sent to your email.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+  try {
+    const user = await User.findOne({
+      reset_password_token: token,
+      reset_password_expiry: { $gt: Date.now() }
+    });
+
+    if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+    user.password = password;
+    user.reset_password_token = undefined;
+    user.reset_password_expiry = undefined;
+    await user.save();
+
+    res.json({ message: 'Password reset successful! You can now log in.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

@@ -14,6 +14,8 @@ const userSchema = new mongoose.Schema({
   is_active: { type: Boolean, default: false },
   is_verified: { type: Boolean, default: false },
   verification_token: String,
+  reset_password_token: String,
+  reset_password_expiry: Date,
   avatar_url: String,
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
