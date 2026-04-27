@@ -18,10 +18,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, address, postcode, country, contact_person, contact_email, contact_phone } = req.body;
     const site = new Site({
-      client_id: req.user._id,
-      name, address, postcode, country, contact_person, contact_email, contact_phone
+      ...req.body,
+      client_id: req.user._id
     });
     const data = await site.save();
     res.status(201).json({ data });

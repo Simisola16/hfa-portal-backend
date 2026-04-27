@@ -2,16 +2,36 @@ import mongoose from 'mongoose';
 
 const siteSchema = new mongoose.Schema({
   client_id: { type: String, required: true },
+  // Site Details
   name: { type: String, required: true },
-  address: String,
+  email: String,
+  address_1: String,
+  address_2: String,
   postcode: String,
+  state: String,
   country: String,
-  contact_person: String,
-  contact_email: String,
-  contact_phone: String,
-  manufacturer_name: String,
-  manufacturer_address: String,
-  manufacturer_contact: String,
+  city: String,
+  contact_name: String,
+  contact_phone_code: String,
+  contact_phone_number: String,
+  
+  // Manufacturer Details
+  est_name: String,
+  reg_number: String,
+  vat_number: String,
+  head_office_address: String,
+  years_in_business: String,
+  trading_name: String,
+  website: String,
+  mfg_email: String,
+  operating_hours: String,
+  num_employees: String,
+
+  // Existing Client
+  client_code: String,
+  client_category: String,
+
+  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 }, { 
