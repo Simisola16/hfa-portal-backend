@@ -1,0 +1,98 @@
+
+    
+    <div align="center" style="height:100%; " class="form-group;  ">
+
+        <div id="app" align="center" style="height:100%">
+
+            <div style=" margin-top:20%">
+                <img src="/logo.jpg" style="width:300px;height:200px">
+            </div>
+        </div>
+
+        <div id="blazor-error-ui">
+            An unhandled error has occurred.
+            <a href="" class="reload">Reload</a>
+            <a class="dismiss">🗙</a>
+        </div>
+        <script src="_framework/blazor.webassembly.js"></script>
+        <script>navigator.serviceWorker.register('service-worker.js');</script>
+        <script src="_framework/aspnetcore-browser-refresh.js"></script>
+        <!--<script src="js/nav.js"></script>-->
+        <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+        <script src="./js/chart.min.js"></script>
+        <script type="text/javascript" src="js/WizardInit.js"></script>
+        <script type="text/javascript" src="js/js/smartWizard/jquery.smartWizard.min.js"></script>
+
+        <script src="assetsz/plugins/modernizr-2.6.2-respond-1.1.0.min.js"></script>
+        <!-- GLOBAL SCRIPTS -->
+        <script src="assetsz/plugins/jquery-2.0.3.min.js"></script>
+        <script src="assetsz/plugins/bootstrap/js/bootstrap.min.js"></script>
+        <script src="assetsz/js/login.js"></script>
+        <script src="./js/main.d810cf0ae7f39f28f3361.js"></script>
+        <script src="./js/Loaddata.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+        <!-- Add chart.js reference if chart components are used in your application. -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.0.1/chart.umd.js" integrity="sha512-gQhCDsnnnUfaRzD8k1L5llCCV6O9HN09zClIzzeJ8OJ9MpGmIlCxm+pdCkqTwqJ4JcjbojFr79rl2F1mzcoLMQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <!-- Add chartjs-plugin-datalabels.min.js reference if chart components with data label feature is used in your application. -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js" integrity="sha512-JPcRR8yFa8mmCsfrw4TNte1ZvF1e3+1SdGMslZvmrzDYxS69J7J49vkFL8u6u8PlPJK+H3voElBtUCzaXj+6ig==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <!-- Add sortable.js reference if SortableList component is used in your application. -->
+        <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+        <script src="_content/Blazor.Bootstrap/blazor.bootstrap.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css">
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
+        <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+        <!-- Intro.js JavaScript -->
+        <script src="https://unpkg.com"></script>
+        <script>
+            window.WriteCookie = {
+                WriteCookie: function (name, value, days) {
+                    var expires;
+                    if (days) {
+                        var date = new Date();
+                        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                        expires = ";expires=" + date.toUTCString();
+                    } else { expires = ""; }
+                    document.cookie = name + "=" + value + expires + "; path=/";
+                }
+            }
+            window.ReadCookie = {
+                ReadCookie: function (cname) {
+                    var name = cname + "=";
+                    var decodedCookie = decodeURIComponent(document.cookie);
+                    var ca = decodedCookie.split(';');
+                    for (var i = 0; i < ca.length; i++) {
+                        var c = ca[i];
+                        while (c.charAt(0) == ' ') {
+                            c = (c.substring(1));
+
+                        }
+                        if (c.indexOf(name) == 0) {
+                            return c.substring(name.length, c.length);
+                        }
+                    }
+                    return "";
+                }
+            }
+
+
+        </script>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                introJs().setOptions({
+                    showProgress: true,
+                    showBullets: false,
+                    // Customizing the "Comic" look
+                    doneLabel: 'Got it!',
+                    nextLabel: 'Next →',
+                    prevLabel: '← Back'
+                }).start();
+            });
+        </script>
+
+    </div><script>var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback__;</script><script src="_framework/dotnet.6.0.24.pemvmjx4qi.js" defer="" integrity="sha256-0zvLbm2N57A5LNSoUWIIMXXq7ldIwes8W5WY9/G84GE=" crossorigin="anonymous"></script>
+
+
+
+
+<svg id="SvgjsSvg1001" width="2" height="0" xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svgjs="http://svgjs.com/svgjs" style="overflow: hidden; top: -100%; left: -100%; position: absolute; opacity: 0;"><defs id="SvgjsDefs1002"></defs><polyline id="SvgjsPolyline1003" points="0,0"></polyline><path id="SvgjsPath1004" d="M0 0 "></path></svg>

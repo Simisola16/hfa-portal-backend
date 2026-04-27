@@ -1,0 +1,278 @@
+
+===== HFA Client =====
+NAV LINKS:
+  - Logout: javascript:__doPostBack('popi','')
+  - Company Profile: javascript:__doPostBack('ctl30','')
+  - Change Organization Name: javascript:void(0);
+  - Contact Details: javascript:__doPostBack('ctl31','')
+  - Recover Password: javascript:void(0);
+  - Settings
+                                                                          New: javascript:void(0);
+  - Messages
+                                                                          512: javascript:void(0);
+  - Logs: javascript:void(0);
+  - Dashboard: javascript:__doPostBack('njk','')
+  - Applications: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Manage Applications (1): javascript:__doPostBack('ctl32','')
+  - In-Progress  (1): https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - New Applications
+                                                            (1): javascript:__doPostBack('ctl33','')
+  - Renewal Applications
+                                                            (0): javascript:__doPostBack('ctl34','')
+  - Surveillance Application
+                                                            (0): javascript:__doPostBack('ctl35','')
+  - New Application: javascript:__doPostBack('ctl36','')
+  - Rejected/On-Hold (0): javascript:__doPostBack('ctl37','')
+  - Proposal: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Manage Proposal (0): javascript:__doPostBack('ctl38','')
+  - New Proposal(s)
+                                                      (0): javascript:__doPostBack('ctl39','')
+  - Certificate: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Manage Certificates (0): javascript:__doPostBack('ctl40','')
+  - New Certificate       (0): javascript:__doPostBack('ctl41','')
+  - New Certificate: javascript:__doPostBack('ctl42','')
+  - Products: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Product List
+                                                 (0): javascript:__doPostBack('ctl43','')
+  - Add-On List: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Add-On Inprogress: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#adf22
+  - Export: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Manage Export Certificate: javascript:__doPostBack('vopu','')
+  - Request Export Certificate: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Requested Export Certificate: javascript:__doPostBack('hhhhgtre','')
+  - In-Progress Export Certificate: javascript:__doPostBack('hyff','')
+  - New Draft: javascript:__doPostBack('A6i','')
+  - Certificate List: javascript:__doPostBack('A6','')
+  - Message: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Inbox: javascript:__doPostBack('ctl44','')
+  - Outbox: javascript:__doPostBack('ctl45','')
+  - Manage User's: javascript:__doPostBack('ctl46','')
+  - Manage Sites: javascript:__doPostBack('ctl47','')
+  - Forms: https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#
+  - Ids: javascript:__doPostBack('Forlister','Sort$Ids')
+  - Logout: javascript:__doPostBack('poi','')
+  - HFA is a part of the Halal Food Foundation (Registered Charity Number: 1139457)
+Copyright © 2021 Halal Food Authority. All rights reserved.: javascript:void(0);
+
+PAGE CONTENT:
+   
+Timeout: 179999 seconds.
+ 
+Chat
+MENU
+Dashboard
+Applications
+Proposal
+Certificate
+Products
+Export
+Message
+Manage User's
+Manage Sites
+Forms
+Logout
+
+
+Dashboard
+
+
+
+
+
+
+
+
+
+
+
+
+CERTIFICATE (0)
+PRODUCTS (0)
+APPLICATION (1)
+IN-PROGRESS APPLICATIONS:
+
+
+NEW APPLICATION
+ 	Application Date:	Application Number:	Application Category:	Site Name:	Application Status:	 
+	07-Jan-2026	M2-0429/1900000181068	Annual Certification – Food and General processing	Coders	AUDIT REPORTS SUBMITTED	
+
+
+RENEWAL APPLICATION
+Application Number:	Application Date:	Application Category:	Application Type:
+No Record Available
+
+
+SURVEILLANCE APPLICATION
+Application Number:	Application Date:	Application Status:
+No Record Available
+CERTIFICATE LIST
+Site Name:	Certificate Ref No:	Certificate Type:	Status:	 
+No Record Available
+
+
+
+
+
+HFA is a part of the Halal Food Foundation (Registered Charity Number: 1139457)
+Copyright © 2021 Halal Food Authority. All rights reserved.
+
+--- PAGE: Logout - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('popi','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('popi','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Company Profile - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl30','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl30','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Change Organization Name - FAILED: page.goto: net::ERR_ABORTED at javascript:void(0);
+Call log:
+[2m  - navigating to "javascript:void(0);", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Contact Details - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl31','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl31','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Recover Password - FAILED: page.goto: net::ERR_ABORTED at javascript:void(0);
+Call log:
+[2m  - navigating to "javascript:void(0);", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Settings
+                                                                          New - FAILED: page.goto: net::ERR_ABORTED at javascript:void(0);
+Call log:
+[2m  - navigating to "javascript:void(0);", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Messages
+                                                                          512 - FAILED: page.goto: net::ERR_ABORTED at javascript:void(0);
+Call log:
+[2m  - navigating to "javascript:void(0);", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Logs - FAILED: page.goto: net::ERR_ABORTED at javascript:void(0);
+Call log:
+[2m  - navigating to "javascript:void(0);", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Dashboard - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('njk','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('njk','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Applications (https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#) ---
+   
+Timeout: 179998 seconds.
+ 
+Chat
+MENU
+Dashboard
+Applications
+Proposal
+Certificate
+Products
+Export
+Message
+Manage User's
+Manage Sites
+Forms
+Logout
+
+
+Dashboard
+
+
+
+
+
+
+
+
+
+
+
+
+CERTIFICATE (0)
+PRODUCTS (0)
+APPLICATION (1)
+IN-PROGRESS APPLICATIONS:
+
+
+NEW APPLICATION
+ 	Application Date:	Application Number:	Application Category:	Site Name:	Application Status:	 
+	07-Jan-2026	M2-0429/1900000181068	Annual Certification – Food and General processing	Coders	AUDIT REPORTS SUBMITTED	
+
+
+RENEWAL APPLICATION
+Application Number:	Application Date:	Application Category:	Application Type:
+No Record Available
+
+
+SURVEILLANCE APPLICATION
+Application Number:	Application Date:	Application Status:
+No Record Available
+CERTIFICATE LIST
+Site Name:	Certificate Ref No:	Certificate Type:	Status:	 
+No Record Available
+
+
+
+
+
+HFA is a part of the Halal Food Foundation (Registered Charity Number: 1139457)
+Copyright © 2021 Halal Food Authority. All rights reserved.
+
+--- PAGE: Manage Applications (1) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl32','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl32','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: In-Progress  (1) (https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#) ---
+
+
+--- PAGE: New Applications
+                                                            (1) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl33','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl33','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Renewal Applications
+                                                            (0) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl34','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl34','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Surveillance Application
+                                                            (0) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl35','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl35','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: New Application - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl36','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl36','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Rejected/On-Hold (0) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl37','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl37','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Proposal - FAILED: page.goto: Timeout 10000ms exceeded.
+Call log:
+[2m  - navigating to "https://hfa-portals.com/Main-Menujkljljoj;%20uhiouhyiohoi%20kuhiuhoihjoi%20uihiouhyiohio%20jkiuhoijpokip%20rtst5edyr%20oui9piup9?loker=Board#", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: Manage Proposal (0) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl38','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl38','')", waiting until "domcontentloaded"[22m
+
+
+--- PAGE: New Proposal(s)
+                                                      (0) - FAILED: page.goto: net::ERR_ABORTED at javascript:__doPostBack('ctl39','')
+Call log:
+[2m  - navigating to "javascript:__doPostBack('ctl39','')", waiting until "domcontentloaded"[22m
+

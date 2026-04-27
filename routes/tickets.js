@@ -1,0 +1,55 @@
+import express from 'express';
+import Ticket from '../models/Ticket.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+const router = express.Router();
+
+// Get user tickets
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const filter = req.user.role === 'admin' ? {} : { user_id: req.user.id };
+    const tickets = await Ticket.find(filter).sort({ created_at: -1 });
+    res.json({ data: tickets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create ticket
+router.post('/', authenticateToken, async (req, res) => {
+  try {
+    const ticketCount = await Ticket.countDocuments();
+    const ticket_number = `TKT-${String(ticketCount + 1).padStart(5, '0')}`;
+    const ticket = new Ticket({
+      ...req.body,
+      ticket_number,
+      user_id: req.user.id
+    });
+    await ticket.save();
+    res.json({ data: ticket });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reply to ticket
+router.post('/:id/reply', authenticateToken, async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    
+    ticket.responses.push({
+      user_id: req.user.id,
+      user_name: req.user.full_name,
+      message: req.body.message
+    });
+    
+    if (req.user.role === 'admin') ticket.status = 'in_progress';
+    
+    await ticket.save();
+    res.json({ data: ticket });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;

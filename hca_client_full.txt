@@ -1,0 +1,41 @@
+
+===== HCA Client =====
+NAV LINKS:
+
+PAGE CONTENT:
+Login successful. Welcome back!
+HCA Portal
+Dashboard
+Applications
+Submit Relevant Document
+Invoices
+Certificate
+Products
+Messages
+Audits
+Profile
+User Guide
+Manage Users
+Logout
+Dashboard
+Quick Actions
+Restart Tour
+NEW APPLICATION
+Start
+CERTIFICATE
+
+...
+
+PRODUCTS
+
+...
+
+APPLICATION
+
+...
+
+Applications
+LOADING...
+LOADING...
+Loading applications...
+Refresh Dashboard

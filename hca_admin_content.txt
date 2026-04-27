@@ -1,0 +1,10 @@
+HDI Admin Portal
+
+Enter Your Credentials To Proceed to Your Dashboard
+
+Email
+Password
+Forgot Password?
+Login
+© 2026 HDI Admin. All rights reserved.
+Login successful. Welcome back!
