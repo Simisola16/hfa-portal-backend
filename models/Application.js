@@ -21,6 +21,14 @@ const applicationSchema = new mongoose.Schema({
   halal_coordinator: String,
   qa_contact: String,
   
+  scope: String,
+  employee_count: Number,
+  products: [{
+    name: String,
+    brand: String,
+    category: String
+  }],
+  
   production_schedule: String,
   has_porcine: { type: Boolean, default: false },
   has_intoxicants: { type: Boolean, default: false },
@@ -39,6 +47,7 @@ const applicationSchema = new mongoose.Schema({
     ingredient_list: String,
     floor_plan: String,
     company_registration: String,
+    haccp_plan: String,
     supporting_docs: [String]
   },
   inspector_id: String,

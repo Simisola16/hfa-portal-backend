@@ -47,32 +47,37 @@ router.post('/', authenticateToken, upload.fields([
   { name: 'ingredient_list', maxCount: 1 },
   { name: 'floor_plan', maxCount: 1 },
   { name: 'company_registration', maxCount: 1 },
+  { name: 'haccp_plan', maxCount: 1 },
   { name: 'supporting_docs', maxCount: 5 },
 ]), async (req, res) => {
   try {
-    const { application_type, category, site_id, site_name, products_description, employee_count, notes } = req.body;
     const documents = {};
-
     if (req.files?.halal_policy?.[0]) documents.halal_policy = req.files.halal_policy[0].path;
     if (req.files?.ingredient_list?.[0]) documents.ingredient_list = req.files.ingredient_list[0].path;
     if (req.files?.floor_plan?.[0]) documents.floor_plan = req.files.floor_plan[0].path;
     if (req.files?.company_registration?.[0]) documents.company_registration = req.files.company_registration[0].path;
+    if (req.files?.haccp_plan?.[0]) documents.haccp_plan = req.files.haccp_plan[0].path;
     if (req.files?.supporting_docs) {
       documents.supporting_docs = req.files.supporting_docs.map(f => f.path);
     }
 
     const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
+    
+    // Parse products if they come as a JSON string
+    let products = [];
+    if (req.body.products) {
+      try {
+        products = JSON.parse(req.body.products);
+      } catch (e) {
+        products = [];
+      }
+    }
 
     const application = new Application({
+      ...req.body,
       application_number: appNumber,
       client_id: req.user._id,
-      application_type,
-      category,
-      site_id: site_id || null,
-      site_name,
-      products_description,
-      employee_count: parseInt(employee_count) || 0,
-      notes,
+      products,
       documents,
       status: 'submitted',
     });
