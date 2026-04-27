@@ -39,8 +39,7 @@ const applicationSchema = new mongoose.Schema({
   admin_notes: String,
   status: { 
     type: String, 
-    enum: ['submitted', 'under_review', 'on_hold', 'audit_scheduled', 'audit_completed', 'approved', 'rejected', 'certificate_issued'],
-    default: 'submitted' 
+    default: 'APPLICATION RECEIVED' 
   },
   documents: {
     halal_policy: String,
