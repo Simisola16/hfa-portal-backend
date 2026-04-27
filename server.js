@@ -32,8 +32,10 @@ connectDB();
 
 // CORS configuration
 const allowedOrigins = [
-  process.env.FRONTEND_ADMIN_URL || 'http://localhost:5174',
-  process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173',
+  process.env.FRONTEND_ADMIN_URL || 'https://hfa-admin-portal.vercel.app',
+  process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app',
+  'http://localhost:5174',
+  'http://localhost:5173',
 ];
 
 app.use(cors({
