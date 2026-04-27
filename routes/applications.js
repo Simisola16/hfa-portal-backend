@@ -23,7 +23,10 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.query.status) query.status = req.query.status;
     if (req.query.type) query.application_type = req.query.type;
 
-    const data = await Application.find(query).sort({ created_at: -1 });
+    const data = await Application.find(query)
+      .populate('profiles')
+      .populate('inspectors')
+      .sort({ created_at: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -33,7 +36,9 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/applications/:id
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const data = await Application.findById(req.params.id);
+    const data = await Application.findById(req.params.id)
+      .populate('profiles')
+      .populate('inspectors');
     if (!data) return res.status(404).json({ error: 'Application not found' });
     res.json({ data });
   } catch (err) {

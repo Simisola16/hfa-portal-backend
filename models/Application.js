@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const applicationSchema = new mongoose.Schema({
   application_number: { type: String, required: true, unique: true },
-  client_id: { type: String, required: true }, // Supabase Auth ID
+  client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   application_type: String,
   category: String,
   site_id: String,
@@ -50,7 +50,7 @@ const applicationSchema = new mongoose.Schema({
     haccp_plan: String,
     supporting_docs: [String]
   },
-  inspector_id: String,
+  inspector_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Inspector' },
   audit_date: Date,
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
@@ -58,6 +58,20 @@ const applicationSchema = new mongoose.Schema({
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
+});
+
+applicationSchema.virtual('profiles', {
+  ref: 'User',
+  localField: 'client_id',
+  foreignField: '_id',
+  justOne: true
+});
+
+applicationSchema.virtual('inspectors', {
+  ref: 'Inspector',
+  localField: 'inspector_id',
+  foreignField: '_id',
+  justOne: true
 });
 
 export default mongoose.model('Application', applicationSchema);
