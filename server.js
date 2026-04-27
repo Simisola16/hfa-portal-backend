@@ -59,6 +59,10 @@ app.get('/api/health', (req, res) => {
 });
 
 // Use Routes
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'HFA Portal Backend is running', timestamp: new Date().toISOString() });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/certificates', certificateRoutes);
