@@ -80,9 +80,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
-app.listen(port, () => {
-  console.log(`🕌 HFA Portal Backend running on port ${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`🕌 HFA Portal Backend running on port ${port}`);
+  });
+}
 
 // Keep process alive
 setInterval(() => {}, 1000 * 60 * 60);
+
+
+module.exports = app;
