@@ -38,19 +38,20 @@ const allowedOrigins = [
   'http://localhost:5173',
 ];
 
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin) || !origin || process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
@@ -86,6 +87,11 @@ app.use('/api/logsheets', logsheetRoutes);
 // Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin) || !origin || process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
   res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
@@ -94,6 +100,10 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`🕌 HFA Portal Backend running on port ${port}`);
   });
 }
+
+// Keep process alive
+setInterval(() => {}, 1000 * 60 * 60);
+
 
 export default app;
 
