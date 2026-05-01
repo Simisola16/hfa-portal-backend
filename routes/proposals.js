@@ -1,7 +1,9 @@
+import express from 'express';
 import multer from 'multer';
 import { storage } from '../lib/cloudinary.js';
 import Proposal from '../models/Proposal.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+
 const router = express.Router();
 const upload = multer({ storage });
 
