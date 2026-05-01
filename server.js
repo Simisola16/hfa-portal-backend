@@ -32,21 +32,24 @@ connectDB();
 
 // CORS configuration
 const allowedOrigins = [
-  process.env.FRONTEND_ADMIN_URL || 'https://hfa-admin-portal.vercel.app',
-  process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app',
+  'https://hfa-admin-portal.vercel.app',
+  'https://hfa-portal.vercel.app',
   'http://localhost:5174',
   'http://localhost:5173',
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all for dev
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 }));
 
 app.use(morgan('dev'));
