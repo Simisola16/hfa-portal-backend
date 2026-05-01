@@ -44,13 +44,13 @@ app.use(cors({
     if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(null, false);
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 }));
+
+app.options('*', cors());
 
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
@@ -95,9 +95,7 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Keep process alive
-setInterval(() => {}, 1000 * 60 * 60);
-
+// No setInterval needed for Vercel
 
 export default app;
 
