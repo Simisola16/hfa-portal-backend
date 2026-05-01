@@ -40,12 +40,12 @@ const allowedOrigins = [
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-    res.header('Access-Control-Allow-Origin', origin);
+  if (allowedOrigins.includes(origin) || !origin || process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.header('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -87,6 +87,11 @@ app.use('/api/logsheets', logsheetRoutes);
 // Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin) || !origin || process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
   res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
