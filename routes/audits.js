@@ -20,7 +20,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const audit = new Audit(req.body);
+    const payload = { ...req.body };
+    if (payload.inspector_id === "") payload.inspector_id = null;
+    const audit = new Audit(payload);
     const data = await audit.save();
     res.status(201).json({ data });
   } catch (err) {
@@ -30,7 +32,9 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const data = await Audit.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const payload = { ...req.body };
+    if (payload.inspector_id === "") payload.inspector_id = null;
+    const data = await Audit.findByIdAndUpdate(req.params.id, payload, { new: true });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });

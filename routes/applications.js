@@ -123,10 +123,11 @@ router.post('/', authenticateToken, upload.fields([
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status, notes, inspector_id, audit_date } = req.body;
+    const inspectorIdVal = inspector_id === "" ? null : inspector_id;
 
     const data = await Application.findByIdAndUpdate(
       req.params.id,
-      { status, admin_notes: notes, inspector_id, audit_date, updated_at: new Date() },
+      { status, admin_notes: notes, inspector_id: inspectorIdVal, audit_date, updated_at: new Date() },
       { new: true }
     );
 
