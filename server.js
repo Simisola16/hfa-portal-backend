@@ -41,9 +41,14 @@ const allowedOrigins = [
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+    
+    // Normalize origin: remove trailing slash if present
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    
+    if (allowedOrigins.indexOf(normalizedOrigin) !== -1 || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
+      console.warn(`CORS blocked for origin: ${origin}`);
       callback(null, false);
     }
   },
