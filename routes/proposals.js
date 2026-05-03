@@ -11,7 +11,7 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role !== 'admin') {
-      query.client_id = req.user._id;
+      query.client_id = req.user._id.toString();
     }
     const data = await Proposal.find(query)
       .populate('application_id')
