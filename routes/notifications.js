@@ -97,7 +97,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
       // Client: Proposals received
       const { default: Proposal } = await import('../models/Proposal.js');
-      const proposals = await Proposal.find({ client_id: req.user._id }).sort({ created_at: -1 }).limit(5);
+      const proposals = await Proposal.find({ client_id: req.user._id }).sort({ createdAt: -1 }).limit(5);
 
       proposals.forEach(p => {
         if (p.status === 'pending') {
@@ -106,7 +106,7 @@ router.get('/', authenticateToken, async (req, res) => {
             type: 'info',
             title: 'New Proposal Received',
             message: `HFA has sent a certification proposal for your review.`,
-            time: p.created_at,
+            time: p.createdAt,
             read: false,
             link: `/applications?appId=${p.application_id}`
           });

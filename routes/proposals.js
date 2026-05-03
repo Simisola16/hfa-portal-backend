@@ -16,7 +16,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const data = await Proposal.find(query)
       .populate('application_id')
       .populate({ path: 'application_id', populate: { path: 'profiles' } })
-      .sort({ created_at: -1 });
+      .sort({ createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -25,7 +25,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Proposal.findOne({ application_id: req.params.appId }).sort({ created_at: -1 });
+    const data = await Proposal.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
