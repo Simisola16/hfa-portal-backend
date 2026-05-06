@@ -10,7 +10,7 @@
  */
 import express from 'express';
 import multer from 'multer';
-import { uploadToSupabase } from '../lib/supabase.js';
+import { uploadToGridFS } from '../lib/gridfs.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -34,7 +34,7 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
     }
 
     const folder = req.body.folder || 'general';
-    const url = await uploadToSupabase(req.file.buffer, req.file.originalname, folder);
+    const url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
 
     res.status(201).json({ url, message: 'File uploaded successfully' });
   } catch (err) {

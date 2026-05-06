@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToSupabase } from '../lib/supabase.js';
+import { uploadToGridFS } from '../lib/gridfs.js';
 import Proposal from '../models/Proposal.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 
@@ -38,10 +38,10 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
     const proposalData = { ...req.body };
     // Upload PDF to Supabase Storage if a file was attached
     if (req.file) {
-      proposalData.proposal_url = await uploadToSupabase(
+      proposalData.proposal_url = await uploadToGridFS(
         req.file.buffer,
         req.file.originalname,
-        'proposals'
+        req.file.mimetype
       );
     }
     const proposal = new Proposal(proposalData);

@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToSupabase } from '../lib/supabase.js';
+import { uploadToGridFS } from '../lib/gridfs.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import { authenticateToken } from '../middleware/auth.js';
@@ -58,36 +58,36 @@ router.post('/', authenticateToken, upload.fields([
 ]), async (req, res) => {
   try {
     const documents = {};
-    // Upload each document buffer to Supabase Storage
+    // Upload each document buffer to MongoDB GridFS
     if (req.files?.halal_policy?.[0]) {
-      documents.halal_policy = await uploadToSupabase(
-        req.files.halal_policy[0].buffer, req.files.halal_policy[0].originalname, 'applications/halal_policy'
+      documents.halal_policy = await uploadToGridFS(
+        req.files.halal_policy[0].buffer, req.files.halal_policy[0].originalname, req.files.halal_policy[0].mimetype
       );
     }
     if (req.files?.ingredient_list?.[0]) {
-      documents.ingredient_list = await uploadToSupabase(
-        req.files.ingredient_list[0].buffer, req.files.ingredient_list[0].originalname, 'applications/ingredient_list'
+      documents.ingredient_list = await uploadToGridFS(
+        req.files.ingredient_list[0].buffer, req.files.ingredient_list[0].originalname, req.files.ingredient_list[0].mimetype
       );
     }
     if (req.files?.floor_plan?.[0]) {
-      documents.floor_plan = await uploadToSupabase(
-        req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, 'applications/floor_plan'
+      documents.floor_plan = await uploadToGridFS(
+        req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, req.files.floor_plan[0].mimetype
       );
     }
     if (req.files?.company_registration?.[0]) {
-      documents.company_registration = await uploadToSupabase(
-        req.files.company_registration[0].buffer, req.files.company_registration[0].originalname, 'applications/company_registration'
+      documents.company_registration = await uploadToGridFS(
+        req.files.company_registration[0].buffer, req.files.company_registration[0].originalname, req.files.company_registration[0].mimetype
       );
     }
     if (req.files?.haccp_plan?.[0]) {
-      documents.haccp_plan = await uploadToSupabase(
-        req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, 'applications/haccp_plan'
+      documents.haccp_plan = await uploadToGridFS(
+        req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, req.files.haccp_plan[0].mimetype
       );
     }
     if (req.files?.supporting_docs) {
       documents.supporting_docs = await Promise.all(
         req.files.supporting_docs.map(f =>
-          uploadToSupabase(f.buffer, f.originalname, 'applications/supporting_docs')
+          uploadToGridFS(f.buffer, f.originalname, f.mimetype)
         )
       );
     }

@@ -22,6 +22,7 @@ import reportRoutes from './routes/reports.js';
 import ticketRoutes from './routes/tickets.js';
 import logsheetRoutes from './routes/logsheets.js';
 import uploadRoutes from './routes/upload.js';
+import filesRoutes from './routes/files.js';
 
 dotenv.config();
 
@@ -92,6 +93,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/logsheets', logsheetRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/files', filesRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
