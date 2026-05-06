@@ -29,9 +29,16 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Connect to MongoDB
-connectDB();
-
+// Make sure the DB is connected before handling any requests
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+});
 // CORS configuration
 const allowedOrigins = [
   'https://hfa-admin-portal.vercel.app',
