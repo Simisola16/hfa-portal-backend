@@ -2,14 +2,14 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { storage } from '../lib/cloudinary.js';
+import { uploadToSupabase } from '../lib/supabase.js';
 import multer from 'multer';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const upload = multer({ storage });
+const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -150,12 +150,14 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
 
   try {
+    // Upload to Supabase Storage (avatars folder)
+    const avatarUrl = await uploadToSupabase(req.file.buffer, req.file.originalname, 'avatars');
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { avatar_url: req.file.path },
+      { avatar_url: avatarUrl },
       { new: true }
     );
-    res.json({ user, avatar_url: req.file.path });
+    res.json({ user, avatar_url: avatarUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

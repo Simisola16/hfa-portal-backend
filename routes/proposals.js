@@ -1,11 +1,12 @@
 import express from 'express';
 import multer from 'multer';
-import { storage } from '../lib/cloudinary.js';
+import { uploadToSupabase } from '../lib/supabase.js';
 import Proposal from '../models/Proposal.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
-const upload = multer({ storage });
+// Use memory storage — buffers are uploaded directly to Supabase
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -35,8 +36,13 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file'), async (req, res) => {
   try {
     const proposalData = { ...req.body };
+    // Upload PDF to Supabase Storage if a file was attached
     if (req.file) {
-      proposalData.proposal_url = req.file.path;
+      proposalData.proposal_url = await uploadToSupabase(
+        req.file.buffer,
+        req.file.originalname,
+        'proposals'
+      );
     }
     const proposal = new Proposal(proposalData);
     const data = await proposal.save();

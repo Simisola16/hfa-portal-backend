@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { storage } from '../lib/cloudinary.js';
+import { uploadToSupabase } from '../lib/supabase.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import { authenticateToken } from '../middleware/auth.js';
@@ -10,7 +10,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const router = express.Router();
-const upload = multer({ storage });
+// Use memory storage — buffers are uploaded directly to Supabase
+const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // GET /api/applications
@@ -57,13 +58,38 @@ router.post('/', authenticateToken, upload.fields([
 ]), async (req, res) => {
   try {
     const documents = {};
-    if (req.files?.halal_policy?.[0]) documents.halal_policy = req.files.halal_policy[0].path;
-    if (req.files?.ingredient_list?.[0]) documents.ingredient_list = req.files.ingredient_list[0].path;
-    if (req.files?.floor_plan?.[0]) documents.floor_plan = req.files.floor_plan[0].path;
-    if (req.files?.company_registration?.[0]) documents.company_registration = req.files.company_registration[0].path;
-    if (req.files?.haccp_plan?.[0]) documents.haccp_plan = req.files.haccp_plan[0].path;
+    // Upload each document buffer to Supabase Storage
+    if (req.files?.halal_policy?.[0]) {
+      documents.halal_policy = await uploadToSupabase(
+        req.files.halal_policy[0].buffer, req.files.halal_policy[0].originalname, 'applications/halal_policy'
+      );
+    }
+    if (req.files?.ingredient_list?.[0]) {
+      documents.ingredient_list = await uploadToSupabase(
+        req.files.ingredient_list[0].buffer, req.files.ingredient_list[0].originalname, 'applications/ingredient_list'
+      );
+    }
+    if (req.files?.floor_plan?.[0]) {
+      documents.floor_plan = await uploadToSupabase(
+        req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, 'applications/floor_plan'
+      );
+    }
+    if (req.files?.company_registration?.[0]) {
+      documents.company_registration = await uploadToSupabase(
+        req.files.company_registration[0].buffer, req.files.company_registration[0].originalname, 'applications/company_registration'
+      );
+    }
+    if (req.files?.haccp_plan?.[0]) {
+      documents.haccp_plan = await uploadToSupabase(
+        req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, 'applications/haccp_plan'
+      );
+    }
     if (req.files?.supporting_docs) {
-      documents.supporting_docs = req.files.supporting_docs.map(f => f.path);
+      documents.supporting_docs = await Promise.all(
+        req.files.supporting_docs.map(f =>
+          uploadToSupabase(f.buffer, f.originalname, 'applications/supporting_docs')
+        )
+      );
     }
 
     const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
