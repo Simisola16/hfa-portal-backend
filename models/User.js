@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema({
   reset_password_token: String,
   reset_password_expiry: Date,
   avatar_url: String,
+  suspension_reason: String,
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 }, { 

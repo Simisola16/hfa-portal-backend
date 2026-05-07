@@ -37,10 +37,20 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { is_active, status } = req.body;
+    const { is_active, status, suspension_reason } = req.body;
     const update = {};
-    if (is_active !== undefined) update.is_active = is_active;
-    if (status !== undefined) update.is_active = (status === 'active');
+    if (is_active !== undefined) {
+      update.is_active = is_active;
+      // If activating, clear suspension reason
+      if (is_active) update.suspension_reason = null;
+    }
+    if (status !== undefined) {
+      update.is_active = (status === 'active');
+      if (status === 'active') update.suspension_reason = null;
+    }
+    if (suspension_reason !== undefined) {
+      update.suspension_reason = suspension_reason;
+    }
     
     const data = await User.findByIdAndUpdate(req.params.id, update, { new: true });
     res.json({ data });
