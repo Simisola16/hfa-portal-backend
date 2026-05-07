@@ -1,6 +1,7 @@
 import express from 'express';
 import Invoice from '../models/Invoice.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { createNotification } from '../lib/notifications.js';
 const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -20,6 +21,16 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const invoice = new Invoice(req.body);
     const data = await invoice.save();
+
+    // Notify Client
+    await createNotification(
+      data.client_id,
+      'New Invoice Issued 💳',
+      `A new invoice (${data.invoice_number}) has been issued for your account. Amount: £${data.total_amount}.`,
+      'warning',
+      '/invoices'
+    );
+
     res.status(201).json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
