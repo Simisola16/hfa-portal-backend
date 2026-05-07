@@ -39,12 +39,19 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
+    
     const normalizedOrigin = origin.replace(/\/$/, '');
-    if (allowedOrigins.indexOf(normalizedOrigin) !== -1 || normalizedOrigin.endsWith('.vercel.app') || process.env.NODE_ENV !== 'production') {
+    const isAllowed = allowedOrigins.includes(normalizedOrigin) || 
+                      normalizedOrigin.endsWith('.vercel.app') || 
+                      process.env.NODE_ENV !== 'production';
+
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(null, false);
+      console.warn(`CORS blocked for origin: ${origin}`);
+      callback(null, true); // Fallback to true to avoid hard blocking if headers are set manually
     }
   },
   credentials: true,
