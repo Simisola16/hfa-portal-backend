@@ -29,17 +29,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Make sure the DB is connected before handling any requests
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    res.status(500).json({ error: 'Database connection failed' });
-  }
-});
-// CORS configuration
+// 1. CORS MUST be the very first middleware to handle preflight and headers correctly
 const allowedOrigins = [
   'https://hfa-admin-portal.vercel.app',
   'https://hfa-portal.vercel.app',
@@ -50,14 +40,10 @@ const allowedOrigins = [
 const corsOptions = {
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
-    
-    // Normalize origin: remove trailing slash if present
     const normalizedOrigin = origin.replace(/\/$/, '');
-    
-    if (allowedOrigins.indexOf(normalizedOrigin) !== -1 || process.env.NODE_ENV !== 'production') {
+    if (allowedOrigins.indexOf(normalizedOrigin) !== -1 || normalizedOrigin.endsWith('.vercel.app') || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
-      console.warn(`CORS blocked for origin: ${origin}`);
       callback(null, false);
     }
   },
@@ -67,22 +53,27 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options(/(.*)/, cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle all preflight requests
 
+// 2. Logging
 app.use(morgan('dev'));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'HFA Portal Backend is running', timestamp: new Date().toISOString() });
+// 3. Body parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 4. DB Connection Middleware (Move this AFTER CORS)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
 });
 
-// Use Routes
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'HFA Portal Backend is running', timestamp: new Date().toISOString() });
-});
-
+// 5. Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/certificates', certificateRoutes);
@@ -102,19 +93,18 @@ app.use('/api/logsheets', logsheetRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/files', filesRoutes);
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: err.message || 'Internal Server Error' });
+app.get('/', (req, res) => {
+  res.send('HFA Portal API is running...');
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(port, () => {
-    console.log(`🕌 HFA Portal Backend running on port ${port}`);
-  });
-}
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
 
-// No setInterval needed for Vercel
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
 
 export default app;
-
