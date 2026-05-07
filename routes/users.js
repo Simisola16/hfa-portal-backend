@@ -5,6 +5,7 @@ const router = express.Router();
 
 import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
+import { createNotification } from '../lib/notifications.js';
 
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -53,6 +54,25 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     }
     
     const data = await User.findByIdAndUpdate(req.params.id, update, { new: true });
+
+    // Send Notification
+    if (is_active === true || status === 'active') {
+      await createNotification(
+        req.params.id,
+        'Account Activated! 🚀',
+        'Welcome back! Your HFA portal account has been activated. You can now access all features.',
+        'success',
+        '/dashboard'
+      );
+    } else if (is_active === false || suspension_reason) {
+      await createNotification(
+        req.params.id,
+        'Account Suspended ⚠️',
+        `Your account has been suspended. Reason: ${suspension_reason || 'Administrative decision'}. Please contact support for details.`,
+        'error'
+      );
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });

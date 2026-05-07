@@ -3,6 +3,7 @@ import multer from 'multer';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
+import { createNotification } from '../lib/notifications.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -139,6 +140,18 @@ router.post('/', authenticateToken, upload.fields([
       console.error('Resend Email Error:', emailErr);
     }
 
+    // Notify Admin
+    const admins = await User.find({ role: 'admin' });
+    for (const admin of admins) {
+      await createNotification(
+        admin._id,
+        'New Application Received! 📄',
+        `A new application (${appNumber}) has been submitted by ${req.user.company_name || req.user.full_name}.`,
+        'info',
+        `/applications?appId=${data._id}`
+      );
+    }
+
     res.status(201).json({ data, message: 'Application submitted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -187,6 +200,15 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
         console.error('Email failed:', emailErr);
       }
     }
+
+    // Notify Client via Dashboard Notification
+    await createNotification(
+      data.client_id,
+      'Application Status Updated 📢',
+      `Your application ${data.application_number} status has been changed to: ${status.replace(/_/g, ' ')}.`,
+      'info',
+      '/applications'
+    );
 
     res.json({ data, message: 'Status updated' });
   } catch (err) {

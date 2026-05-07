@@ -3,6 +3,7 @@ import multer from 'multer';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Proposal from '../models/Proposal.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { createNotification } from '../lib/notifications.js';
 
 const router = express.Router();
 // Use memory storage — buffers are uploaded directly to Supabase
@@ -46,6 +47,16 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
     }
     const proposal = new Proposal(proposalData);
     const data = await proposal.save();
+
+    // Notify Client
+    await createNotification(
+      data.client_id,
+      'New Proposal Received 📑',
+      `You have received a new certification proposal: ${data.title}. Please review and respond.`,
+      'info',
+      '/proposals'
+    );
+
     res.status(201).json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
