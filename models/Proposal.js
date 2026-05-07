@@ -7,6 +7,7 @@ const proposalSchema = new mongoose.Schema({
   subject: String,
   details: String,
   amount: Number,
+  estimated_cost: { type: Number },
   currency: { type: String, default: 'GBP' },
   status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
   proposal_url: String,
