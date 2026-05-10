@@ -106,9 +106,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-if (process.env.NODE_ENV !== 'production') {
+// Start server for local and persistent hosting (like Render.com)
+// Vercel handles the export, but Render needs the listen call
+const isVercel = process.env.VERCEL === '1';
+if (!isVercel || process.env.NODE_ENV !== 'production') {
   app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+    console.log(`🚀 Server running on port ${port}`);
   });
 }
 
