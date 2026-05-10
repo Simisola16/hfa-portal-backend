@@ -29,12 +29,12 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// 1. CORS MUST be the very first middleware to handle preflight and headers correctly
 const allowedOrigins = [
   'https://hfa-admin-portal.vercel.app',
   'https://hfa-portal.vercel.app',
-  'http://localhost:5174',
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
 ];
 
 const corsOptions = {
@@ -51,16 +51,20 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.warn(`CORS blocked for origin: ${origin}`);
-      callback(null, true); // Fallback to true to avoid hard blocking if headers are set manually
+      // In production, we should probably be stricter, but for now we allow it to avoid hard blocks
+      callback(null, true); 
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['X-CSRF-Token', 'X-Requested-With', 'Accept', 'Accept-Version', 'Content-Length', 'Content-MD5', 'Content-Type', 'Date', 'X-Api-Version', 'Authorization']
+  allowedHeaders: ['X-CSRF-Token', 'X-Requested-With', 'Accept', 'Accept-Version', 'Content-Length', 'Content-MD5', 'Content-Type', 'Date', 'X-Api-Version', 'Authorization', 'Origin'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Handle all preflight requests
+// Handle preflight for all routes
+app.options('*', cors(corsOptions));
 
 // 2. Logging
 app.use(morgan('dev'));
@@ -110,8 +114,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
 
 export default app;
