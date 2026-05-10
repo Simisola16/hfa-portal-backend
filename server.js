@@ -47,15 +47,33 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 4. DB Connection Middleware (Move this AFTER CORS)
+// 4. DB Connection Middleware with Timeout
 app.use(async (req, res, next) => {
+  // Skip DB connection for the health check or simple root route if needed
+  if (req.path === '/api/health') return next();
+
   try {
-    await connectDB();
+    // Set a timeout for the DB connection
+    const dbPromise = connectDB();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database connection timeout')), 8000)
+    );
+
+    await Promise.race([dbPromise, timeoutPromise]);
     next();
   } catch (error) {
-    console.error('Database connection failed:', error);
-    res.status(500).json({ error: 'Database connection failed' });
+    console.error('❌ Middleware DB Error:', error.message);
+    res.status(503).json({ 
+      error: 'Service temporarily unavailable', 
+      details: 'Database connection failed. Please ensure MongoDB Atlas IPs are whitelisted.',
+      message: error.message 
+    });
   }
+});
+
+// Health check route
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // 5. Routes
