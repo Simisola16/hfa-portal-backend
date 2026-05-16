@@ -35,8 +35,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/invoices — admin creates/uploads invoice (supports file upload)
-router.post('/', authenticateToken, requireAdmin, upload.single('invoice_file'), async (req, res) => {
+// POST /api/invoices — client or admin creates/uploads invoice (supports file upload)
+router.post('/', authenticateToken, upload.single('invoice_file'), async (req, res) => {
   try {
     const invoiceData = { ...req.body };
 
