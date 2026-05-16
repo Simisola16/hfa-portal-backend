@@ -1,14 +1,41 @@
 import mongoose from 'mongoose';
 
+const auditorSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  contact_number: String,
+  purpose: String
+});
+
+const ncReportSchema = new mongoose.Schema({
+  text: String,
+  document_url: String,
+  status: { type: String, enum: ['flagged', 'corrected'], default: 'flagged' },
+  flagged_at: { type: Date, default: Date.now },
+  corrected_at: Date
+});
+
 const auditSchema = new mongoose.Schema({
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
-  inspector_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Inspector' },
-  site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
   client_id: { type: String, required: true },
-  scheduled_date: Date,
-  status: { type: String, enum: ['scheduled', 'completed', 'cancelled', 'pending'], default: 'pending' },
-  report_url: String,
-  notes: String,
+  
+  // The dates proposed by admin
+  proposed_dates: [{ type: Date }],
+  
+  // If the client rejects the dates
+  client_unavailable: { type: Boolean, default: false },
+  
+  // The exactly 2 dates chosen by the client
+  selected_dates: [{ type: Date }],
+  
+  // The auditors assigned
+  auditors: [auditorSchema],
+  
+  // NC reports
+  nc_reports: [ncReportSchema],
+  
+  status: { type: String, enum: ['pending', 'dates_proposed', 'dates_rejected', 'dates_accepted', 'auditors_assigned', 'audit_completed'], default: 'pending' },
+  
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },
