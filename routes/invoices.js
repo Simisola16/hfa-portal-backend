@@ -99,7 +99,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    invoice.status = 'paid';
+    invoice.status = 'client_paid';
     invoice.paid_at = new Date();
 
     // Upload payment proof if attached
@@ -112,14 +112,6 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
     }
 
     const data = await invoice.save();
-
-    // Update application status to PAYMENT RECEIVED
-    if (invoice.application_id) {
-      await Application.findByIdAndUpdate(invoice.application_id, {
-        status: 'PAYMENT RECEIVED',
-        updated_at: new Date()
-      });
-    }
 
     // Notify admins
     const { default: User } = await import('../models/User.js');
