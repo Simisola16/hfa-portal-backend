@@ -96,25 +96,28 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
     if (!role) return res.status(400).json({ error: 'Role is required for signature' });
 
-    const roleLower = role.toLowerCase();
-    if (roleLower === 'mufti') {
-      logsheet.mufti_signature = signature_url;
-      logsheet.mufti_sign_name = signature_name;
-      logsheet.mufti_sign_date = new Date();
-    } else if (roleLower === 'ceo') {
-      logsheet.ceo_signature = signature_url;
-      logsheet.ceo_sign_name = signature_name;
-      logsheet.ceo_sign_date = new Date();
-    } else if (roleLower === 'manager') {
-      logsheet.manager_signature = signature_url;
-      logsheet.manager_sign_name = signature_name;
-      logsheet.manager_sign_date = new Date();
-    } else if (roleLower === 'mufti2') {
-      logsheet.mufti2_signature = signature_url;
-      logsheet.mufti2_sign_name = signature_name;
-      logsheet.mufti2_sign_date = new Date();
-    } else {
-      return res.status(400).json({ error: 'Invalid role selected' });
+    const rolesArray = Array.isArray(role) ? role : [role];
+    for (const r of rolesArray) {
+      const roleLower = r.toLowerCase();
+      if (roleLower === 'mufti') {
+        logsheet.mufti_signature = signature_url;
+        logsheet.mufti_sign_name = signature_name;
+        logsheet.mufti_sign_date = new Date();
+      } else if (roleLower === 'ceo') {
+        logsheet.ceo_signature = signature_url;
+        logsheet.ceo_sign_name = signature_name;
+        logsheet.ceo_sign_date = new Date();
+      } else if (roleLower === 'manager') {
+        logsheet.manager_signature = signature_url;
+        logsheet.manager_sign_name = signature_name;
+        logsheet.manager_sign_date = new Date();
+      } else if (roleLower === 'mufti2') {
+        logsheet.mufti2_signature = signature_url;
+        logsheet.mufti2_sign_name = signature_name;
+        logsheet.mufti2_sign_date = new Date();
+      } else {
+        return res.status(400).json({ error: `Invalid role selected: ${r}` });
+      }
     }
 
     if (comment) {
