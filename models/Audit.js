@@ -19,6 +19,13 @@ const auditSchema = new mongoose.Schema({
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   client_id: { type: String, required: true },
 
+  // Custom Scheduled Fields
+  inspector_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Inspector' },
+  site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
+  notes: { type: String },
+  scheduled_date: { type: Date },
+  audit_type: { type: String },
+
   // The 3 dates proposed by admin
   proposed_dates: [{ type: Date }],
 
@@ -46,7 +53,11 @@ const auditSchema = new mongoose.Schema({
       'dates_accepted',
       'date_finalized',
       'auditors_assigned',
-      'audit_completed'
+      'audit_completed',
+      'scheduled',
+      'in_progress',
+      'completed',
+      'cancelled'
     ],
     default: 'pending'
   },

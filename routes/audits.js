@@ -7,6 +7,7 @@ import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import multer from 'multer';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -20,23 +21,72 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('inspector_id', 'full_name email')
       .sort({ createdAt: -1 });
 
-    // Fetch clients
-    const clientIds = audits.map(a => a.client_id).filter(id => id && id.length === 24);
+    // Fetch clients safely
+    const clientIds = audits
+      .map(a => a.client_id)
+      .filter(id => id && mongoose.Types.ObjectId.isValid(id.toString()));
+      
     const clients = await User.find({ _id: { $in: clientIds } }, 'company_name full_name');
     const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
 
-    const formatted = audits.map(a => ({
-      id: a._id.toString(),
-      applications: a.application_id ? { application_number: a.application_id.application_number } : null,
-      profiles: { company_name: clientMap[a.client_id]?.company_name || clientMap[a.client_id]?.full_name || 'Unknown Client' },
-      inspectors: a.inspector_id ? { full_name: a.inspector_id.full_name } : null,
-      sites: { name: 'Main Site' },
-      audit_type: 'Initial',
-      status: a.status || 'scheduled',
-      scheduled_date: a.finalized_date || a.selected_dates?.[0],
-    }));
+    const formatted = audits.map(a => {
+      const clientIdStr = a.client_id ? a.client_id.toString() : '';
+      const client = clientMap[clientIdStr];
+      
+      const inspectorName = a.auditors && a.auditors.length > 0
+        ? a.auditors.map(aud => aud.name).join(', ')
+        : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
+
+      return {
+        id: a._id.toString(),
+        applications: a.application_id ? { application_number: a.application_id.application_number } : null,
+        profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
+        inspectors: { full_name: inspectorName },
+        sites: { name: 'Main Site' },
+        audit_type: a.audit_type || 'Initial',
+        status: a.status || 'scheduled',
+        scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
+      };
+    });
 
     res.json({ data: formatted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/audits (Create custom scheduled audit)
+router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { application_id, inspector_id, site_id, client_id, scheduled_date, audit_type, notes } = req.body;
+    const audit = new Audit({
+      application_id: application_id || undefined,
+      client_id: client_id || 'system',
+      inspector_id: inspector_id || undefined,
+      site_id: site_id || undefined,
+      finalized_date: scheduled_date ? new Date(scheduled_date) : undefined,
+      scheduled_date: scheduled_date ? new Date(scheduled_date) : undefined,
+      audit_type: audit_type || 'Initial',
+      notes: notes || '',
+      status: 'scheduled'
+    });
+    const saved = await audit.save();
+    res.status(201).json({ data: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/audits/:id (Update custom scheduled audit status/findings)
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { status, findings } = req.body;
+    const updated = await Audit.findByIdAndUpdate(
+      req.params.id,
+      { status, notes: findings },
+      { new: true }
+    );
+    res.json({ data: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
