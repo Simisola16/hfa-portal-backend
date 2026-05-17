@@ -44,6 +44,12 @@ const applicationLogsheetSchema = new mongoose.Schema({
   
   confirmed: { type: Boolean, default: false },
 
+  status: { 
+    type: String, 
+    enum: ['Waiting for Signature', 'Signed', 'Completed'], 
+    default: 'Waiting for Signature' 
+  },
+
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 });
