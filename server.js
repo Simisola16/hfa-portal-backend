@@ -15,6 +15,7 @@ import userRoutes from './routes/users.js';
 import siteRoutes from './routes/sites.js';
 import proposalRoutes from './routes/proposals.js';
 import auditRoutes from './routes/audits.js';
+import agreementRoutes from './routes/agreements.js';
 import inspectorRoutes from './routes/inspectors.js';
 import invoiceRoutes from './routes/invoices.js';
 import notificationRoutes from './routes/notifications.js';
@@ -38,7 +39,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // 2. Logging
 app.use(morgan('dev'));
@@ -87,6 +88,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/sites', siteRoutes);
 app.use('/api/proposals', proposalRoutes);
 app.use('/api/audits', auditRoutes);
+app.use('/api/agreements', agreementRoutes);
 app.use('/api/inspectors', inspectorRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/notifications', notificationRoutes);
