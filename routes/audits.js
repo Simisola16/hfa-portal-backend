@@ -114,6 +114,38 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/audits/finalize-date (Admin picks 1 final date from client's 2)
+router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { audit_id, finalized_date } = req.body;
+    const audit = await Audit.findById(audit_id);
+    if (!audit) return res.status(404).json({ error: 'Audit not found' });
+
+    audit.finalized_date = new Date(finalized_date);
+    audit.status = 'date_finalized';
+    await audit.save();
+
+    // Update application status to AUDIT DATE FINALIZED
+    await Application.findByIdAndUpdate(audit.application_id, {
+      status: 'AUDIT DATE FINALIZED',
+      updated_at: new Date()
+    });
+
+    // Notify client
+    await createNotification(
+      audit.client_id,
+      'Audit Date Confirmed 📅',
+      `HFA has confirmed your audit date: ${new Date(finalized_date).toDateString()}. An auditor will be assigned shortly.`,
+      'success',
+      '/applications'
+    );
+
+    res.json({ data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/audits/assign-auditors (Admin)
 router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -125,6 +157,12 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     audit.status = 'auditors_assigned';
     await audit.save();
 
+    // Update application status to ASSIGN AUDITOR
+    await Application.findByIdAndUpdate(audit.application_id?._id || audit.application_id, {
+      status: 'ASSIGN AUDITOR',
+      updated_at: new Date()
+    });
+
     // Send emails to auditors
     for (const auditor of auditors) {
       try {
@@ -133,14 +171,22 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
           to: auditor.email,
           subject: `Audit Assignment: ${audit.application_id?.site_name || 'HFA Audit'}`,
           html: `
-            <h2>You have been assigned to a new audit</h2>
-            <p><strong>Name:</strong> ${auditor.name}</p>
-            <p><strong>Contact:</strong> ${auditor.contact_number}</p>
-            <p><strong>Purpose:</strong> ${auditor.purpose}</p>
-            <p><strong>Audit Dates Selected by Client:</strong></p>
-            <ul>
-              ${audit.selected_dates.map(d => `<li>${new Date(d).toDateString()}</li>`).join('')}
-            </ul>
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
+              <div style="background:linear-gradient(135deg,#1e40af,#1d4ed8);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
+                <h1 style="color:white;margin:0">👨‍💼 Audit Assignment</h1>
+                <p style="color:#bfdbfe;margin:8px 0 0">Halal Food Authority</p>
+              </div>
+              <div style="background:white;border-radius:12px;padding:32px">
+                <h2 style="color:#1e40af;margin:0 0 16px">You have been assigned to an audit</h2>
+                <p><strong>Auditor:</strong> ${auditor.name}</p>
+                <p><strong>Contact:</strong> ${auditor.contact_number}</p>
+                <p><strong>Purpose:</strong> ${auditor.purpose}</p>
+                <p><strong>Confirmed Audit Date:</strong></p>
+                <ul>
+                  ${audit.finalized_date ? `<li style="font-weight:bold;color:#1e40af">${new Date(audit.finalized_date).toDateString()}</li>` : audit.selected_dates.map(d => `<li>${new Date(d).toDateString()}</li>`).join('')}
+                </ul>
+              </div>
+            </div>
           `
         });
       } catch (emailErr) {
@@ -151,7 +197,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     await createNotification(
       audit.client_id,
       'Auditors Assigned 👨‍💼',
-      'Auditors have been assigned for your upcoming audit dates.',
+      'Auditors have been assigned for your upcoming audit. Please check the audit details.',
       'info',
       '/applications'
     );
@@ -161,6 +207,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // POST /api/audits/flag-nc (Admin)
 router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_document'), async (req, res) => {

@@ -18,25 +18,40 @@ const ncReportSchema = new mongoose.Schema({
 const auditSchema = new mongoose.Schema({
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   client_id: { type: String, required: true },
-  
-  // The dates proposed by admin
+
+  // The 3 dates proposed by admin
   proposed_dates: [{ type: Date }],
-  
+
   // If the client rejects the dates
   client_unavailable: { type: Boolean, default: false },
-  
-  // The exactly 2 dates chosen by the client
+
+  // The 2 dates chosen by the client
   selected_dates: [{ type: Date }],
-  
+
+  // The 1 final date confirmed by admin from client's 2
+  finalized_date: { type: Date },
+
   // The auditors assigned
   auditors: [auditorSchema],
-  
+
   // NC reports
   nc_reports: [ncReportSchema],
-  
-  status: { type: String, enum: ['pending', 'dates_proposed', 'dates_rejected', 'dates_accepted', 'auditors_assigned', 'audit_completed'], default: 'pending' },
-  
-}, { 
+
+  status: {
+    type: String,
+    enum: [
+      'pending',
+      'dates_proposed',
+      'dates_rejected',
+      'dates_accepted',
+      'date_finalized',
+      'auditors_assigned',
+      'audit_completed'
+    ],
+    default: 'pending'
+  },
+
+}, {
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
