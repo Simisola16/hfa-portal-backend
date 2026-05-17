@@ -75,6 +75,55 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// PUT /api/application-logsheets/:id/sign (Admin only)
+router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { role, signature_url, signature_name, comment, sendWithoutSignature } = req.body;
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (sendWithoutSignature) {
+      if (comment) logsheet.comment = comment;
+      await logsheet.save();
+      return res.json({ data: logsheet, message: 'Logsheet sent to review without signature' });
+    }
+
+    if (!role) return res.status(400).json({ error: 'Role is required for signature' });
+
+    const roleLower = role.toLowerCase();
+    if (roleLower === 'mufti') {
+      logsheet.mufti_signature = signature_url;
+      logsheet.mufti_sign_name = signature_name;
+      logsheet.mufti_sign_date = new Date();
+    } else if (roleLower === 'ceo') {
+      logsheet.ceo_signature = signature_url;
+      logsheet.ceo_sign_name = signature_name;
+      logsheet.ceo_sign_date = new Date();
+    } else if (roleLower === 'manager') {
+      logsheet.manager_signature = signature_url;
+      logsheet.manager_sign_name = signature_name;
+      logsheet.manager_sign_date = new Date();
+    } else if (roleLower === 'mufti2') {
+      logsheet.mufti2_signature = signature_url;
+      logsheet.mufti2_sign_name = signature_name;
+      logsheet.mufti2_sign_date = new Date();
+    } else {
+      return res.status(400).json({ error: 'Invalid role selected' });
+    }
+
+    if (comment) {
+      logsheet.comment = comment;
+    }
+
+    logsheet.status = 'Signed';
+    await logsheet.save();
+    
+    res.json({ data: logsheet, message: `Successfully signed as ${role}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/application-logsheets/:id (Admin only)
 router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {

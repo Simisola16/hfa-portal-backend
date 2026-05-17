@@ -50,6 +50,23 @@ const applicationLogsheetSchema = new mongoose.Schema({
     default: 'Waiting for Signature' 
   },
 
+  // Role Signatures
+  mufti_signature: String,
+  mufti_sign_name: String,
+  mufti_sign_date: Date,
+
+  ceo_signature: String,
+  ceo_sign_name: String,
+  ceo_sign_date: Date,
+
+  manager_signature: String,
+  manager_sign_name: String,
+  manager_sign_date: Date,
+
+  mufti2_signature: String,
+  mufti2_sign_name: String,
+  mufti2_sign_date: Date,
+
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 });
