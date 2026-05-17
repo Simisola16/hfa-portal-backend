@@ -25,7 +25,17 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/invoices/application/:appId — fetch invoice for a specific application
+// GET /api/invoices/application/:appId/all — fetch all invoices for a specific application
+router.get('/application/:appId/all', authenticateToken, async (req, res) => {
+  try {
+    const data = await Invoice.find({ application_id: req.params.appId }).sort({ createdAt: 1 });
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/invoices/application/:appId — fetch latest invoice for a specific application
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
     const data = await Invoice.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
@@ -55,10 +65,10 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     const invoice = new Invoice(invoiceData);
     const data = await invoice.save();
 
-    // Update application status to INVOICE SENT
+    // Update application status
     if (invoiceData.application_id) {
       await Application.findByIdAndUpdate(invoiceData.application_id, {
-        status: 'INVOICE SENT',
+        status: invoiceData.target_status || 'INVOICE SENT',
         updated_at: new Date()
       });
     }
