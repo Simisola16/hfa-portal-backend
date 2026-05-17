@@ -19,9 +19,10 @@ router.get('/:id', async (req, res) => {
 
     const file = files[0];
 
-    // Force browser to download the file instead of rendering PDF bugs
+    // Force browser to download PDFs, but let images render inline
+    const disposition = file.contentType && file.contentType.startsWith('image/') ? 'inline' : 'attachment';
     res.set('Content-Type', file.contentType);
-    res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.set('Content-Disposition', `${disposition}; filename="${file.filename}"`);
 
     const readStream = gfs.openDownloadStream(fileId);
     readStream.pipe(res);
