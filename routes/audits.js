@@ -233,4 +233,28 @@ router.post('/resolve-nc', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/audits/complete-clean (Admin)
+router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { audit_id } = req.body;
+    const audit = await Audit.findById(audit_id);
+    if (!audit) return res.status(404).json({ error: 'Audit not found' });
+
+    audit.status = 'audit_completed';
+    await audit.save();
+
+    await createNotification(
+      audit.client_id,
+      'Audit Completed Successfully! 🎉',
+      'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged.',
+      'success',
+      '/applications'
+    );
+
+    res.json({ data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
