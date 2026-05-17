@@ -12,6 +12,36 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// GET /api/audits (Admin)
+router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const audits = await Audit.find({})
+      .populate('application_id', 'application_number status')
+      .populate('inspector_id', 'full_name email')
+      .sort({ createdAt: -1 });
+
+    // Fetch clients
+    const clientIds = audits.map(a => a.client_id).filter(id => id && id.length === 24);
+    const clients = await User.find({ _id: { $in: clientIds } }, 'company_name full_name');
+    const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
+
+    const formatted = audits.map(a => ({
+      id: a._id.toString(),
+      applications: a.application_id ? { application_number: a.application_id.application_number } : null,
+      profiles: { company_name: clientMap[a.client_id]?.company_name || clientMap[a.client_id]?.full_name || 'Unknown Client' },
+      inspectors: a.inspector_id ? { full_name: a.inspector_id.full_name } : null,
+      sites: { name: 'Main Site' },
+      audit_type: 'Initial',
+      status: a.status || 'scheduled',
+      scheduled_date: a.finalized_date || a.selected_dates?.[0],
+    }));
+
+    res.json({ data: formatted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/audits/application/:appId
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
