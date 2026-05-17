@@ -78,9 +78,15 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
 // PUT /api/application-logsheets/:id/sign (Admin only)
 router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, signature_url, signature_name, comment, sendWithoutSignature } = req.body;
+    const { role, signature_url, signature_name, comment, sendWithoutSignature, finalizeSignOff } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (finalizeSignOff) {
+      logsheet.status = 'Signed';
+      await logsheet.save();
+      return res.json({ data: logsheet, message: 'Logsheet sign-off finalized successfully!' });
+    }
 
     if (sendWithoutSignature) {
       if (comment) logsheet.comment = comment;
@@ -115,7 +121,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       logsheet.comment = comment;
     }
 
-    logsheet.status = 'Signed';
+    // Keep state in "Waiting for Signature" to allow further role sign-offs one-by-one
     await logsheet.save();
     
     res.json({ data: logsheet, message: `Successfully signed as ${role}` });
