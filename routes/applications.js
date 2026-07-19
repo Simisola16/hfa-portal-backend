@@ -271,7 +271,9 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
             certificate_type: data.application_type || 'Halal Certificate',
             issue_date: certData.issueDate,
             expiry_date: certData.expiryDate,
-            products_covered: certData.productCategories.map(p => p.name).join(', ') || 'Certified Halal Food Products',
+            products_covered: (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean).length > 0
+               ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
+               : ['Certified Halal Food Products'],
             certificate_url,
             status: 'active'
           });

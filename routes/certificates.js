@@ -62,6 +62,10 @@ router.post('/', authenticateToken, requireAdmin, upload.single('certificate_fil
       certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
+    const parsedProducts = Array.isArray(products_covered) 
+      ? products_covered 
+      : (typeof products_covered === 'string' ? products_covered.split(',').map(p => p.trim()).filter(Boolean) : []);
+
     const certificate = new Certificate({
       certificate_number: certNo,
       client_id,
@@ -70,7 +74,7 @@ router.post('/', authenticateToken, requireAdmin, upload.single('certificate_fil
       certificate_type,
       issue_date,
       expiry_date,
-      products_covered,
+      products_covered: parsedProducts,
       certificate_url,
       status: 'active'
     });
@@ -189,7 +193,9 @@ router.post('/generate', authenticateToken, requireAdmin, async (req, res) => {
       certificate_type: application.application_type || 'Halal Certificate',
       issue_date: certData.issueDate,
       expiry_date: certData.expiryDate,
-      products_covered: certData.productCategories.map(p => p.name).join(', ') || 'Certified Halal Food Products',
+      products_covered: (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean).length > 0
+        ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
+        : ['Certified Halal Food Products'],
       certificate_url,
       status: 'active'
     });
@@ -265,10 +271,11 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
     }
 
     const client = await User.findById(application.client_id);
-    const productCategories = (application.products || []).map(p => ({
-      code: p.brand || 'GEN',
-      name: p.name
-    }));
+    const productCategories = (Array.isArray(certificate.products_covered) ? certificate.products_covered : [])
+      .map((p, idx) => ({
+        code: `GEN-${String(idx + 1).padStart(2, '0')}`,
+        name: p
+      }));
 
     const certData = {
       businessName: client ? (client.company_name || client.full_name) : application.establishment_name,

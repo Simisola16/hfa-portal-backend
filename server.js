@@ -26,6 +26,7 @@ import applicationLogsheetRoutes from './routes/applicationLogsheets.js';
 import uploadRoutes from './routes/upload.js';
 import filesRoutes from './routes/files.js';
 import signatureRoutes from './routes/signatures.js';
+import addOnApplicationRoutes from './routes/addOnApplications.js';
 
 dotenv.config();
 
@@ -101,6 +102,7 @@ app.use('/api/application-logsheets', applicationLogsheetRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/signatures', signatureRoutes);
+app.use('/api/add-on-applications', addOnApplicationRoutes);
 
 app.get('/', (req, res) => {
   res.send('HFA Portal API is running...');

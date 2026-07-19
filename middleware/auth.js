@@ -56,3 +56,36 @@ export const requireClient = async (req, res, next) => {
   }
   next();
 };
+
+export const requireFoodTechManager = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.user.role !== 'food_tech_manager') {
+    return res.status(403).json({ error: 'Food Tech Manager access required' });
+  }
+  next();
+};
+
+export const requireFoodTechManagerOrAdmin = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.user.role !== 'food_tech_manager' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Food Tech Manager or Admin role required.' });
+  }
+  next();
+};
+
+export const requireFoodTech = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.user.role !== 'food_tech') {
+    return res.status(403).json({ error: 'Food Tech access required' });
+  }
+  next();
+};
+
+export const requireStaff = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isStaff = ['admin', 'food_tech_manager', 'food_tech'].includes(req.user.role);
+  if (!isStaff) {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
+  next();
+};

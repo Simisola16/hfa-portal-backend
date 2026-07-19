@@ -8,7 +8,7 @@ const certificateSchema = new mongoose.Schema({
   certificate_type: String,
   issue_date: Date,
   expiry_date: Date,
-  products_covered: String,
+  products_covered: { type: [String], default: [] },
   certificate_url: String,
   status: { type: String, enum: ['active', 'expired', 'revoked'], default: 'active' },
   revocation_reason: String,
