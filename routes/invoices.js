@@ -151,4 +151,47 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
   }
 });
 
+// PUT /api/invoices/:id/confirm-payment — admin confirms client payment
+router.put('/:id/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    invoice.status = 'paid';
+    invoice.payment_date = new Date();
+    const data = await invoice.save();
+
+    // Update application status
+    if (invoice.application_id) {
+      const app = await Application.findById(invoice.application_id);
+      const isFinal = app?.status === 'INVOICE FOR FINAL PAYMENT SENT';
+      const nextStatus = isFinal ? 'FINAL PAYMENT RECEIVED' : 'PAYMENT RECEIVED';
+      const histEntry = {
+        status: nextStatus,
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Payment confirmed by admin for invoice ${invoice.invoice_number}.`,
+      };
+      await Application.findByIdAndUpdate(invoice.application_id, {
+        status: nextStatus,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      });
+    }
+
+    // Notify the client
+    await createNotification(
+      invoice.client_id,
+      'Payment Confirmed ✅',
+      `Your payment for invoice ${invoice.invoice_number} has been confirmed by HFA. Your application will now proceed to the next stage.`,
+      'success',
+      '/applications'
+    );
+
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
