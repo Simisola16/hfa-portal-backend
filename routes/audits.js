@@ -128,6 +128,21 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     audit.status = 'dates_proposed';
     await audit.save();
 
+    if (application_id) {
+      await Application.findByIdAndUpdate(application_id, {
+        status: 'dates_proposed',
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'dates_proposed',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Admin proposed 3 audit dates to client.',
+          }
+        }
+      });
+    }
+
     await createNotification(
       client_id,
       'Audit Dates Proposed 🗓️',
@@ -157,6 +172,21 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
       audit.client_unavailable = true;
       audit.status = 'dates_rejected';
       await audit.save();
+
+      if (audit.application_id) {
+        await Application.findByIdAndUpdate(audit.application_id, {
+          status: 'dates_rejected',
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: 'dates_rejected',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Client rejected proposed audit dates.',
+            }
+          }
+        });
+      }
       
       const admins = await User.find({ role: 'admin' });
       for (const admin of admins) {
@@ -175,6 +205,21 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
       audit.selected_dates = selected_dates;
       audit.status = 'dates_accepted';
       await audit.save();
+
+      if (audit.application_id) {
+        await Application.findByIdAndUpdate(audit.application_id, {
+          status: 'dates_accepted',
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: 'dates_accepted',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Client selected 2 preferred audit dates.',
+            }
+          }
+        });
+      }
 
       const admins = await User.find({ role: 'admin' });
       for (const admin of admins) {
