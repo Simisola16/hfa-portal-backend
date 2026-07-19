@@ -163,17 +163,14 @@ router.put('/:id/confirm-payment', authenticateToken, requireAdmin, async (req, 
 
     // Update application status
     if (invoice.application_id) {
-      const app = await Application.findById(invoice.application_id);
-      const isFinal = app?.status === 'INVOICE FOR FINAL PAYMENT SENT';
-      const nextStatus = isFinal ? 'FINAL PAYMENT RECEIVED' : 'PAYMENT RECEIVED';
       const histEntry = {
-        status: nextStatus,
+        status: 'payment_received',
         changedAt: new Date(),
         changedBy: req.user._id,
         note: `Payment confirmed by admin for invoice ${invoice.invoice_number}.`,
       };
       await Application.findByIdAndUpdate(invoice.application_id, {
-        status: nextStatus,
+        status: 'payment_received',
         updated_at: new Date(),
         $push: { statusHistory: histEntry }
       });

@@ -44,6 +44,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('profiles')
       .populate('inspectors');
     if (!data) return res.status(404).json({ error: 'Application not found' });
+
+    // Auto-fix legacy uppercase statuses in DB (e.g. "PAYMENT RECEIVED" -> "payment_received")
+    if (data.status && (data.status.includes(' ') || data.status !== data.status.toLowerCase())) {
+      const normalized = data.status.toLowerCase().replace(/ /g, '_');
+      data.status = normalized;
+      await Application.findByIdAndUpdate(req.params.id, { status: normalized });
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });

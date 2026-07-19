@@ -35,6 +35,13 @@ export const authenticateToken = async (req, res, next) => {
     }
     
     req.user = user;
+    if (decoded.is_impersonation) {
+      req.user.is_impersonation = true;
+      req.user.impersonated_by = decoded.impersonated_by;
+      req.user.admin_name = decoded.admin_name;
+      req.is_impersonation = true;
+      req.impersonated_by = decoded.impersonated_by;
+    }
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Token verification failed' });

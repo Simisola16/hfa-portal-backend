@@ -1,20 +1,20 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import multer from 'multer';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import ImpersonationLog from '../models/ImpersonationLog.js';
+import ImpersonationCode from '../models/ImpersonationCode.js';
 
 dotenv.config();
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
-
-import crypto from 'crypto';
-
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   const { email, password, full_name, company_name, phone, country } = req.body;
@@ -181,11 +181,23 @@ router.post('/admin/login', async (req, res) => {
 
 // GET /api/auth/profile
 router.get('/profile', authenticateToken, async (req, res) => {
-  res.json({ user: req.user, profile: req.user });
+  const userJson = req.user.toObject ? req.user.toObject() : req.user;
+  if (req.user.is_impersonation) {
+    userJson.is_impersonation = true;
+    userJson.admin_name = req.user.admin_name;
+  }
+  res.json({ user: userJson, profile: userJson });
 });
 
 // PUT /api/auth/profile
 router.put('/profile', authenticateToken, async (req, res) => {
+  if (req.user.is_impersonation || req.is_impersonation) {
+    // Check if security sensitive fields are being updated
+    if (req.body.phone || req.body.email || req.body.password) {
+      return res.status(403).json({ error: 'Action forbidden. Impersonated sessions cannot change security-sensitive settings.' });
+    }
+  }
+
   try {
     const { full_name, company_name, phone, address, postcode, country } = req.body;
     const user = await User.findByIdAndUpdate(
@@ -201,6 +213,10 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
 // PUT /api/auth/profile/avatar
 router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async (req, res) => {
+  if (req.user.is_impersonation || req.is_impersonation) {
+    return res.status(403).json({ error: 'Action forbidden. Impersonated sessions cannot change profile avatar.' });
+  }
+
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
 
   try {
@@ -280,6 +296,137 @@ router.post('/reset-password', async (req, res) => {
     await user.save();
 
     res.json({ message: 'Password reset successful! You can now log in.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/impersonate/exchange (Exchanges single-use opaque code for JWT)
+router.post('/impersonate/exchange', async (req, res) => {
+  console.log('EXCHANGE BODY RECEIVED:', req.body);
+  const { code } = req.body;
+  console.log('EXCHANGE CODE EXTRACTED:', code);
+  if (!code) {
+    return res.status(400).json({ error: 'Exchange code is required.' });
+  }
+
+  try {
+    const codeRecord = await ImpersonationCode.findOne({ code });
+    if (!codeRecord) {
+      return res.status(401).json({ error: 'Invalid or expired impersonation code.' });
+    }
+
+    const { token, client_id, admin_id } = codeRecord;
+
+    // Delete the code immediately so it cannot be reused (Single-Use!)
+    await ImpersonationCode.deleteOne({ _id: codeRecord._id });
+
+    // Find the client user details to return in payload
+    const clientUser = await User.findById(client_id);
+    if (!clientUser) {
+      return res.status(404).json({ error: 'Client account not found.' });
+    }
+
+    res.json({
+      token,
+      user: {
+        id: clientUser._id,
+        email: clientUser.email,
+        full_name: clientUser.full_name,
+        company_name: clientUser.company_name,
+        role: clientUser.role,
+        is_impersonation: true,
+        impersonated_by: admin_id
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/impersonate/end (Ends impersonation session, updates log ended_at)
+router.post('/impersonate/end', authenticateToken, async (req, res) => {
+  if (!req.user.is_impersonation) {
+    return res.status(400).json({ error: 'No active impersonation session to end.' });
+  }
+
+  try {
+    // Update the log record to set ended_at
+    await ImpersonationLog.findOneAndUpdate(
+      { admin_id: req.user.impersonated_by, client_id: req.user._id, ended_at: { $exists: false } },
+      { ended_at: new Date() },
+      { sort: { started_at: -1 } }
+    );
+
+    res.json({ message: 'Impersonation session ended successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/impersonate/logs (Admin-only audit trail list)
+router.get('/impersonate/logs', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const logs = await ImpersonationLog.find()
+      .populate('admin_id', 'full_name email')
+      .populate('client_id', 'company_name full_name email')
+      .sort({ started_at: -1 });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/impersonate/:clientId (Admin only)
+router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (req, res) => {
+  const { clientId } = req.params;
+
+  // EXPLICIT SECURITY CHECK: Reject if requesting token is already an impersonated session
+  if (req.user.is_impersonation || req.is_impersonation) {
+    return res.status(403).json({ error: 'Nested impersonation is forbidden. You cannot impersonate a client while already using an impersonated session.' });
+  }
+
+  try {
+    const targetClient = await User.findById(clientId);
+    if (!targetClient) {
+      return res.status(404).json({ error: 'Target client user not found.' });
+    }
+    if (targetClient.role !== 'client') {
+      return res.status(400).json({ error: 'Impersonation is restricted to client accounts only.' });
+    }
+
+    // Generate short-lived impersonation JWT (1 hour)
+    const token = jwt.sign(
+      { 
+        id: targetClient._id, 
+        role: 'client', 
+        is_impersonation: true, 
+        impersonated_by: req.user._id,
+        admin_name: req.user.full_name 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    // Generate secure opaque code (single-use)
+    const code = crypto.randomBytes(32).toString('hex');
+
+    // Save exchange code (expires in 60s)
+    await new ImpersonationCode({
+      code,
+      token,
+      admin_id: req.user._id,
+      client_id: targetClient._id
+    }).save();
+
+    // Log the start of impersonation
+    await new ImpersonationLog({
+      admin_id: req.user._id,
+      client_id: targetClient._id,
+      started_at: new Date()
+    }).save();
+
+    res.status(201).json({ code });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
