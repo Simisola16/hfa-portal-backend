@@ -39,9 +39,17 @@ router.post('/register', async (req, res) => {
     await user.save();
 
     // Send verification email
+    const verificationUrl = `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
+    
+    // Always print verification link in development to simplify testing
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      console.log('\n=========================================');
+      console.log('[DEVELOPMENT] EMAIL VERIFICATION LINK FOR:', email);
+      console.log(verificationUrl);
+      console.log('=========================================\n');
+    }
+
     try {
-      const verificationUrl = `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
-      
       const emailResponse = await resend.emails.send({
         from: 'HFA Portal <info@theyoungpioneers.com>',
         to: email,
@@ -63,12 +71,20 @@ router.post('/register', async (req, res) => {
           </div>
         `,
       });
-      console.log('Verification email sent successfully:', emailResponse);
+      
+      if (emailResponse.error) {
+        console.error('Resend API Error during registration:', emailResponse.error);
+      } else {
+        console.log('Verification email sent successfully:', emailResponse);
+      }
     } catch (emailErr) {
-      console.error('Resend Email Error:', emailErr);
+      console.error('Resend Email SMTP/Connection Error:', emailErr);
     }
 
-    res.status(201).json({ message: 'Account created! Please check your email to verify your account.' });
+    res.status(201).json({
+      message: 'Account created! Please check your email to verify your account.',
+      verificationUrl: (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) ? verificationUrl : undefined
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
