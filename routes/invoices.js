@@ -18,6 +18,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const data = await Invoice.find(query)
       .populate('application_id')
+      .populate('profiles')
       .sort({ createdAt: -1 });
     res.json({ data });
   } catch (err) {
@@ -67,9 +68,17 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
 
     // Update application status
     if (invoiceData.application_id) {
+      const targetStatus = invoiceData.target_status === 'INVOICE SENT' ? 'invoice_sent' : (invoiceData.target_status || 'invoice_sent');
+      const histEntry = {
+        status: targetStatus,
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
+      };
       await Application.findByIdAndUpdate(invoiceData.application_id, {
-        status: invoiceData.target_status || 'INVOICE SENT',
-        updated_at: new Date()
+        status: targetStatus,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
       });
     }
 

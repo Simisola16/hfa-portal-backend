@@ -237,40 +237,92 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     audit.status = 'auditors_assigned';
     await audit.save();
 
-    // Update application status to ASSIGN AUDITOR
-    await Application.findByIdAndUpdate(audit.application_id?._id || audit.application_id, {
-      status: 'ASSIGN AUDITOR',
-      updated_at: new Date()
-    });
+    const targetStatus = 'audit_assigned';
+    const histEntry = {
+      status: targetStatus,
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: `Auditors assigned: ${auditors.map(a => `${a.name} (${a.role?.replace(/_/g, ' ') || 'Lead Auditor'})`).join(', ')}`,
+    };
+
+    // Update application status to audit_assigned
+    const app = await Application.findByIdAndUpdate(
+      audit.application_id?._id || audit.application_id,
+      {
+        status: targetStatus,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      },
+      { new: true }
+    );
+
+    const ROLE_LABELS = {
+      lead_auditor: 'Lead Auditor',
+      sharia_board: 'Sharia Board',
+      audit_trainee: 'Audit Trainee'
+    };
+
+    const companyName = app?.establishment_name || 'HFA Client Facility';
+    const appRef = app?.application_number || 'HFA Audit';
+    const auditDate = audit.finalized_date 
+      ? new Date(audit.finalized_date).toDateString() 
+      : (audit.selected_dates?.[0] ? new Date(audit.selected_dates[0]).toDateString() : 'To Be Confirmed');
+
+    const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+    const loginUrl = `${adminUrl}/login`;
+
+    let emailFailures = 0;
 
     // Send emails to auditors
     for (const auditor of auditors) {
+      const roleLabel = ROLE_LABELS[auditor.role] || 'Lead Auditor';
       try {
         await resend.emails.send({
           from: 'Halal Food Authority <noreply@hfalogin.com>',
           to: auditor.email,
-          subject: `Audit Assignment: ${audit.application_id?.site_name || 'HFA Audit'}`,
+          subject: `You've been assigned as ${roleLabel} for HFA Audit`,
           html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
-              <div style="background:linear-gradient(135deg,#1e40af,#1d4ed8);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
-                <h1 style="color:white;margin:0">👨‍💼 Audit Assignment</h1>
-                <p style="color:#bfdbfe;margin:8px 0 0">Halal Food Authority</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Assignment Notification</p>
               </div>
-              <div style="background:white;border-radius:12px;padding:32px">
-                <h2 style="color:#1e40af;margin:0 0 16px">You have been assigned to an audit</h2>
-                <p><strong>Auditor:</strong> ${auditor.name}</p>
-                <p><strong>Contact:</strong> ${auditor.contact_number}</p>
-                <p><strong>Purpose:</strong> ${auditor.purpose}</p>
-                <p><strong>Confirmed Audit Date:</strong></p>
-                <ul>
-                  ${audit.finalized_date ? `<li style="font-weight:bold;color:#1e40af">${new Date(audit.finalized_date).toDateString()}</li>` : audit.selected_dates.map(d => `<li>${new Date(d).toDateString()}</li>`).join('')}
-                </ul>
+              <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+                <h3 style="color: #1e293b; margin-top: 0;">You have been assigned to an audit</h3>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  Hello <strong>${auditor.name}</strong>,<br/><br/>
+                  You have been assigned as the <strong>${roleLabel}</strong> for the upcoming halal certification audit of <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+                </p>
+                <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
+                  <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Audit Schedule Details</h4>
+                  <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600; width: 120px;">Role:</td>
+                      <td style="padding: 4px 0;">${roleLabel}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600;">Audit Date:</td>
+                      <td style="padding: 4px 0; font-weight: 700; color: #15803d;">${auditDate}</td>
+                    </tr>
+                    ${audit.notes ? `
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600; vertical-align: top;">Notes:</td>
+                      <td style="padding: 4px 0;">${audit.notes}</td>
+                    </tr>` : ''}
+                  </table>
+                </div>
+                <div style="text-align: center; margin-top: 24px;">
+                  <a href="${loginUrl}" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(21, 128, 61, 0.2);">
+                    Log In to Portal
+                  </a>
+                </div>
               </div>
             </div>
           `
         });
       } catch (emailErr) {
         console.error('Failed to send email to auditor:', emailErr);
+        emailFailures++;
       }
     }
 
@@ -282,7 +334,14 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       '/applications'
     );
 
-    res.json({ data: audit });
+    if (emailFailures > 0) {
+      res.json({
+        data: audit,
+        warning: `Auditors assigned successfully, but ${emailFailures} email notifications failed to send (check server logs).`
+      });
+    } else {
+      res.json({ data: audit });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -370,10 +429,30 @@ router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res)
     audit.status = 'audit_completed';
     await audit.save();
 
+    // Update the linked application status to audit_report_submitted
+    if (audit.application_id) {
+      await Application.findByIdAndUpdate(
+        audit.application_id,
+        {
+          status: 'audit_report_submitted',
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: 'audit_report_submitted',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Audit completed with no Non-Conformity reports. Audit report submitted.'
+            }
+          }
+        },
+        { new: true }
+      );
+    }
+
     await createNotification(
       audit.client_id,
       'Audit Completed Successfully! 🎉',
-      'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged.',
+      'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged. Your audit report has been submitted.',
       'success',
       '/applications'
     );

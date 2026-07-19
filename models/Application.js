@@ -38,9 +38,22 @@ const applicationSchema = new mongoose.Schema({
   notes: String,
   admin_notes: String,
   status: { 
-    type: String, 
-    default: 'APPLICATION RECEIVED' 
+    type: String,
+    enum: [
+      'submitted', 'under_review', 'rejected', 'approved',
+      'proposal_sent', 'proposal_rejected', 'proposal_approved',
+      'invoice_sent', 'audit_assigned', 'audit_report_submitted',
+      'logsheet_created', 'logsheet_signed', 'agreement_sent',
+      'agreement_signed', 'certificate_issued',
+    ],
+    default: 'submitted',
   },
+  statusHistory: [{
+    status: { type: String },
+    changedAt: { type: Date, default: Date.now },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    note: { type: String, default: '' },
+  }],
   documents: {
     halal_policy: String,
     ingredient_list: String,

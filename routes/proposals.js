@@ -36,28 +36,65 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file'), async (req, res) => {
   try {
-    const proposalData = { ...req.body };
-    // Upload PDF to Supabase Storage if a file was attached
+    const { application_id, client_id, title, estimated_cost, admin_comment, details } = req.body;
+
+    let proposal_url = '';
     if (req.file) {
-      proposalData.proposal_url = await uploadToGridFS(
+      proposal_url = await uploadToGridFS(
         req.file.buffer,
         req.file.originalname,
         req.file.mimetype
       );
     }
-    const proposal = new Proposal(proposalData);
-    const data = await proposal.save();
 
-    // Notify Client
-    await createNotification(
-      data.client_id,
-      'New Proposal Received 📑',
-      `You have received a new certification proposal: ${data.title}. Please review and respond.`,
-      'info',
-      '/proposals'
-    );
+    // Check if proposal already exists
+    let proposal = await Proposal.findOne({ application_id });
+    if (proposal) {
+      if (proposal_url) proposal.proposal_url = proposal_url;
+      if (title) proposal.title = title;
+      if (estimated_cost) proposal.estimated_cost = estimated_cost;
+      if (admin_comment !== undefined) proposal.admin_comment = admin_comment;
+      if (details !== undefined) proposal.details = details;
+      proposal.status = 'pending';
+      proposal.client_comment = '';
+      proposal.version = (proposal.version || 1) + 1;
+      const data = await proposal.save();
 
-    res.status(201).json({ data });
+      // Notify Client
+      await createNotification(
+        data.client_id,
+        'Revised Proposal Received 📑',
+        `You have received a revised certification proposal: ${data.title} (v${data.version}). Please review and respond.`,
+        'info',
+        '/proposals'
+      );
+      res.status(200).json({ data });
+    } else {
+      const proposalData = {
+        client_id,
+        application_id,
+        title,
+        estimated_cost: estimated_cost || 0,
+        admin_comment: admin_comment || '',
+        details: details || '',
+        status: 'pending',
+        version: 1,
+      };
+      if (proposal_url) proposalData.proposal_url = proposal_url;
+
+      const newProposal = new Proposal(proposalData);
+      const data = await newProposal.save();
+
+      // Notify Client
+      await createNotification(
+        data.client_id,
+        'New Proposal Received 📑',
+        `You have received a new certification proposal: ${data.title}. Please review and respond.`,
+        'info',
+        '/proposals'
+      );
+      res.status(201).json({ data });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

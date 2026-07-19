@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
+  // Admin-only username field — sparse so client accounts without it don't conflict
+  username: { type: String, unique: true, sparse: true },
   password: { type: String, required: true },
   full_name: String,
   company_name: String,

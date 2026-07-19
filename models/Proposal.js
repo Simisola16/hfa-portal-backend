@@ -13,6 +13,7 @@ const proposalSchema = new mongoose.Schema({
   proposal_url: String,
   admin_comment: String,
   client_comment: String,
+  version: { type: Number, default: 1 },
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },

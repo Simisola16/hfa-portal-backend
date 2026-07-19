@@ -20,4 +20,11 @@ const invoiceSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+invoiceSchema.virtual('profiles', {
+  ref: 'User',
+  localField: 'client_id',
+  foreignField: '_id',
+  justOne: true
+});
+
 export default mongoose.model('Invoice', invoiceSchema);

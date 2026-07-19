@@ -4,7 +4,12 @@ const auditorSchema = new mongoose.Schema({
   name: String,
   email: String,
   contact_number: String,
-  purpose: String
+  purpose: String,
+  role: { 
+    type: String, 
+    enum: ['lead_auditor', 'sharia_board', 'audit_trainee'],
+    default: 'lead_auditor'
+  }
 });
 
 const ncReportSchema = new mongoose.Schema({

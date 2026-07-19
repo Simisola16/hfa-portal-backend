@@ -90,7 +90,7 @@ router.get('/verify/:token', async (req, res) => {
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login  (client portal — unchanged)
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -124,6 +124,44 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/auth/admin/login  (admin portal only — username + password, role must be 'admin')
+router.post('/admin/login', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    // Look up by username only — this field only exists on admin accounts
+    const user = await User.findOne({ username });
+
+    // Reject if: user not found, wrong password, OR not an admin role.
+    // Use a single generic message to avoid info leakage.
+    if (!user || user.role !== 'admin' || !(await user.comparePassword(password))) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        full_name: user.full_name,
+        role: user.role
+      },
+      profile: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        full_name: user.full_name,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // GET /api/auth/profile
 router.get('/profile', authenticateToken, async (req, res) => {

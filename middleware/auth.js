@@ -21,7 +21,17 @@ export const authenticateToken = async (req, res, next) => {
     }
 
     if (user.role !== 'admin' && user.is_active === false) {
-      return res.status(403).json({ error: 'Your account is pending admin activation. Please wait for approval.' });
+      // Scoped bypass for inactive clients:
+      // - All GET requests (allows profile, site, product, notifications, and stats viewing)
+      // - All site management requests (POST, PUT, DELETE to /api/sites)
+      // - All product management requests (POST, PUT, DELETE to /api/products)
+      const isGet = req.method === 'GET';
+      const isSites = req.baseUrl === '/api/sites';
+      const isProducts = req.baseUrl === '/api/products';
+
+      if (!isGet && !isSites && !isProducts) {
+        return res.status(403).json({ error: 'Your account is pending admin activation. Please wait for approval.' });
+      }
     }
     
     req.user = user;
