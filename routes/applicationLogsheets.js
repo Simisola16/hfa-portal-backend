@@ -3,6 +3,7 @@ import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
+import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -129,8 +130,50 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
+// Middleware: ensure final invoice is paid before logsheet creation
+async function requireFinalInvoicePaid(req, res, next) {
+  try {
+    const application_id = req.body.application_id;
+    if (!application_id) return next();
+
+    const app = await Application.findById(application_id);
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    // Only enforce if the app is past the audit_successful stage
+    const postAuditStatuses = ['audit_successful', 'final_invoice_sent', 'logsheet_created', 'logsheet_signed', 'agreement_sent', 'agreement_signed', 'certificate_issued'];
+    if (!postAuditStatuses.includes(app.status)) {
+      return next(); // Not yet at the gating point — skip
+    }
+
+    // Find the final invoice for this application
+    const Invoice = (await import('../models/Invoice.js')).default;
+    const finalInvoice = await Invoice.findOne({ application_id, invoice_type: 'final' });
+
+    if (!finalInvoice) {
+      return res.status(403).json({
+        error: 'A Final Invoice must be sent and paid before a LogSheet can be created.',
+        code: 'FINAL_INVOICE_REQUIRED'
+      });
+    }
+
+    if (!['paid', 'client_paid'].includes(finalInvoice.status)) {
+      return res.status(403).json({
+        error: 'The Final Invoice must be paid before a LogSheet can be created.',
+        code: 'FINAL_INVOICE_NOT_PAID',
+        invoice_status: finalInvoice.status
+      });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // POST /api/application-logsheets
-router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaid, async (req, res) => {
   try {
     const { application_id, client_id, site_id, ...logsheetData } = req.body;
     
@@ -163,6 +206,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       },
       { new: true }
     );
+    if (app) emitApplicationUpdate(app, 'logsheet_created');
 
     // Send signatory email notifications
     const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
@@ -231,7 +275,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       // Update the linked application to logsheet_signed
       if (logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
-        await Application.findByIdAndUpdate(
+        const app = await Application.findByIdAndUpdate(
           appId,
           {
             status: 'logsheet_signed',
@@ -244,8 +288,10 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                 note: 'LogSheet fully signed. All required signatures collected.'
               }
             }
-          }
+          },
+          { new: true }
         );
+        if (app) emitApplicationUpdate(app, 'logsheet_signed');
       }
 
       return res.json({ data: logsheet, message: 'Logsheet sign-off finalized successfully!' });

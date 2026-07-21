@@ -8,6 +8,7 @@ import { Resend } from 'resend';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import multer from 'multer';
 import mongoose from 'mongoose';
+import { emitApplicationUpdate } from '../lib/socket.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -96,15 +97,15 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
 // GET /api/audits/application/:appId
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    let audit = await Audit.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
-    if (!audit) {
+    let audits = await Audit.find({ application_id: req.params.appId }).sort({ stage: 1, createdAt: 1 });
+    if (!audits || audits.length === 0) {
       return res.status(404).json({ error: 'Audit not found' });
     }
     // Check permission
-    if (req.user.role !== 'admin' && audit.client_id !== req.user._id.toString()) {
+    if (req.user.role !== 'admin' && audits[0].client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    res.json({ data: audit });
+    res.json({ data: audits });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -113,14 +114,14 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 // POST /api/audits/propose-dates (Admin)
 router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { application_id, client_id, dates } = req.body;
+    const { application_id, client_id, dates, stage } = req.body;
     if (!dates || dates.length !== 3) {
       return res.status(400).json({ error: 'Must provide exactly 3 dates' });
     }
 
-    let audit = await Audit.findOne({ application_id });
+    let audit = await Audit.findOne({ application_id, stage: stage || 1 });
     if (!audit) {
-      audit = new Audit({ application_id, client_id });
+      audit = new Audit({ application_id, client_id, stage: stage || 1 });
     }
     
     audit.proposed_dates = dates;
@@ -130,18 +131,26 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     await audit.save();
 
     if (application_id) {
-      await Application.findByIdAndUpdate(application_id, {
-        status: 'dates_proposed',
+      const isStage2 = (stage === 2);
+      // Only change app status for stage 1. Stage 2 operates concurrently with 'audit_report_submitted' logic?
+      // Wait, if we are in Stage 2, should we update Application status?
+      // For now, let's just leave the Application status alone if it's Stage 2, or set it back.
+      // We can just add a history note for Stage 2.
+      const statusToSet = isStage2 ? 'audit_assigned' : 'dates_proposed'; // We don't rollback app status for stage 2, it's just 'audit_assigned' for the whole audit process until both stages finish.
+      
+      const updatedApp = await Application.findByIdAndUpdate(application_id, {
+        status: statusToSet,
         updated_at: new Date(),
         $push: {
           statusHistory: {
-            status: 'dates_proposed',
+            status: statusToSet,
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Admin proposed 3 audit dates to client.',
+            note: `Admin proposed 3 audit dates to client for Stage ${stage || 1}.`,
           }
         }
-      });
+      }, { new: true });
+      if (updatedApp) emitApplicationUpdate(updatedApp, statusToSet);
     }
 
     await createNotification(
@@ -174,8 +183,7 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
       audit.status = 'dates_rejected';
       await audit.save();
 
-      if (audit.application_id) {
-        await Application.findByIdAndUpdate(audit.application_id, {
+        const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
           status: 'dates_rejected',
           updated_at: new Date(),
           $push: {
@@ -186,8 +194,8 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
               note: 'Client rejected proposed audit dates.',
             }
           }
-        });
-      }
+        }, { new: true });
+        if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
       
       const admins = await User.find({ role: 'admin' });
       for (const admin of admins) {
@@ -207,8 +215,7 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
       audit.status = 'dates_accepted';
       await audit.save();
 
-      if (audit.application_id) {
-        await Application.findByIdAndUpdate(audit.application_id, {
+        const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
           status: 'dates_accepted',
           updated_at: new Date(),
           $push: {
@@ -219,8 +226,8 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
               note: 'Client selected 2 preferred audit dates.',
             }
           }
-        });
-      }
+        }, { new: true });
+        if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
 
       const admins = await User.find({ role: 'admin' });
       for (const admin of admins) {
@@ -301,6 +308,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       },
       { new: true }
     );
+    if (app) emitApplicationUpdate(app, targetStatus);
 
     const ROLE_LABELS = {
       lead_auditor: 'Lead Auditor',
@@ -469,39 +477,52 @@ router.post('/resolve-nc', authenticateToken, async (req, res) => {
 router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { audit_id } = req.body;
-    const audit = await Audit.findById(audit_id);
+    const audit = await Audit.findById(audit_id).populate('application_id');
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
     audit.status = 'audit_completed';
     await audit.save();
 
-    // Update the linked application status to audit_report_submitted
-    if (audit.application_id) {
-      await Application.findByIdAndUpdate(
-        audit.application_id,
-        {
-          status: 'audit_report_submitted',
-          updated_at: new Date(),
-          $push: {
-            statusHistory: {
-              status: 'audit_report_submitted',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: 'Audit completed with no Non-Conformity reports. Audit report submitted.'
-            }
-          }
-        },
-        { new: true }
-      );
-    }
+    const app = audit.application_id;
+    const isDualStage = app.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE';
+    const isFinalStage = !isDualStage || audit.stage === 2;
 
-    await createNotification(
-      audit.client_id,
-      'Audit Completed Successfully! 🎉',
-      'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged. Your audit report has been submitted.',
-      'success',
-      '/applications'
-    );
+    if (isFinalStage) {
+        // Update the linked application status to audit_report_submitted
+        const updatedApp = await Application.findByIdAndUpdate(
+          app._id,
+          {
+            status: 'audit_report_submitted',
+            updated_at: new Date(),
+            $push: {
+              statusHistory: {
+                status: 'audit_report_submitted',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: 'Audit completed with no Non-Conformity reports. Audit report submitted.'
+              }
+            }
+          },
+          { new: true }
+        );
+        if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_report_submitted');
+
+        await createNotification(
+          audit.client_id,
+          'Audit Completed Successfully! 🎉',
+          'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged. Your audit report has been submitted.',
+          'success',
+          '/applications'
+        );
+    } else {
+        await createNotification(
+          audit.client_id,
+          'Stage 1 Audit Completed ✅',
+          'Your Stage 1 audit has been completed successfully. You can now proceed with Stage 2 scheduling.',
+          'info',
+          '/applications'
+        );
+    }
 
     res.json({ data: audit });
   } catch (err) {

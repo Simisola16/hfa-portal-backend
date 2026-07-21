@@ -66,6 +66,7 @@ const auditSchema = new mongoose.Schema({
     ],
     default: 'pending'
   },
+  stage: { type: Number, default: 1 },
 
 }, {
   timestamps: true,

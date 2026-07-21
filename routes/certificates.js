@@ -150,7 +150,9 @@ async function buildCertDataFromApplication(application) {
     scopeOfCertification: application.scope || 'Halal Food Certification',
     productCategories,
     issueDate: new Date(),
-    expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year expiry
+    expiryDate: application.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
+      ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
+      : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
   };
 }

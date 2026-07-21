@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import connectDB from './lib/db.js';
+import http from 'http';
+import { initSocket } from './lib/socket.js';
 
 // Routes
 import authRoutes from './routes/auth.js';
@@ -27,10 +29,13 @@ import uploadRoutes from './routes/upload.js';
 import filesRoutes from './routes/files.js';
 import signatureRoutes from './routes/signatures.js';
 import addOnApplicationRoutes from './routes/addOnApplications.js';
+import surveillanceRoutes from './routes/surveillance.js';
 
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+initSocket(server);
 const port = process.env.PORT || 5000;
 
 const corsOptions = {
@@ -103,6 +108,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/add-on-applications', addOnApplicationRoutes);
+app.use('/api/surveillance', surveillanceRoutes);
 
 app.get('/', (req, res) => {
   res.send('HFA Portal API is running...');
@@ -118,7 +124,7 @@ app.use((err, req, res, next) => {
 // Vercel handles the export, but Render needs the listen call
 const isVercel = process.env.VERCEL === '1';
 if (!isVercel || process.env.NODE_ENV !== 'production') {
-  app.listen(port, () => {
+  server.listen(port, () => {
     console.log(`🚀 Server running on port ${port}`);
   });
 }

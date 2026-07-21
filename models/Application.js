@@ -42,7 +42,9 @@ const applicationSchema = new mongoose.Schema({
     enum: [
       'submitted', 'under_review', 'rejected', 'approved',
       'proposal_sent', 'proposal_rejected', 'proposal_approved',
-      'invoice_sent', 'audit_assigned', 'audit_report_submitted',
+      'invoice_sent', 'payment_received', 'dates_proposed',
+      'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_report_submitted',
+      'on_hold', 'audit_successful', 'final_invoice_sent',
       'logsheet_created', 'logsheet_signed', 'agreement_sent',
       'agreement_signed', 'certificate_issued',
     ],

@@ -7,6 +7,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import User from '../models/User.js';
 import { Resend } from 'resend';
+import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -86,7 +87,7 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
     const appNumber = app ? app.application_number : 'N/A';
 
     // Update Application status to lowercase 'agreement_sent'
-    await Application.findByIdAndUpdate(agreement.application_id, {
+    const updatedApp = await Application.findByIdAndUpdate(agreement.application_id, {
       status: 'agreement_sent',
       updated_at: new Date(),
       $push: {
@@ -97,7 +98,8 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
           note: `Certification agreement sent: "${data.title}"`
         }
       }
-    });
+    }, { new: true });
+    if (updatedApp) emitApplicationUpdate(updatedApp, 'agreement_sent');
 
     // Notify Client
     await createNotification(
@@ -223,6 +225,7 @@ router.put('/:id', authenticateToken, upload.fields([
         },
         { new: true }
       );
+      if (app) emitApplicationUpdate(app, 'agreement_signed');
 
       const appNumber = app ? app.application_number : 'N/A';
       const companyName = app?.establishment_name || 'HFA Partner';

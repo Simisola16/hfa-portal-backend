@@ -7,6 +7,7 @@ const invoiceSchema = new mongoose.Schema({
   title: { type: String },
   description: { type: String },
   notes: { type: String },
+  invoice_type: { type: String, enum: ['initial', 'final'], default: 'initial' },
   amount: { type: Number, required: true },
   currency: { type: String, default: 'GBP' },
   status: { type: String, enum: ['unpaid', 'paid', 'client_paid', 'cancelled', 'overdue'], default: 'unpaid' },

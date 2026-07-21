@@ -4,6 +4,7 @@ import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
 import { authenticateToken, requireStaff, requireFoodTechManagerOrAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
+import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
@@ -104,6 +105,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const data = await newApp.save();
 
+    // Emit socket event
+    emitAddOnUpdate(data, 'created');
+
     // Notify food tech managers and admins
     const staffToNotify = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } });
     for (const s of staffToNotify) {
@@ -195,6 +199,9 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 
     const data = await app.save();
 
+    // Emit socket event
+    emitAddOnUpdate(data, 'reviewed');
+
     // Notify client
     const client = await User.findById(app.client_id);
     if (client) {
@@ -257,6 +264,9 @@ router.put('/:id/assign', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 
     const data = await app.save();
 
+    // Emit socket event
+    emitAddOnUpdate(data, 'assigned');
+
     // Send email to inspector
     try {
       await resend.emails.send({
@@ -306,6 +316,9 @@ router.put('/:id/inspect', authenticateToken, requireStaff, async (req, res) => 
     });
 
     const data = await app.save();
+
+    // Emit socket event
+    emitAddOnUpdate(data, 'inspected');
 
     // Notify managers
     const managers = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } });
@@ -365,6 +378,9 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     });
 
     const data = await app.save();
+
+    // Emit socket event
+    emitAddOnUpdate(data, 'completed');
 
     // Regenerate the certificate PDF asynchronously
     await regenerateCertPdf(cert);

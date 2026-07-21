@@ -9,6 +9,7 @@ import { createNotification } from '../lib/notifications.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
+import { emitApplicationUpdate } from '../lib/socket.js';
 
 dotenv.config();
 
@@ -69,6 +70,35 @@ router.post('/', authenticateToken, upload.fields([
   { name: 'supporting_docs', maxCount: 5 },
 ]), async (req, res) => {
   try {
+    // Gating Rules
+    const { site_id, application_type } = req.body;
+    if (site_id) {
+      if (application_type === 'new') {
+        const activeCert = await Certificate.findOne({
+          site_id,
+          status: 'active',
+          expiry_date: { $gt: new Date() }
+        });
+        if (activeCert) {
+          const expiryStr = new Date(activeCert.expiry_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+          return res.status(400).json({
+            error: `This site already has an active certificate (valid until ${expiryStr}). You can submit a renewal application closer to the expiry date, or apply for a different site.`
+          });
+        }
+      }
+
+      const ongoingApp = await Application.findOne({
+        site_id,
+        client_id: req.user._id,
+        status: { $nin: ['approved', 'rejected', 'certificate_issued'] }
+      });
+      if (ongoingApp) {
+        return res.status(400).json({
+          error: `This site already has an application in progress (#${ongoingApp.application_number} - status: ${ongoingApp.status.replace(/_/g, ' ')}). You cannot submit another application for this site until the current one is completed.`
+        });
+      }
+    }
+
     const documents = {};
     // Upload each document buffer to MongoDB GridFS
     if (req.files?.halal_policy?.[0]) {
@@ -133,6 +163,9 @@ router.post('/', authenticateToken, upload.fields([
 
     const data = await application.save();
 
+    // Emit real-time application update
+    emitApplicationUpdate(data, 'created');
+
     // Send confirmation email
     try {
       await resend.emails.send({
@@ -178,16 +211,47 @@ router.post('/', authenticateToken, upload.fields([
 // PUT /api/applications/:id/approve (admin only)
 router.put('/:id/approve', authenticateToken, async (req, res) => {
   try {
-    const { note } = req.body;
-    const histEntry = { status: 'approved', changedAt: new Date(), changedBy: req.user._id, note: note || 'Application approved by admin.' };
+    const { note, category } = req.body;
+    
+    const app = await Application.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    let finalCategory = app.category;
+    let originalCategory = app.original_category || app.category;
+    let reclassified = false;
+
+    if (category && category !== app.category) {
+      finalCategory = category;
+      originalCategory = app.category;
+      reclassified = true;
+    }
+
+    const histNote = note || (reclassified ? `Application approved and reclassified to: ${finalCategory}` : 'Application approved by admin.');
+    const histEntry = { status: 'approved', changedAt: new Date(), changedBy: req.user._id, note: histNote };
+    
+    const updateData = { 
+      status: 'approved', 
+      updated_at: new Date(), 
+      $push: { statusHistory: histEntry } 
+    };
+
+    if (reclassified) {
+      updateData.category = finalCategory;
+      updateData.original_category = originalCategory;
+    }
+
     const data = await Application.findByIdAndUpdate(
       req.params.id,
-      { status: 'approved', updated_at: new Date(), $push: { statusHistory: histEntry } },
+      updateData,
       { new: true }
     ).populate('profiles');
-    if (!data) return res.status(404).json({ error: 'Application not found' });
+    
     // Notify client
     await createNotification(data.client_id, 'Application Approved ✅', `Your application ${data.application_number} has been approved.`, 'success', '/applications');
+    
+    // Emit socket event
+    emitApplicationUpdate(data, 'approved');
+
     res.json({ data, message: 'Application approved' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -208,6 +272,10 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Application not found' });
     // Notify client
     await createNotification(data.client_id, 'Application Not Approved ❌', `Your application ${data.application_number} was not approved. Reason: ${note.trim()}`, 'error', '/applications');
+    
+    // Emit socket event
+    emitApplicationUpdate(data, 'rejected');
+
     res.json({ data, message: 'Application rejected' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -264,7 +332,9 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
             scopeOfCertification: data.scope || 'Halal Food Certification',
             productCategories,
             issueDate: new Date(),
-            expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+            expiryDate: data.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
+              ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
+              : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
           };
 
@@ -343,6 +413,9 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       'info',
       '/applications'
     );
+
+    // Emit socket event
+    emitApplicationUpdate(data, 'status_updated');
 
     res.json({ data, message: 'Status updated' });
   } catch (err) {

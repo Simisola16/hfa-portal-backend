@@ -5,6 +5,7 @@ import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
+import { emitApplicationUpdate } from '../lib/socket.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -75,11 +76,12 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         changedBy: req.user._id,
         note: `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
       };
-      await Application.findByIdAndUpdate(invoiceData.application_id, {
+      const updatedApp = await Application.findByIdAndUpdate(invoiceData.application_id, {
         status: targetStatus,
         updated_at: new Date(),
         $push: { statusHistory: histEntry }
-      });
+      }, { new: true });
+      if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
     }
 
     // Notify Client
@@ -163,17 +165,30 @@ router.put('/:id/confirm-payment', authenticateToken, requireAdmin, async (req, 
 
     // Update application status
     if (invoice.application_id) {
+      const isFinal = invoice.invoice_type === 'final';
+      const targetStatus = isFinal ? undefined : 'payment_received';
+
       const histEntry = {
-        status: 'payment_received',
+        status: targetStatus || 'final_invoice_sent',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Payment confirmed by admin for invoice ${invoice.invoice_number}.`,
+        note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice.invoice_number}.`,
       };
-      await Application.findByIdAndUpdate(invoice.application_id, {
-        status: 'payment_received',
+
+      const updateData = {
         updated_at: new Date(),
         $push: { statusHistory: histEntry }
-      });
+      };
+      if (targetStatus) {
+        updateData.status = targetStatus;
+      }
+
+      const updatedApp = await Application.findByIdAndUpdate(
+        invoice.application_id,
+        updateData,
+        { new: true }
+      );
+      if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus || updatedApp.status);
     }
 
     // Notify the client
