@@ -15,6 +15,7 @@ dotenv.config();
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /* ─── Email template ─────────────────────────────────────────────── */
 function buildVerificationEmail(fullName, verificationUrl) {
@@ -132,7 +133,7 @@ router.post('/register', async (req, res) => {
     // Send the real verification email via Resend
     try {
       const emailResponse = await resend.emails.send({
-        from: 'HFA Portal <info@theyoungpioneers.com>',
+        from: emailFrom,
         to: email,
         subject: 'Verify Your Email – HFA Certification Portal',
         html: buildVerificationEmail(full_name, verificationUrl),
@@ -224,7 +225,7 @@ router.post('/resend-verification', async (req, res) => {
 
     try {
       const emailResponse = await resend.emails.send({
-        from: 'HFA Portal <info@theyoungpioneers.com>',
+        from: emailFrom,
         to: email,
         subject: 'New Verification Link – HFA Certification Portal',
         html: buildVerificationEmail(user.full_name, verificationUrl),
@@ -388,7 +389,7 @@ router.post('/forgot-password', async (req, res) => {
 
     try {
       await resend.emails.send({
-        from: 'HFA Portal <info@theyoungpioneers.com>',
+        from: emailFrom,
         to: email,
         subject: 'Reset Your Password - HFA Portal',
         html: `

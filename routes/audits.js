@@ -12,6 +12,7 @@ import mongoose from 'mongoose';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // GET /api/audits (Admin)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
@@ -323,7 +324,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       const roleLabel = ROLE_LABELS[auditor.role] || 'Lead Auditor';
       try {
         await resend.emails.send({
-          from: 'Halal Food Authority <noreply@hfalogin.com>',
+          from: emailFrom,
           to: auditor.email,
           subject: `You've been assigned as ${roleLabel} for HFA Audit`,
           html: `

@@ -9,6 +9,7 @@ dotenv.config();
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /**
  * getSignatoryEmails()
@@ -84,7 +85,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
   for (const address of addresses) {
     try {
       await resend.emails.send({
-        from: 'Halal Food Authority <noreply@hfalogin.com>',
+        from: emailFrom,
         to: address,
         subject: `LogSheet Signature Required — ${appRef} (${companyName})`,
         html: emailHtml,

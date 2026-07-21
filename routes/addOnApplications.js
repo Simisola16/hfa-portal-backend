@@ -13,6 +13,7 @@ dotenv.config();
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // Helper function to regenerate and update Certificate PDF
 async function regenerateCertPdf(certificate) {
@@ -210,7 +211,7 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
       // Email notification
       try {
         await resend.emails.send({
-          from: 'HFA Portal <info@theyoungpioneers.com>',
+          from: emailFrom,
           to: client.email,
           subject: status === 'approved' ? '👍 HFA Add-on Application Approved' : '❌ HFA Add-on Application Rejected',
           html: `
@@ -259,7 +260,7 @@ router.put('/:id/assign', authenticateToken, requireFoodTechManagerOrAdmin, asyn
     // Send email to inspector
     try {
       await resend.emails.send({
-        from: 'HFA Portal <info@theyoungpioneers.com>',
+        from: emailFrom,
         to: inspector.email,
         subject: '🔍 New Add-on Inspection Assignment',
         html: `

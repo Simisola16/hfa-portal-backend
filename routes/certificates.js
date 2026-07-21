@@ -14,6 +14,7 @@ dotenv.config();
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
 // GET all certificates (admin: all, client: own)
@@ -101,7 +102,7 @@ router.post('/', authenticateToken, requireAdmin, upload.single('certificate_fil
     if (client) {
       try {
         await resend.emails.send({
-          from: 'halalfoodfoundation.co.uk <info@theyoungpioneers.com>',
+          from: emailFrom,
           to: client.email,
           subject: `🏅 Your Halal Certificate is Ready – ${certNo}`,
           html: `
@@ -222,7 +223,7 @@ router.post('/generate', authenticateToken, requireAdmin, async (req, res) => {
     if (client) {
       try {
         await resend.emails.send({
-          from: 'halalfoodfoundation.co.uk <info@theyoungpioneers.com>',
+          from: emailFrom,
           to: client.email,
           subject: `🏅 Your Halal Certificate is Ready – ${certData.certificateNumber}`,
           html: `

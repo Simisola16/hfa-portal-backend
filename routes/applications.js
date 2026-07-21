@@ -16,6 +16,7 @@ const router = express.Router();
 // Use memory storage — buffers are uploaded directly to Supabase
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // GET /api/applications
 router.get('/', authenticateToken, async (req, res) => {
@@ -135,7 +136,7 @@ router.post('/', authenticateToken, upload.fields([
     // Send confirmation email
     try {
       await resend.emails.send({
-        from: 'halalfoodfoundation.co.uk <info@theyoungpioneers.com>',
+        from: emailFrom,
         to: req.user.email,
         subject: `Application Received – ${appNumber}`,
         html: `
@@ -315,7 +316,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
       try {
         await resend.emails.send({
-          from: 'halalfoodfoundation.co.uk <info@theyoungpioneers.com>',
+          from: emailFrom,
           to: client.email,
           subject: `Application Update – ${data.application_number}`,
           html: `

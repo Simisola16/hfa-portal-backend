@@ -13,6 +13,7 @@ dotenv.config();
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper to get admin email addresses for Agreement signing notifications
@@ -113,7 +114,7 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
       if (clientUser && clientUser.email) {
         const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
         await resend.emails.send({
-          from: 'Halal Food Authority <noreply@hfalogin.com>',
+          from: emailFrom,
           to: clientUser.email,
           subject: `Certification Agreement Sent — ${appNumber}`,
           html: `
@@ -271,7 +272,7 @@ router.put('/:id', authenticateToken, upload.fields([
         for (const address of adminAddresses) {
           try {
             await resend.emails.send({
-              from: 'Halal Food Authority <noreply@hfalogin.com>',
+              from: emailFrom,
               to: address,
               subject: `Client Agreement Signed — ${appNumber} (${companyName})`,
               html: emailHtml
