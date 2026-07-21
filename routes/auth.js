@@ -15,7 +15,67 @@ dotenv.config();
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
-// POST /api/auth/register
+
+/* ─── Email template ─────────────────────────────────────────────── */
+function buildVerificationEmail(fullName, verificationUrl) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 0">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#15803d 0%,#166534 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+          <div style="font-size:13px;color:#bbf7d0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Halal Food Authority</div>
+          <h1 style="color:#ffffff;margin:0;font-size:26px;font-weight:800;letter-spacing:-0.5px">HFA Certification Portal</h1>
+          <p style="color:#bbf7d0;margin:10px 0 0;font-size:14px">Email Verification</p>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="background:#ffffff;padding:40px">
+          <h2 style="color:#0f172a;font-size:20px;font-weight:700;margin:0 0 16px">Hello, ${fullName}!</h2>
+          <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 24px">
+            Thank you for registering with the <strong>HFA Certification Portal</strong>. To activate your account and begin your certification journey, please verify your email address by clicking the button below.
+          </p>
+
+          <!-- CTA Button -->
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:8px 0 32px">
+            <a href="${verificationUrl}" style="display:inline-block;background:#15803d;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:15px 40px;border-radius:10px;letter-spacing:0.2px">
+              ✓ Verify Email Address
+            </a>
+          </td></tr></table>
+
+          <!-- Info box -->
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px 20px;margin-bottom:24px">
+            <p style="color:#166534;font-size:13px;font-weight:600;margin:0 0 6px">⏱ This link expires in 24 hours</p>
+            <p style="color:#166534;font-size:13px;margin:0">After expiry, you can request a new verification link from the login page.</p>
+          </td></tr></table>
+
+          <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:24px 0 0;text-align:center">
+            If the button above doesn't work, copy and paste this link into your browser:<br>
+            <a href="${verificationUrl}" style="color:#15803d;word-break:break-all">${verificationUrl}</a>
+          </p>
+          <p style="color:#cbd5e1;font-size:11px;text-align:center;margin:12px 0 0">
+            If you did not create an account, you can safely ignore this email.
+          </p>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#f8fafc;border-radius:0 0 16px 16px;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0">
+          <p style="color:#94a3b8;font-size:12px;margin:0">© ${new Date().getFullYear()} Halal Food Authority · All rights reserved</p>
+          <p style="color:#cbd5e1;font-size:11px;margin:6px 0 0">This email was sent because you registered at the HFA Portal.</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+
 router.post('/register', async (req, res) => {
   const { email, password, full_name, company_name, phone, country } = req.body;
   try {
@@ -23,6 +83,7 @@ router.post('/register', async (req, res) => {
     if (existingUser) return res.status(400).json({ error: 'Email already exists' });
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     const user = new User({
       email,
@@ -33,71 +94,87 @@ router.post('/register', async (req, res) => {
       country,
       role: 'client',
       verification_token: verificationToken,
-      is_verified: false
+      verification_token_expiry: verificationExpiry,
+      is_verified: false,
     });
 
     await user.save();
 
-    // Send verification email
-    const verificationUrl = `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
-    
-    // Always print verification link in development to simplify testing
+    // Build the verification link using the production URL (always)
+    const clientUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+    const verificationUrl = `${clientUrl}/verify-email?token=${verificationToken}`;
+
+    // In development when no Resend key is set, log the link and return it
+    // so developers can test without a real email. In production this block
+    // is never reached because RESEND_API_KEY is always present on Render.
+    const isDevNoResend = (!process.env.RESEND_API_KEY) &&
+      (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
+
+    if (isDevNoResend) {
+      console.log('\n=========================================');
+      console.log('[DEV — no Resend key] VERIFICATION LINK FOR:', email);
+      console.log(verificationUrl);
+      console.log('=========================================\n');
+      return res.status(201).json({
+        message: 'Account created. (Dev mode — no Resend key; use the link below to verify.)',
+        verificationUrl,
+      });
+    }
+
+    // Also log in development when Resend IS present (useful to verify without email client)
     if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
       console.log('\n=========================================');
-      console.log('[DEVELOPMENT] EMAIL VERIFICATION LINK FOR:', email);
+      console.log('[DEV] EMAIL VERIFICATION LINK FOR:', email);
       console.log(verificationUrl);
       console.log('=========================================\n');
     }
 
+    // Send the real verification email via Resend
     try {
       const emailResponse = await resend.emails.send({
         from: 'HFA Portal <info@theyoungpioneers.com>',
         to: email,
-        subject: 'Verify Your Email - HFA Portal',
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9fafb;padding:32px">
-            <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
-              <h1 style="color:white;margin:0;font-size:28px">Halal Food Authority</h1>
-              <p style="color:#bbf7d0;margin-top:8px">Email Verification Required</p>
-            </div>
-            <div style="background:white;border-radius:12px;padding:32px">
-              <h2 style="color:#166534">Hello, ${full_name}!</h2>
-              <p style="color:#4b5563">Thank you for registering. Please verify your email address to activate your account and access the portal.</p>
-              <div style="text-align:center;margin:32px 0">
-                <a href="${verificationUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">Verify Email Address</a>
-              </div>
-              <p style="color:#94a3b8;font-size:12px;text-align:center">If the button above doesn't work, copy and paste this link into your browser:<br>${verificationUrl}</p>
-            </div>
-          </div>
-        `,
+        subject: 'Verify Your Email – HFA Certification Portal',
+        html: buildVerificationEmail(full_name, verificationUrl),
       });
-      
       if (emailResponse.error) {
-        console.error('Resend API Error during registration:', emailResponse.error);
+        console.error('[Resend] Verification email error for', email, ':', emailResponse.error);
       } else {
-        console.log('Verification email sent successfully:', emailResponse);
+        console.log('[Resend] Verification email sent to', email, '| id:', emailResponse.data?.id);
       }
     } catch (emailErr) {
-      console.error('Resend Email SMTP/Connection Error:', emailErr);
+      console.error('[Resend] SMTP/connection error for', email, ':', emailErr.message);
     }
 
     res.status(201).json({
       message: 'Account created! Please check your email to verify your account.',
-      verificationUrl: (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) ? verificationUrl : undefined
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+
 // GET /api/auth/verify/:token
 router.get('/verify/:token', async (req, res) => {
   try {
     const user = await User.findOne({ verification_token: req.params.token });
-    if (!user) return res.status(400).json({ error: 'Invalid or expired verification token' });
+
+    if (!user) {
+      return res.status(400).json({ error: 'This verification link is invalid or has already been used. Please request a new one.' });
+    }
+
+    if (user.verification_token_expiry && user.verification_token_expiry < new Date()) {
+      // Token expired — clear it so it cannot be retried
+      user.verification_token = undefined;
+      user.verification_token_expiry = undefined;
+      await user.save();
+      return res.status(400).json({ error: 'This verification link has expired (links are valid for 24 hours). Please request a new one.' });
+    }
 
     user.is_verified = true;
     user.verification_token = undefined;
+    user.verification_token_expiry = undefined;
     await user.save();
 
     res.json({ message: 'Email verified successfully! You can now log in.' });
@@ -105,6 +182,68 @@ router.get('/verify/:token', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/auth/resend-verification  (rate-limited: once per 60 seconds per email)
+router.post('/resend-verification', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  try {
+    const user = await User.findOne({ email });
+
+    // Always return 200 to avoid leaking whether an account exists
+    if (!user || user.role !== 'client') {
+      return res.json({ message: 'If that email is registered and unverified, a new link has been sent.' });
+    }
+    if (user.is_verified) {
+      return res.json({ message: 'This account is already verified. Please log in.' });
+    }
+
+    // Rate-limit: block if a token was issued within the last 60 seconds
+    const COOLDOWN_MS = 60 * 1000;
+    if (
+      user.verification_token_expiry &&
+      user.verification_token_expiry > new Date(Date.now() + 24 * 60 * 60 * 1000 - COOLDOWN_MS)
+    ) {
+      return res.status(429).json({ error: 'Please wait at least 60 seconds before requesting another verification email.' });
+    }
+
+    // Issue a fresh token
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const newExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.verification_token = newToken;
+    user.verification_token_expiry = newExpiry;
+    await user.save();
+
+    const clientUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+    const verificationUrl = `${clientUrl}/verify-email?token=${newToken}`;
+
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      console.log('[DEV] RESEND VERIFICATION LINK FOR:', email, verificationUrl);
+    }
+
+    try {
+      const emailResponse = await resend.emails.send({
+        from: 'HFA Portal <info@theyoungpioneers.com>',
+        to: email,
+        subject: 'New Verification Link – HFA Certification Portal',
+        html: buildVerificationEmail(user.full_name, verificationUrl),
+      });
+      if (emailResponse.error) {
+        console.error('[Resend] Resend-verification error for', email, ':', emailResponse.error);
+      } else {
+        console.log('[Resend] Re-verification email sent to', email, '| id:', emailResponse.data?.id);
+      }
+    } catch (emailErr) {
+      console.error('[Resend] SMTP error on resend-verification for', email, ':', emailErr.message);
+    }
+
+    res.json({ message: 'A new verification email has been sent. Please check your inbox.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // POST /api/auth/login  (client portal — unchanged)
 router.post('/login', async (req, res) => {
