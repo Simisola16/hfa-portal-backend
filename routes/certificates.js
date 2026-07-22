@@ -3,6 +3,7 @@ import multer from 'multer';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
+import Invoice from '../models/Invoice.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -16,6 +17,40 @@ const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Middleware: ensure final invoice is sent and paid before certificate issuance
+async function requireFinalInvoicePaidForCertificate(req, res, next) {
+  try {
+    const application_id = req.body.application_id || req.body.applicationId;
+    if (!application_id) return next();
+
+    const app = await Application.findById(application_id);
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    const finalInvoice = await Invoice.findOne({ application_id, invoice_type: 'final' });
+
+    if (!finalInvoice) {
+      return res.status(403).json({
+        error: 'A Final Invoice must be sent and paid before a Certificate can be issued.',
+        code: 'FINAL_INVOICE_REQUIRED'
+      });
+    }
+
+    if (!['paid', 'client_paid'].includes(finalInvoice.status)) {
+      return res.status(403).json({
+        error: 'The Final Invoice must be paid before a Certificate can be issued.',
+        code: 'FINAL_INVOICE_NOT_PAID',
+        invoice_status: finalInvoice.status
+      });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
 
 // GET all certificates (admin: all, client: own)
 router.get('/', authenticateToken, async (req, res) => {
@@ -53,7 +88,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // POST create & issue certificate (with optional PDF upload)
-router.post('/', authenticateToken, requireAdmin, upload.single('certificate_file'), async (req, res) => {
+router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, upload.single('certificate_file'), async (req, res) => {
   try {
     const { client_id, application_id, site_id, certificate_type, issue_date, expiry_date, products_covered, certificate_number } = req.body;
     const certNo = certificate_number || `HFA-CERT-${Date.now().toString().slice(-8)}`;
@@ -158,7 +193,7 @@ async function buildCertDataFromApplication(application) {
 }
 
 // POST /api/certificates/generate
-router.post('/generate', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, async (req, res) => {
   try {
     const { applicationId } = req.body;
     if (!applicationId) {
