@@ -99,7 +99,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
     let audits = await Audit.find({ application_id: req.params.appId }).sort({ stage: 1, createdAt: 1 });
     if (!audits || audits.length === 0) {
-      return res.status(404).json({ error: 'Audit not found' });
+      return res.json({ data: [] });
     }
     // Check permission
     if (req.user.role !== 'admin' && audits[0].client_id !== req.user._id.toString()) {
