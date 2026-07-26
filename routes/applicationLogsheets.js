@@ -230,26 +230,34 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       logsheet.status = 'Signed';
       await logsheet.save();
 
-      // Update the linked application to logsheet_signed
+      // Update the linked application to application_successful (canonical milestone after logsheet sign-off)
       if (logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const app = await Application.findByIdAndUpdate(
           appId,
           {
-            status: 'logsheet_signed',
+            status: 'application_successful',
             updated_at: new Date(),
             $push: {
-              statusHistory: {
-                status: 'logsheet_signed',
-                changedAt: new Date(),
-                changedBy: req.user._id,
-                note: 'LogSheet fully signed. All required signatures collected.'
-              }
+              statusHistory: [
+                {
+                  status: 'logsheet_signed',
+                  changedAt: new Date(),
+                  changedBy: req.user._id,
+                  note: 'LogSheet fully signed. All required signatures collected.'
+                },
+                {
+                  status: 'application_successful',
+                  changedAt: new Date(),
+                  changedBy: req.user._id,
+                  note: 'Application Successful — proceeding to certification agreement.'
+                }
+              ]
             }
           },
           { new: true }
         );
-        if (app) emitApplicationUpdate(app, 'logsheet_signed');
+        if (app) emitApplicationUpdate(app, 'application_successful');
       }
 
       return res.json({ data: logsheet, message: 'Logsheet sign-off finalized successfully!' });

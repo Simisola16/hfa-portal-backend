@@ -5,9 +5,11 @@ const agreementSchema = new mongoose.Schema({
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   title: String,
   details: String,
-  status: { type: String, enum: ['sent', 'signed', 'approved'], default: 'sent' },
+  status: { type: String, enum: ['sent', 'signed', 'approved', 'finalized'], default: 'sent' },
   agreement_url: String, // uploaded by admin
   signed_agreement_url: String, // uploaded by client
+  final_agreement_url: String, // countersigned copy uploaded by admin
+  final_agreement_sent_at: Date,
   admin_comment: String,
   client_comment: String,
   

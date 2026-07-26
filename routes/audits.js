@@ -258,11 +258,20 @@ router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) 
     audit.status = 'date_finalized';
     await audit.save();
 
-    // Update application status to AUDIT DATE FINALIZED
-    await Application.findByIdAndUpdate(audit.application_id, {
-      status: 'AUDIT DATE FINALIZED',
-      updated_at: new Date()
-    });
+    // Update application status to date_finalized with proper statusHistory entry
+    const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
+      status: 'date_finalized',
+      updated_at: new Date(),
+      $push: {
+        statusHistory: {
+          status: 'date_finalized',
+          changedAt: new Date(),
+          changedBy: req.user._id,
+          note: `Audit date finalized: ${new Date(finalized_date).toDateString()}. An auditor will be assigned shortly.`,
+        }
+      }
+    }, { new: true });
+    if (updatedApp) emitApplicationUpdate(updatedApp, 'date_finalized');
 
     // Notify client
     await createNotification(
@@ -422,6 +431,24 @@ router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_docum
     });
     
     await audit.save();
+
+    // Update application status to on_hold so the client can see the NC on their timeline
+    const ncHistEntry = {
+      status: 'on_hold',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: `Non-Conformity report flagged. Corrective action required: ${text || 'See audit report.'}`,
+    };
+    const updatedApp = await Application.findByIdAndUpdate(
+      audit.application_id,
+      {
+        status: 'on_hold',
+        updated_at: new Date(),
+        $push: { statusHistory: ncHistEntry }
+      },
+      { new: true }
+    );
+    if (updatedApp) emitApplicationUpdate(updatedApp, 'on_hold');
 
     await createNotification(
       audit.client_id,

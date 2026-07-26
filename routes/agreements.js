@@ -309,4 +309,95 @@ router.put('/:id', authenticateToken, upload.fields([
   }
 });
 
+// POST /api/agreements/:id/finalize (Admin only — Send Final Countersigned Agreement)
+router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('final_agreement_file'), async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+
+    let fileUrl = null;
+    if (req.file) {
+      fileUrl = await uploadToGridFS(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+      agreement.final_agreement_url = fileUrl;
+    } else if (req.body.final_agreement_url) {
+      agreement.final_agreement_url = req.body.final_agreement_url;
+    } else {
+      return res.status(400).json({ error: 'Countersigned agreement PDF file is required.' });
+    }
+
+    agreement.status = 'finalized';
+    agreement.final_agreement_sent_at = new Date();
+    const data = await agreement.save();
+
+    // Advance Application status to agreement_finalised
+    const updatedApp = await Application.findByIdAndUpdate(agreement.application_id, {
+      status: 'agreement_finalised',
+      updated_at: new Date(),
+      $push: {
+        statusHistory: {
+          status: 'agreement_finalised',
+          changedAt: new Date(),
+          changedBy: req.user._id,
+          note: `Final countersigned certification agreement sent to client: "${agreement.title}"`
+        }
+      }
+    }, { new: true });
+
+    if (updatedApp) emitApplicationUpdate(updatedApp, 'agreement_finalised');
+
+    // Notify Client
+    await createNotification(
+      agreement.client_id,
+      'Final Signed Agreement Sent 📑',
+      `HFA has uploaded the final countersigned copy of your certification agreement "${agreement.title}".`,
+      'success',
+      '/agreements'
+    );
+
+    // Send email to client
+    try {
+      const clientUser = await User.findById(agreement.client_id);
+      if (clientUser && clientUser.email) {
+        const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+        const appNumber = updatedApp ? updatedApp.application_number : 'N/A';
+        await resend.emails.send({
+          from: emailFrom,
+          to: clientUser.email,
+          subject: `Final Countersigned Agreement Sent — ${appNumber}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Final Signed Agreement Document</p>
+              </div>
+              <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+                <h3 style="color: #1e293b; margin-top: 0;">Final Countersigned Copy Available</h3>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  Dear Partner,<br/><br/>
+                  The final countersigned certification agreement for application <strong>${appNumber}</strong> has been uploaded by HFA and is now available in your portal.
+                </p>
+                <div style="text-align: center; margin-top: 24px;">
+                  <a href="${clientPortalUrl}/agreements" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                    View & Download Final Agreement
+                  </a>
+                </div>
+              </div>
+            </div>
+          `
+        });
+      }
+    } catch (mailErr) {
+      console.error('[Agreement] Failed to email final copy to client:', mailErr.message);
+    }
+
+    res.json({ data, message: 'Final countersigned agreement sent successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

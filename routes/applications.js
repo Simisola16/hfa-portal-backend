@@ -90,7 +90,7 @@ router.post('/', authenticateToken, upload.fields([
       const ongoingApp = await Application.findOne({
         site_id,
         client_id: req.user._id,
-        status: { $nin: ['approved', 'rejected', 'certificate_issued'] }
+        status: { $nin: ['rejected', 'certificate_issued'] }
       });
       if (ongoingApp) {
         return res.status(400).json({
@@ -277,6 +277,42 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
     emitApplicationUpdate(data, 'rejected');
 
     res.json({ data, message: 'Application rejected' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/applications/:id/ready-for-certificate (admin only — mark ready for certificate)
+router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => {
+  try {
+    const { note } = req.body;
+    const app = await Application.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    const histNote = note || 'Application marked Ready for Certificate Issuance by admin.';
+    const histEntry = { status: 'ready_for_certificate', changedAt: new Date(), changedBy: req.user._id, note: histNote };
+
+    const data = await Application.findByIdAndUpdate(
+      req.params.id,
+      {
+        status: 'ready_for_certificate',
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      },
+      { new: true }
+    ).populate('profiles');
+
+    if (data) emitApplicationUpdate(data, 'ready_for_certificate');
+
+    await createNotification(
+      data.client_id,
+      'Application Ready for Certificate 🎯',
+      `Your application ${data.application_number} is ready for certificate issuance.`,
+      'success',
+      '/applications'
+    );
+
+    res.json({ data, message: 'Application status set to Ready for Certificate' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

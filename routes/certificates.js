@@ -46,6 +46,14 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       });
     }
 
+    if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+      return res.status(403).json({
+        error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+        code: 'READY_FOR_CERTIFICATE_REQUIRED',
+        application_status: app.status
+      });
+    }
+
     next();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -117,10 +125,18 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     const data = await certificate.save();
 
-    // Update application status
+    // Update application status to certificate_issued with statusHistory entry
     await Application.findByIdAndUpdate(application_id, {
-      status: 'SEND CERTIFICATE',
-      updated_at: new Date()
+      status: 'certificate_issued',
+      updated_at: new Date(),
+      $push: {
+        statusHistory: {
+          status: 'certificate_issued',
+          changedAt: new Date(),
+          changedBy: req.user._id,
+          note: `Certificate issued: ${certNo}`,
+        }
+      }
     });
 
     // Notify client
