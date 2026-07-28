@@ -503,7 +503,7 @@ router.post('/resolve-nc', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/audits/complete-clean (Admin)
+// POST /api/audits/complete-clean (Admin - Marks audit stage completed)
 router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { audit_id } = req.body;
@@ -514,47 +514,95 @@ router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res)
     await audit.save();
 
     const app = audit.application_id;
-    const isDualStage = app.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE';
+    const isDualStage = app?.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE';
     const isFinalStage = !isDualStage || audit.stage === 2;
 
-    if (isFinalStage) {
-        // Update the linked application status to audit_report_submitted
-        const updatedApp = await Application.findByIdAndUpdate(
-          app._id,
-          {
-            status: 'audit_report_submitted',
-            updated_at: new Date(),
-            $push: {
-              statusHistory: {
-                status: 'audit_report_submitted',
-                changedAt: new Date(),
-                changedBy: req.user._id,
-                note: 'Audit completed with no Non-Conformity reports. Audit report submitted.'
-              }
+    if (isFinalStage && app) {
+      // Update the linked application status to audit_completed
+      const updatedApp = await Application.findByIdAndUpdate(
+        app._id,
+        {
+          status: 'audit_completed',
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: 'audit_completed',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Audit completed successfully. Ready for Audit Report submission.'
             }
-          },
-          { new: true }
-        );
-        if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_report_submitted');
+          }
+        },
+        { new: true }
+      );
+      if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_completed');
 
-        await createNotification(
-          audit.client_id,
-          'Audit Completed Successfully! 🎉',
-          'Congratulations! Your audit session has been completed with no Non-Conformity (NC) reports flagged. Your audit report has been submitted.',
-          'success',
-          '/applications'
-        );
-    } else {
-        await createNotification(
-          audit.client_id,
-          'Stage 1 Audit Completed ✅',
-          'Your Stage 1 audit has been completed successfully. You can now proceed with Stage 2 scheduling.',
-          'info',
-          '/applications'
-        );
+      await createNotification(
+        audit.client_id,
+        'Audit Completed Successfully! 🎉',
+        'Congratulations! Your audit session has been completed successfully.',
+        'success',
+        '/applications'
+      );
+    } else if (app) {
+      await createNotification(
+        audit.client_id,
+        'Stage 1 Audit Completed ✅',
+        'Your Stage 1 audit has been completed successfully. You can now proceed with Stage 2 scheduling.',
+        'info',
+        '/applications'
+      );
     }
 
     res.json({ data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/audits/submit-report (Admin - Submits final audit report)
+router.post('/submit-report', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { application_id, audit_id } = req.body;
+    let appId = application_id;
+    if (!appId && audit_id) {
+      const audit = await Audit.findById(audit_id);
+      if (audit) appId = audit.application_id;
+    }
+
+    if (!appId) return res.status(400).json({ error: 'Application ID is required' });
+
+    const updatedApp = await Application.findByIdAndUpdate(
+      appId,
+      {
+        status: 'audit_report_submitted',
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'audit_report_submitted',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Official audit report submitted by HFA administration.'
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_report_submitted');
+
+    const clientId = updatedApp?.client_id || updatedApp?.user_id;
+    if (clientId) {
+      await createNotification(
+        clientId,
+        'Audit Report Submitted 📄',
+        'Your official audit report has been submitted.',
+        'success',
+        '/applications'
+      );
+    }
+
+    res.json({ data: updatedApp });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
