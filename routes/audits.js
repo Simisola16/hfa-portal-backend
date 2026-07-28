@@ -304,7 +304,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       status: targetStatus,
       changedAt: new Date(),
       changedBy: req.user._id,
-      note: `Auditors assigned: ${auditors.map(a => `${a.name} (${a.role?.replace(/_/g, ' ') || 'Lead Auditor'})`).join(', ')}`,
+      note: `Auditors assigned: ${auditors.map(a => a.name).filter(Boolean).join(', ')}`,
     };
 
     // Update application status to audit_assigned
@@ -319,13 +319,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     );
     if (app) emitApplicationUpdate(app, targetStatus);
 
-    const ROLE_LABELS = {
-      lead_auditor: 'Lead Auditor',
-      sharia_board: 'Sharia Board',
-      audit_trainee: 'Audit Trainee'
-    };
-
-    const companyName = app?.establishment_name || 'HFA Client Facility';
+    const companyName = app?.establishment_name || app?.company_name || 'HFA Client Facility';
     const appRef = app?.application_number || 'HFA Audit';
     const auditDate = audit.finalized_date 
       ? new Date(audit.finalized_date).toDateString() 
@@ -336,14 +330,14 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
 
     let emailFailures = 0;
 
-    // Send emails to auditors
+    // Send email notifications to each assigned auditor
     for (const auditor of auditors) {
-      const roleLabel = ROLE_LABELS[auditor.role] || 'Lead Auditor';
+      if (!auditor || !auditor.email || !auditor.email.trim()) continue;
       try {
         await resend.emails.send({
           from: emailFrom,
-          to: auditor.email,
-          subject: `You've been assigned as ${roleLabel} for HFA Audit`,
+          to: auditor.email.trim(),
+          subject: `Audit Assignment Notification: ${companyName} (${appRef})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
               <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -351,22 +345,31 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
                 <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Assignment Notification</p>
               </div>
               <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
-                <h3 style="color: #1e293b; margin-top: 0;">You have been assigned to an audit</h3>
+                <h3 style="color: #1e293b; margin-top: 0;">You have been assigned to conduct an audit</h3>
                 <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-                  Hello <strong>${auditor.name}</strong>,<br/><br/>
-                  You have been assigned as the <strong>${roleLabel}</strong> for the upcoming halal certification audit of <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+                  Hello <strong>${auditor.name || 'Auditor'}</strong>,<br/><br/>
+                  You have been assigned to conduct the halal certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
                 </p>
                 <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
                   <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Audit Schedule Details</h4>
                   <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
                     <tr>
-                      <td style="padding: 4px 0; font-weight: 600; width: 120px;">Role:</td>
-                      <td style="padding: 4px 0;">${roleLabel}</td>
+                      <td style="padding: 4px 0; font-weight: 600; width: 120px;">Company:</td>
+                      <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">${companyName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600;">Application Ref:</td>
+                      <td style="padding: 4px 0;">${appRef}</td>
                     </tr>
                     <tr>
                       <td style="padding: 4px 0; font-weight: 600;">Audit Date:</td>
                       <td style="padding: 4px 0; font-weight: 700; color: #15803d;">${auditDate}</td>
                     </tr>
+                    ${auditor.purpose ? `
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600;">Purpose:</td>
+                      <td style="padding: 4px 0;">${auditor.purpose}</td>
+                    </tr>` : ''}
                     ${audit.notes ? `
                     <tr>
                       <td style="padding: 4px 0; font-weight: 600; vertical-align: top;">Notes:</td>
