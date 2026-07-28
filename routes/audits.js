@@ -15,10 +15,14 @@ const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
-// GET /api/audits (Admin)
-router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+// GET /api/audits (Admin: all, Client: own audits)
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const audits = await Audit.find({})
+    let query = {};
+    if (req.user.role !== 'admin') {
+      query.client_id = req.user._id.toString();
+    }
+    const audits = await Audit.find(query)
       .populate('application_id', 'application_number status')
       .populate('inspector_id', 'full_name email')
       .sort({ createdAt: -1 });
@@ -40,13 +44,21 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
 
       return {
+        _id: a._id.toString(),
         id: a._id.toString(),
+        application_id: a.application_id,
         applications: a.application_id ? { application_number: a.application_id.application_number } : null,
         profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
         inspectors: { full_name: inspectorName },
         sites: { name: 'Main Site' },
         audit_type: a.audit_type || 'Initial',
+        stage: a.stage || 1,
         status: a.status || 'scheduled',
+        proposed_dates: a.proposed_dates || [],
+        selected_dates: a.selected_dates || [],
+        finalized_date: a.finalized_date,
+        auditors: a.auditors || [],
+        nc_reports: a.nc_reports || [],
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
       };
     });
