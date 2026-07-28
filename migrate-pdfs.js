@@ -91,7 +91,7 @@ async function run() {
     for (let app of applications) {
       let changed = false;
       if (app.documents) {
-        const keys = ['halal_policy', 'ingredient_list', 'floor_plan', 'company_registration', 'haccp_plan'];
+        const keys = ['halal_policy', 'ingredient_list', 'floor_plan', 'haccp_plan'];
         for (let key of keys) {
           if (app.documents[key] && app.documents[key].includes('res.cloudinary.com')) {
             app.documents[key] = await processUrl(app.documents[key], 'applications');

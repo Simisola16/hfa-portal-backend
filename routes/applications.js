@@ -65,7 +65,6 @@ router.post('/', authenticateToken, upload.fields([
   { name: 'halal_policy', maxCount: 1 },
   { name: 'ingredient_list', maxCount: 1 },
   { name: 'floor_plan', maxCount: 1 },
-  { name: 'company_registration', maxCount: 1 },
   { name: 'haccp_plan', maxCount: 1 },
   { name: 'supporting_docs', maxCount: 5 },
 ]), async (req, res) => {
@@ -114,11 +113,6 @@ router.post('/', authenticateToken, upload.fields([
     if (req.files?.floor_plan?.[0]) {
       documents.floor_plan = await uploadToGridFS(
         req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, req.files.floor_plan[0].mimetype
-      );
-    }
-    if (req.files?.company_registration?.[0]) {
-      documents.company_registration = await uploadToGridFS(
-        req.files.company_registration[0].buffer, req.files.company_registration[0].originalname, req.files.company_registration[0].mimetype
       );
     }
     if (req.files?.haccp_plan?.[0]) {

@@ -62,7 +62,6 @@ const applicationSchema = new mongoose.Schema({
     halal_policy: String,
     ingredient_list: String,
     floor_plan: String,
-    company_registration: String,
     haccp_plan: String,
     supporting_docs: [String]
   },

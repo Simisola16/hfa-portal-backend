@@ -35,7 +35,7 @@ async function fixUrls() {
     for (let app of applications) {
       let changed = false;
       if (app.documents) {
-        const keys = ['halal_policy', 'ingredient_list', 'floor_plan', 'company_registration', 'haccp_plan'];
+        const keys = ['halal_policy', 'ingredient_list', 'floor_plan', 'haccp_plan'];
         for (let key of keys) {
           if (app.documents[key] && app.documents[key].startsWith('http://localhost:5000')) {
             app.documents[key] = fixUrl(app.documents[key]);
