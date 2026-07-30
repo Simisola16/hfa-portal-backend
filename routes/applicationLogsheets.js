@@ -206,12 +206,48 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { status } = req.body;
-    const logsheet = await ApplicationLogsheet.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (status === 'Signed' || status === 'Completed') {
+      const hasSignature = logsheet.mufti_signature || logsheet.ceo_signature || logsheet.manager_signature || logsheet.mufti2_signature;
+      if (!hasSignature) {
+        return res.status(400).json({ error: 'Cannot transition logsheet to Signed or Completed without at least one applied digital signature.' });
+      }
+    }
+
+    logsheet.status = status;
+    await logsheet.save();
+
+    if (status === 'Signed' && logsheet.application_id) {
+      const appId = logsheet.application_id._id || logsheet.application_id;
+      const app = await Application.findByIdAndUpdate(
+        appId,
+        {
+          status: 'application_successful',
+          updated_at: new Date(),
+          $push: {
+            statusHistory: [
+              {
+                status: 'logsheet_signed',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: 'LogSheet marked as signed.'
+              },
+              {
+                status: 'application_successful',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: 'Application Successful — proceeding to certification agreement.'
+              }
+            ]
+          }
+        },
+        { new: true }
+      );
+      if (app) emitApplicationUpdate(app, 'application_successful');
+    }
+
     res.json({ data: logsheet, message: 'Logsheet status updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
