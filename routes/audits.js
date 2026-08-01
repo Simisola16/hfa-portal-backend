@@ -14,6 +14,24 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
+const clientPortalUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+
+const sendClientEmail = async (clientId, subject, html) => {
+  if (!clientId) return;
+  try {
+    const clientUser = await User.findById(clientId);
+    if (clientUser && clientUser.email) {
+      await resend.emails.send({
+        from: emailFrom,
+        to: clientUser.email.trim(),
+        subject,
+        html
+      });
+    }
+  } catch (err) {
+    console.error(`Failed to send audit email to client (${clientId}):`, err.message);
+  }
+};
 
 // GET /api/audits (Admin: all, Client: own audits)
 router.get('/', authenticateToken, async (req, res) => {
@@ -173,6 +191,33 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
       '/applications'
     );
 
+    // Send email to client
+    const appDoc = await Application.findById(application_id);
+    const appRef = appDoc?.application_number || 'HFA Audit';
+    await sendClientEmail(
+      client_id,
+      `Action Required: Audit Dates Proposed for Application ${appRef} 🗓️`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Action Required: Audit Dates Proposed</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #1e293b; margin-top: 0;">Please Select Your Preferred Audit Dates</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              HFA Administration has proposed 3 audit dates for your application (Ref: <strong>${appRef}</strong>). Please log in to your portal account to choose 2 dates or mark your availability.
+            </p>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                Select Audit Dates
+              </a>
+            </div>
+          </div>
+        </div>
+      `
+    );
+
     res.json({ data: audit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -294,6 +339,32 @@ router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) 
       '/applications'
     );
 
+    const appRef = updatedApp?.application_number || 'HFA Audit';
+    const dateStr = new Date(finalized_date).toDateString();
+    await sendClientEmail(
+      audit.client_id,
+      `Audit Date Confirmed: ${dateStr} (${appRef}) 📅`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Date Confirmed</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #1e293b; margin-top: 0;">Your Audit Date Has Been Confirmed</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              HFA Administration has confirmed your final audit date: <strong>${dateStr}</strong> for application <strong>${appRef}</strong>. An auditor will be assigned to your session shortly.
+            </p>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                View Audit Schedule
+              </a>
+            </div>
+          </div>
+        </div>
+      `
+    );
+
     res.json({ data: audit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -412,6 +483,36 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       '/applications'
     );
 
+    const auditorNames = auditors.map(a => `${a.name || 'Auditor'}${a.role ? ` (${a.role.replace(/_/g, ' ')})` : ''}`).join(', ');
+    await sendClientEmail(
+      audit.client_id,
+      `Audit Team Assigned: ${companyName} (${appRef}) 👨‍💼`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Team Assigned</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #1e293b; margin-top: 0;">Auditors Assigned for Your Audit</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              An audit team has been assigned to conduct your Halal Certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+            </p>
+            <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase;">Assigned Team</h4>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Auditors:</strong> ${auditorNames}</p>
+              <p style="margin: 0; font-size: 14px; color: #15803d;"><strong>Audit Date:</strong> ${auditDate}</p>
+            </div>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                View Audit Details
+              </a>
+            </div>
+          </div>
+        </div>
+      `
+    );
+
     if (emailFailures > 0) {
       res.json({
         data: audit,
@@ -473,16 +574,45 @@ router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_docum
       '/applications'
     );
 
+    const appRef = updatedApp?.application_number || 'HFA Audit';
+    await sendClientEmail(
+      audit.client_id,
+      `Action Required: Non-Conformity (NC) Report Flagged (${appRef}) ⚠️`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #fecaca; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #dc2626, #991b1b); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Urgent: Non-Conformity Report Flagged</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #991b1b; margin-top: 0;">Corrective Action Required</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              A Non-Conformity (NC) report has been flagged during your audit for application <strong>${appRef}</strong>. Corrective action is required before your certification can proceed.
+            </p>
+            <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 8px 0; color: #991b1b; font-size: 13px; text-transform: uppercase;">Auditor Findings</h4>
+              <p style="margin: 0; font-size: 14px; color: #7f1d1d;">${text || 'Non-Conformity flagged during audit.'}</p>
+            </div>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                Upload NC Correction
+              </a>
+            </div>
+          </div>
+        </div>
+      `
+    );
+
     res.json({ data: audit });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/audits/resolve-nc (Client)
-router.post('/resolve-nc', authenticateToken, async (req, res) => {
+// POST /api/audits/resolve-nc (Client - Uploads NC Correction)
+router.post('/resolve-nc', authenticateToken, upload.single('correction_document'), async (req, res) => {
   try {
-    const { audit_id, report_id } = req.body;
+    const { audit_id, report_id, response_text } = req.body;
     const audit = await Audit.findById(audit_id);
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
@@ -490,10 +620,21 @@ router.post('/resolve-nc', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const report = audit.nc_reports.id(report_id);
+    let correction_document_url = null;
+    if (req.file) {
+      correction_document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    let report = report_id ? audit.nc_reports.id(report_id) : null;
+    if (!report && audit.nc_reports && audit.nc_reports.length > 0) {
+      report = audit.nc_reports.find(r => r.status === 'flagged') || audit.nc_reports[0];
+    }
+
     if (report) {
       report.status = 'corrected';
       report.corrected_at = new Date();
+      if (response_text) report.client_response = response_text;
+      if (correction_document_url) report.correction_document_url = correction_document_url;
     }
     
     await audit.save();
@@ -555,6 +696,31 @@ router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res)
         'Congratulations! Your audit session has been completed successfully.',
         'success',
         '/applications'
+      );
+
+      const appRef = app?.application_number || 'HFA Audit';
+      await sendClientEmail(
+        audit.client_id,
+        `Audit Completed Successfully: ${appRef} 🎉`,
+        `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #bbf7d0; border-radius: 12px;">
+            <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+              <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+              <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Session Completed</p>
+            </div>
+            <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+              <h3 style="color: #15803d; margin-top: 0;">Congratulations! Your Audit Session Has Concluded</h3>
+              <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                Your audit session for application <strong>${appRef}</strong> has been marked as complete. All findings have been reviewed and closed.
+              </p>
+              <div style="text-align: center; margin-top: 24px;">
+                <a href="${clientPortalUrl}/applications" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                  Track Application Status
+                </a>
+              </div>
+            </div>
+          </div>
+        `
       );
     } else if (app) {
       await createNotification(

@@ -15,6 +15,8 @@ const auditorSchema = new mongoose.Schema({
 const ncReportSchema = new mongoose.Schema({
   text: String,
   document_url: String,
+  client_response: String,
+  correction_document_url: String,
   status: { type: String, enum: ['flagged', 'corrected'], default: 'flagged' },
   flagged_at: { type: Date, default: Date.now },
   corrected_at: Date
