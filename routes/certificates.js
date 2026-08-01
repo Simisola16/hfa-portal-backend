@@ -382,9 +382,12 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     }
 
     // Redirect to the internal GridFS file endpoint or direct link
+    const host = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
     if (certificate.certificate_url.startsWith('/api/files/')) {
       const fileId = certificate.certificate_url.replace('/api/files/', '');
-      res.redirect(`/api/files/${fileId}`);
+      res.redirect(`${host}/api/files/${fileId}`);
+    } else if (certificate.certificate_url.startsWith('/')) {
+      res.redirect(`${host}${certificate.certificate_url}`);
     } else {
       res.redirect(certificate.certificate_url);
     }
