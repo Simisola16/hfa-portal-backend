@@ -202,6 +202,15 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+const countLogsheetSignatures = (logsheet) => {
+  let count = 0;
+  if (logsheet.mufti_signature) count++;
+  if (logsheet.ceo_signature) count++;
+  if (logsheet.manager_signature) count++;
+  if (logsheet.mufti2_signature) count++;
+  return count;
+};
+
 // PUT /api/application-logsheets/:id/status (Admin only)
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -209,18 +218,19 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
-    if (status === 'Signed' || status === 'Completed') {
-      const hasSignature = logsheet.mufti_signature || logsheet.ceo_signature || logsheet.manager_signature || logsheet.mufti2_signature;
-      if (!hasSignature) {
-        return res.status(400).json({ error: 'Cannot transition logsheet to Signed or Completed without at least one applied digital signature.' });
+    if (status === 'Signed' || status === 'Completed' || status === 'Waiting For Certificate') {
+      const sigCount = countLogsheetSignatures(logsheet);
+      if (sigCount < 3) {
+        return res.status(400).json({ error: `Cannot transition logsheet to ${status} without at least 3 of 4 required signatures applied (currently ${sigCount}/4).` });
       }
     }
 
     logsheet.status = status;
     await logsheet.save();
 
-    if (status === 'Signed' && logsheet.application_id) {
+    if ((status === 'Signed' || status === 'Waiting For Certificate' || status === 'Completed') && logsheet.application_id) {
       const appId = logsheet.application_id._id || logsheet.application_id;
+      const sigCount = countLogsheetSignatures(logsheet);
       const app = await Application.findByIdAndUpdate(
         appId,
         {
@@ -232,7 +242,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
                 status: 'logsheet_signed',
                 changedAt: new Date(),
                 changedBy: req.user._id,
-                note: 'LogSheet marked as signed.'
+                note: `LogSheet marked as signed with ${sigCount}/4 signatures.`
               },
               {
                 status: 'application_successful',
@@ -263,7 +273,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
     if (finalizeSignOff) {
-      logsheet.status = 'Signed';
+      const sigCount = countLogsheetSignatures(logsheet);
+      if (sigCount < 3) {
+        return res.status(400).json({ error: `Cannot finalize logsheet without at least 3 of 4 required committee signatures (currently ${sigCount}/4 signed).` });
+      }
+
+      logsheet.status = 'Waiting For Certificate';
       await logsheet.save();
 
       // Update the linked application to application_successful (canonical milestone after logsheet sign-off)
@@ -280,7 +295,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                   status: 'logsheet_signed',
                   changedAt: new Date(),
                   changedBy: req.user._id,
-                  note: 'LogSheet fully signed. All required signatures collected.'
+                  note: `LogSheet marked as done with ${sigCount}/4 committee signatures.`
                 },
                 {
                   status: 'application_successful',
@@ -296,7 +311,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         if (app) emitApplicationUpdate(app, 'application_successful');
       }
 
-      return res.json({ data: logsheet, message: 'Logsheet sign-off finalized successfully!' });
+      return res.json({ data: logsheet, message: 'Logsheet marked as done and moved to Waiting For Certificate!' });
     }
 
     if (sendWithoutSignature) {
