@@ -220,7 +220,7 @@ router.put('/:id/approve', authenticateToken, async (req, res) => {
       reclassified = true;
     }
 
-    const histNote = note || (reclassified ? `Application approved and reclassified to: ${finalCategory}` : 'Application approved by admin.');
+    const histNote = note || (reclassified ? `Application accepted and reclassified to: ${finalCategory}` : 'Application accepted by admin.');
     const histEntry = { status: 'approved', changedAt: new Date(), changedBy: req.user._id, note: histNote };
     
     const updateData = { 
@@ -241,12 +241,12 @@ router.put('/:id/approve', authenticateToken, async (req, res) => {
     ).populate('profiles');
     
     // Notify client
-    await createNotification(data.client_id, 'Application Approved ✅', `Your application ${data.application_number} has been approved.`, 'success', '/applications');
+    await createNotification(data.client_id, 'Application Accepted ✅', `Your application ${data.application_number} has been accepted.`, 'success', '/applications');
     
     // Emit socket event
     emitApplicationUpdate(data, 'approved');
 
-    res.json({ data, message: 'Application approved' });
+    res.json({ data, message: 'Application accepted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
