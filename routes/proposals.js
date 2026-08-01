@@ -2,12 +2,15 @@ import express from 'express';
 import multer from 'multer';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Proposal from '../models/Proposal.js';
+import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
+import { Resend } from 'resend';
 
 const router = express.Router();
-// Use memory storage — buffers are uploaded directly to Supabase
 const upload = multer({ storage: multer.memoryStorage() });
+const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -60,6 +63,26 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       proposal.version = (proposal.version || 1) + 1;
       const data = await proposal.save();
 
+      // Send Email Notification
+      try {
+        const clientUser = await User.findById(data.client_id);
+        if (clientUser?.email) {
+          await resend.emails.send({
+            from: emailFrom,
+            to: clientUser.email,
+            subject: `HFA Certification Proposal Received: ${data.title}`,
+            html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+              <h2>Certification Proposal Received</h2>
+              <p>Dear ${clientUser.full_name || 'Client'},</p>
+              <p>You have received a revised certification proposal for <strong>${data.title}</strong> (v${data.version}).</p>
+              <p>Please log in to your HFA Portal account to view details and respond.</p>
+            </div>`
+          });
+        }
+      } catch (e) {
+        console.error('Proposal Resend Email error:', e.message);
+      }
+
       // Notify Client
       await createNotification(
         data.client_id,
@@ -84,6 +107,26 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
 
       const newProposal = new Proposal(proposalData);
       const data = await newProposal.save();
+
+      // Send Email Notification
+      try {
+        const clientUser = await User.findById(data.client_id);
+        if (clientUser?.email) {
+          await resend.emails.send({
+            from: emailFrom,
+            to: clientUser.email,
+            subject: `HFA Certification Proposal Issued: ${data.title}`,
+            html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+              <h2>New Certification Proposal</h2>
+              <p>Dear ${clientUser.full_name || 'Client'},</p>
+              <p>You have received a new certification proposal for <strong>${data.title}</strong>.</p>
+              <p>Please log in to your HFA Portal account to review and respond.</p>
+            </div>`
+          });
+        }
+      } catch (e) {
+        console.error('Proposal Resend Email error:', e.message);
+      }
 
       // Notify Client
       await createNotification(
@@ -120,6 +163,25 @@ router.put('/:id', authenticateToken, async (req, res) => {
     Object.assign(proposal, otherData);
     
     const data = await proposal.save();
+
+    // Trigger email if proposal updated
+    try {
+      const clientUser = await User.findById(data.client_id);
+      if (clientUser?.email && status) {
+        await resend.emails.send({
+          from: emailFrom,
+          to: clientUser.email,
+          subject: `Proposal Update: ${data.title} (${status})`,
+          html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2>Proposal Status Updated</h2>
+            <p>Proposal <strong>${data.title}</strong> has been updated to <strong>${status}</strong>.</p>
+          </div>`
+        });
+      }
+    } catch (e) {
+      console.error('Proposal update email error:', e.message);
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });

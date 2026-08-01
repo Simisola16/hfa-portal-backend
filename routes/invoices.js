@@ -3,12 +3,16 @@ import multer from 'multer';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
+import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
+import { Resend } from 'resend';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // GET /api/invoices — all (admin) or client's own
 router.get('/', authenticateToken, async (req, res) => {
@@ -82,6 +86,26 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         $push: { statusHistory: histEntry }
       }, { new: true });
       if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+    }
+
+    // Send Email Notification
+    try {
+      const clientUser = await User.findById(data.client_id);
+      if (clientUser?.email) {
+        await resend.emails.send({
+          from: emailFrom,
+          to: clientUser.email,
+          subject: `HFA Invoice Issued: ${data.invoice_number}`,
+          html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2>Invoice Issued</h2>
+            <p>Dear ${clientUser.full_name || 'Client'},</p>
+            <p>Invoice <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
+            <p>Please log in to your HFA Portal account to view and process payment.</p>
+          </div>`
+        });
+      }
+    } catch (e) {
+      console.error('Invoice Resend Email error:', e.message);
     }
 
     // Notify Client
