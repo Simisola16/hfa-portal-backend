@@ -120,12 +120,43 @@ router.post('/', authenticateToken, upload.fields([
         req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, req.files.haccp_plan[0].mimetype
       );
     }
+
+    let newSupportingDocs = [];
     if (req.files?.supporting_docs) {
-      documents.supporting_docs = await Promise.all(
+      newSupportingDocs = await Promise.all(
         req.files.supporting_docs.map(f =>
           uploadToGridFS(f.buffer, f.originalname, f.mimetype)
         )
       );
+    }
+    documents.supporting_docs = newSupportingDocs;
+
+    // If Renewal, inherit details and documents from the prior application for this site
+    let priorApp = null;
+    if (site_id && application_type === 'renewal') {
+      priorApp = await Application.findOne({
+        site_id: String(site_id),
+        client_id: req.user._id
+      }).sort({ created_at: -1 });
+
+      if (priorApp) {
+        // Inherit core document URLs if not explicitly provided in request
+        if (!documents.halal_policy && priorApp.documents?.halal_policy) {
+          documents.halal_policy = priorApp.documents.halal_policy;
+        }
+        if (!documents.ingredient_list && priorApp.documents?.ingredient_list) {
+          documents.ingredient_list = priorApp.documents.ingredient_list;
+        }
+        if (!documents.floor_plan && priorApp.documents?.floor_plan) {
+          documents.floor_plan = priorApp.documents.floor_plan;
+        }
+        if (!documents.haccp_plan && priorApp.documents?.haccp_plan) {
+          documents.haccp_plan = priorApp.documents.haccp_plan;
+        }
+        // Merge supporting docs
+        const pastSupporting = Array.isArray(priorApp.documents?.supporting_docs) ? priorApp.documents.supporting_docs : [];
+        documents.supporting_docs = [...newSupportingDocs, ...pastSupporting];
+      }
     }
 
     const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
@@ -138,9 +169,11 @@ router.post('/', authenticateToken, upload.fields([
       } catch (e) {
         products = [];
       }
+    } else if (priorApp && priorApp.products && priorApp.products.length > 0) {
+      products = priorApp.products;
     }
 
-    const application = new Application({
+    const applicationData = {
       ...req.body,
       application_number: appNumber,
       client_id: req.user._id,
@@ -151,9 +184,31 @@ router.post('/', authenticateToken, upload.fields([
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: 'Application submitted by client.',
+        note: application_type === 'renewal' ? 'Renewal application submitted by client.' : 'Application submitted by client.',
       }],
-    });
+    };
+
+    // If Renewal, pre-fill missing fields from prior application
+    if (priorApp) {
+      applicationData.category = req.body.category || priorApp.category;
+      applicationData.scope = req.body.scope || priorApp.scope;
+      applicationData.establishment_name = req.body.establishment_name || priorApp.establishment_name;
+      applicationData.establishment_address = req.body.establishment_address || priorApp.establishment_address;
+      applicationData.managing_director = req.body.managing_director || req.body.contact_person || priorApp.managing_director;
+      applicationData.finance_contact = req.body.finance_contact || priorApp.finance_contact;
+      applicationData.production_contact = req.body.production_contact || priorApp.production_contact;
+      applicationData.qa_contact = req.body.qa_contact || priorApp.qa_contact;
+      applicationData.halal_coordinator = req.body.halal_coordinator || priorApp.halal_coordinator;
+      applicationData.employee_count = req.body.employee_count || priorApp.employee_count;
+      applicationData.production_schedule = req.body.production_schedule || priorApp.production_schedule;
+      applicationData.has_porcine = req.body.has_porcine !== undefined ? req.body.has_porcine : priorApp.has_porcine;
+      applicationData.has_intoxicants = req.body.has_intoxicants !== undefined ? req.body.has_intoxicants : priorApp.has_intoxicants;
+      applicationData.porcine_details = req.body.porcine_details || priorApp.porcine_details;
+      applicationData.intoxicants_details = req.body.intoxicants_details || priorApp.intoxicants_details;
+      if (!req.body.declared_true) applicationData.declared_true = true;
+    }
+
+    const application = new Application(applicationData);
 
     const data = await application.save();
 
@@ -514,7 +569,8 @@ router.post('/renew', authenticateToken, upload.fields([
 
     // Pull original application data to pre-fill the renewal
     const originalApp = await Application.findOne({ application_id: cert.application_id })
-      || await Application.findById(cert.application_id);
+      || await Application.findById(cert.application_id)
+      || await Application.findOne({ site_id: cert.site_id, client_id: req.user._id }).sort({ created_at: -1 });
 
     // Upload supporting documents
     const uploadedDocs = [];
@@ -524,6 +580,15 @@ router.post('/renew', authenticateToken, upload.fields([
         uploadedDocs.push(url);
       }
     }
+
+    const pastSupporting = Array.isArray(originalApp?.documents?.supporting_docs) ? originalApp.documents.supporting_docs : [];
+    const mergedDocs = {
+      halal_policy: originalApp?.documents?.halal_policy || '',
+      ingredient_list: originalApp?.documents?.ingredient_list || '',
+      floor_plan: originalApp?.documents?.floor_plan || '',
+      haccp_plan: originalApp?.documents?.haccp_plan || '',
+      supporting_docs: [...uploadedDocs, ...pastSupporting]
+    };
 
     const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
 
@@ -550,9 +615,7 @@ router.post('/renew', authenticateToken, upload.fields([
       intoxicants_details: originalApp?.intoxicants_details || '',
       scope: originalApp?.scope || cert.certificate_type || 'Halal Food Certification',
       products: originalApp?.products || cert.products_covered?.map(p => ({ name: p, brand: '', category: '' })) || [],
-      documents: {
-        supporting_docs: uploadedDocs
-      },
+      documents: mergedDocs,
       declared_true: true,
       notes: `Renewal of certificate ${cert.certificate_number}${cert.expiry_date ? ` (expired/expiring: ${new Date(cert.expiry_date).toLocaleDateString('en-GB')})` : ''}.`,
       status: 'submitted',

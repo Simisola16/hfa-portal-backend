@@ -29,6 +29,18 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
+    // Renewal applications do not require a Final Invoice — only Initial Invoice payment and ready_for_certificate status!
+    if (app.application_type === 'renewal') {
+      if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+        return res.status(403).json({
+          error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+          code: 'READY_FOR_CERTIFICATE_REQUIRED',
+          application_status: app.status
+        });
+      }
+      return next();
+    }
+
     const finalInvoice = await Invoice.findOne({ application_id, invoice_type: 'final' });
 
     if (!finalInvoice) {
