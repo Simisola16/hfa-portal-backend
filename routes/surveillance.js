@@ -35,6 +35,25 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(409).json({ error: 'A surveillance request is already pending for this certificate.' });
     }
 
+    // Verify request timing (available starting 3 months / 90 days before next surveillance due date)
+    if (cert.issue_date) {
+      const fulfilledReqs = await SurveillanceRequest.find({ certificate_id, status: 'fulfilled' });
+      let nextDueDate = new Date(cert.issue_date);
+      if (fulfilledReqs.length === 0) {
+        nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
+      } else if (fulfilledReqs.length === 1) {
+        nextDueDate.setFullYear(nextDueDate.getFullYear() + 2);
+      } else if (cert.expiry_date) {
+        nextDueDate = new Date(cert.expiry_date);
+      }
+
+      const diffMs = nextDueDate.getTime() - Date.now();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays > 90 && req.user.role !== 'admin') {
+        return res.status(400).json({ error: `Surveillance request is locked. Requests can only be submitted starting 3 months before your next surveillance due date (${nextDueDate.toDateString()}).` });
+      }
+    }
+
     const request = new SurveillanceRequest({
       client_id: req.user._id.toString(),
       certificate_id,
