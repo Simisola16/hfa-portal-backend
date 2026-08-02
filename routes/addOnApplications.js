@@ -206,13 +206,14 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.user.role === 'client') {
       query.client_id = req.user._id;
     } else if (req.user.role === 'food_tech') {
-      query.assigned_food_tech = req.user._id;
+      query.assigned_food_techs = req.user._id;
     }
 
     const data = await AddOnApplication.find(query)
       .populate('client_id', 'company_name full_name email phone')
       .populate('certificate_id', 'certificate_number products_covered')
       .populate('assigned_food_tech', 'full_name email phone')
+      .populate('assigned_food_techs', 'full_name email phone')
       .sort({ createdAt: -1 });
 
     res.json({ data });
@@ -228,6 +229,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('client_id', 'company_name full_name email phone')
       .populate('certificate_id', 'certificate_number products_covered')
       .populate('assigned_food_tech', 'full_name email phone')
+      .populate('assigned_food_techs', 'full_name email phone')
       .populate('logsheet_id');
 
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
@@ -235,7 +237,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (req.user.role === 'client' && app.client_id._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    if (req.user.role === 'food_tech' && app.assigned_food_tech?._id.toString() !== req.user._id.toString()) {
+    if (req.user.role === 'food_tech' && !app.assigned_food_techs?.some(ft => ft._id.toString() === req.user._id.toString())) {
       return res.status(403).json({ error: 'Access denied. You are not assigned to this application.' });
     }
 
@@ -303,42 +305,52 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 });
 
 // ─── PUT /api/add-on-applications/:id/assign-ft ──────────────────────────────
-// Admin: Assign FT
+// Admin: Assign one or more FT staff (appends to assigned_food_techs array)
 router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
-    const { assigned_food_tech } = req.body;
-    if (!assigned_food_tech) return res.status(400).json({ error: 'Food Technologies staff ID is required.' });
+    // Accept single ID string OR array of IDs
+    const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
+    const ftIds = Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean);
+    if (ftIds.length === 0) return res.status(400).json({ error: 'At least one Food Technologies staff member is required.' });
 
-    const ft = await User.findOne({ _id: assigned_food_tech, role: 'food_tech' });
-    if (!ft) return res.status(400).json({ error: 'Selected user is not a Food Technologies staff member.' });
+    // Validate all IDs are food_tech users
+    const ftUsers = await User.find({ _id: { $in: ftIds }, role: 'food_tech' });
+    if (ftUsers.length !== ftIds.length) {
+      return res.status(400).json({ error: 'One or more selected users are not Food Technologies staff members.' });
+    }
 
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'accepted') {
-      return res.status(400).json({ error: 'Application must be in "accepted" status to assign FT.' });
+    if (!['accepted', 'ft_assigned'].includes(app.status)) {
+      return res.status(400).json({ error: 'Application must be in accepted or ft_assigned status to (re-)assign FT.' });
     }
 
-    app.assigned_food_tech = assigned_food_tech;
+    // Set the new list (replace, not append) — admin manages the full list
+    app.assigned_food_techs = ftIds;
+    // Keep legacy field for backward compat (first FT)
+    app.assigned_food_tech = ftIds[0];
     app.status = 'ft_assigned';
-    await pushHistory(app, 'ft_assigned', `FT assigned: ${ft.full_name}`, req.user._id);
+    await pushHistory(app, 'ft_assigned', `FT assigned: ${ftUsers.map(u => u.full_name).join(', ')}`, req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'ft_assigned');
 
-    // Notify FT
-    await sendContactEmail({
-      contactEmail: ft.email,
-      contactName: ft.full_name,
-      subject: '🔍 New Add-on Application FT Assignment',
-      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as the Food Technologies staff member for a new Add-on Product Application. Please log in to the HFA Admin Portal to proceed.</p>`
-    });
+    // Notify each newly assigned FT
+    for (const ft of ftUsers) {
+      await sendContactEmail({
+        contactEmail: ft.email,
+        contactName: ft.full_name,
+        subject: '🔍 New Add-on Application FT Assignment',
+        bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for a new Add-on Product Application. Please log in to the HFA Admin Portal to proceed.</p>`
+      });
+    }
 
     // Notify contact person
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
       subject: '👷 HFA: Food Technologies Staff Assigned',
-      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">A Food Technologies staff member has been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (${ftUsers.map(u => u.full_name).join(', ')}) have been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
     });
 
     res.json({ data });
