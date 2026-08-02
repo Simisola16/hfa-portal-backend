@@ -71,6 +71,26 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('site_id')
       .populate('application_id', 'establishment_name site_name scope')
       .sort({ createdAt: -1 });
+
+    // Auto-expire: mark any active certificate whose expiry_date is in the past
+    const now = new Date();
+    const expiredIds = data
+      .filter(c => c.status === 'active' && c.expiry_date && new Date(c.expiry_date) < now)
+      .map(c => c._id);
+
+    if (expiredIds.length > 0) {
+      await Certificate.updateMany(
+        { _id: { $in: expiredIds } },
+        { $set: { status: 'expired', updated_at: now } }
+      );
+      // Reflect the change in the returned data without a second DB round-trip
+      data.forEach(c => {
+        if (expiredIds.some(id => id.equals(c._id))) {
+          c.status = 'expired';
+        }
+      });
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
