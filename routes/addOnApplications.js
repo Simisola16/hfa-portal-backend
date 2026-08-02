@@ -348,31 +348,40 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 });
 
 // ─── PUT /api/add-on-applications/:id/enable-form ────────────────────────────
-// Admin: Enable Product Approval Form (upload PDF or write text, send to client)
+// Admin: Enable or Save Draft Product Approval Form (upload PDF or write text)
 router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin, upload.single('form_file'), async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'ft_assigned') {
-      return res.status(400).json({ error: 'FT must be assigned before enabling the Product Approval Form.' });
+    if (!['ft_assigned', 'product_approval_form_enabled'].includes(app.status)) {
+      return res.status(400).json({ error: 'FT must be assigned before editing or enabling the Product Approval Form.' });
     }
 
-    const { form_text } = req.body;
-    let form_file_url = null;
+    const { form_text, is_draft } = req.body;
+    const isDraftBool = is_draft === 'true' || is_draft === true;
+    let form_file_url = app.product_approval_form?.form_file_url || null;
 
     if (req.file) {
       form_file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
-    if (!form_file_url && !form_text?.trim()) {
+    if (!form_file_url && !form_text?.trim() && !isDraftBool) {
       return res.status(400).json({ error: 'You must either upload a form document or write form text content.' });
     }
 
     app.product_approval_form = {
-      form_file_url: form_file_url || undefined,
-      form_text: form_text?.trim() || undefined,
-      sent_at: new Date()
+      ...app.product_approval_form,
+      form_file_url: form_file_url || app.product_approval_form?.form_file_url,
+      form_text: form_text !== undefined ? form_text.trim() : app.product_approval_form?.form_text,
+      is_draft: isDraftBool
     };
+
+    if (isDraftBool) {
+      const data = await app.save();
+      return res.json({ data, message: 'Draft saved successfully.' });
+    }
+
+    app.product_approval_form.sent_at = new Date();
     app.status = 'product_approval_form_enabled';
     await pushHistory(app, 'product_approval_form_enabled', 'Product Approval Form enabled and sent to client.', req.user._id);
 
@@ -387,7 +396,7 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
         'Product Approval Form Ready 📋',
         'Your Product Approval Form is ready. Please log in to review and submit your response.',
         'info',
-        '/addon-applications'
+        `/addon-applications/${app._id}/approval-form`
       );
     }
 
@@ -400,10 +409,10 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
           Your <strong>Product Approval Form</strong> has been prepared and is now available for you to review and complete.
         </p>
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          Please log in to the HFA Client Portal, open your add-on application, and submit your completed response to the form.
+          Please log in to the HFA Client Portal, open your add-on application, and submit your responses for each product.
         </p>
         <p style="font-size:14px;color:#dc2626;font-weight:700;line-height:1.6">
-          ⚠️ Action Required: Your application cannot progress until you submit the completed form.
+          ⚠️ Action Required: Your application cannot progress until you submit responses for all products.
         </p>
       `
     });
@@ -414,19 +423,23 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
   }
 });
 
-// ─── PUT /api/add-on-applications/:id/submit-form ────────────────────────────
-// Client: Submit Product Approval Form response (upload file or write text)
-router.put('/:id/submit-form', authenticateToken, upload.single('response_file'), async (req, res) => {
+// ─── PUT /api/add-on-applications/:id/save-product-response/:productIdx ──────
+// Client: Save per-product response draft (file and/or text)
+router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.single('response_file'), async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    // Only the owning client can submit
     if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied.' });
     }
     if (app.status !== 'product_approval_form_enabled') {
-      return res.status(400).json({ error: 'The Product Approval Form is not currently enabled for this application.' });
+      return res.status(400).json({ error: 'The Product Approval Form is not currently editable.' });
+    }
+
+    const idx = parseInt(req.params.productIdx, 10);
+    if (isNaN(idx) || idx < 0 || idx >= (app.products?.length || 0)) {
+      return res.status(400).json({ error: 'Invalid product index.' });
     }
 
     const { response_text } = req.body;
@@ -436,18 +449,69 @@ router.put('/:id/submit-form', authenticateToken, upload.single('response_file')
       response_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
-    if (!response_url && !response_text?.trim()) {
-      return res.status(400).json({ error: 'Please upload your completed form document or write your response text.' });
+    if (!app.product_approval_form) {
+      app.product_approval_form = { product_responses: [] };
+    }
+    if (!Array.isArray(app.product_approval_form.product_responses)) {
+      app.product_approval_form.product_responses = [];
     }
 
-    app.product_approval_form = {
-      ...app.product_approval_form,
-      client_response_url: response_url || app.product_approval_form?.client_response_url,
-      client_response_text: response_text?.trim() || app.product_approval_form?.client_response_text,
-      submitted_at: new Date()
-    };
+    const product = app.products[idx];
+    let respItem = app.product_approval_form.product_responses.find(r => r.product_index === idx);
+
+    if (!respItem) {
+      respItem = {
+        product_index: idx,
+        product_name: product.name,
+        response_text: response_text?.trim() || '',
+        response_url: response_url || '',
+        is_saved: true,
+        saved_at: new Date()
+      };
+      app.product_approval_form.product_responses.push(respItem);
+    } else {
+      respItem.product_name = product.name;
+      if (response_text !== undefined) respItem.response_text = response_text.trim();
+      if (response_url) respItem.response_url = response_url;
+      respItem.is_saved = true;
+      respItem.saved_at = new Date();
+    }
+
+    const data = await app.save();
+    res.json({ data, message: `Response saved for product ${idx + 1}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/submit-all-responses ───────────────────
+// Client: Final submit when responses for ALL products have been saved
+router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    if (app.status !== 'product_approval_form_enabled') {
+      return res.status(400).json({ error: 'The Product Approval Form is not currently awaiting submission.' });
+    }
+
+    const productCount = app.products?.length || 0;
+    const responses = app.product_approval_form?.product_responses || [];
+
+    // Check if every product has a saved response
+    for (let i = 0; i < productCount; i++) {
+      const resp = responses.find(r => r.product_index === i && r.is_saved);
+      if (!resp) {
+        return res.status(400).json({ error: `Please save a response for product #${i + 1} (${app.products[i].name}) before submitting.` });
+      }
+    }
+
+    app.product_approval_form.submitted_at = new Date();
     app.status = 'all_forms_received';
-    await pushHistory(app, 'all_forms_received', 'Client submitted Product Approval Form response.', req.user._id);
+    await pushHistory(app, 'all_forms_received', 'Client submitted Product Approval Form responses for all products.', req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'form_submitted');
@@ -455,23 +519,23 @@ router.put('/:id/submit-form', authenticateToken, upload.single('response_file')
     // Notify admins
     await notifyAdmins(
       'Product Approval Form Received 📋',
-      `Client has submitted their Product Approval Form response for add-on application.`
+      `Client has submitted Product Approval Form responses for all ${productCount} product(s).`
     );
 
     // Confirm to contact person
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: '✅ HFA: Product Approval Form Response Received',
+      subject: '✅ HFA: Product Approval Form Responses Received',
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          Your Product Approval Form response has been successfully received by HFA. Our team will review your submission and proceed to the next stage.
+          Your Product Approval Form responses for all <strong>${productCount} product(s)</strong> have been successfully received by HFA. Our team will review your submission and proceed to the next stage.
         </p>
         <p style="font-size:14px;color:#334155;line-height:1.6">You will be notified when your application progresses.</p>
       `
     });
 
-    res.json({ data });
+    res.json({ data, message: 'All product responses submitted successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

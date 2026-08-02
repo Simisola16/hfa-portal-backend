@@ -11,6 +11,15 @@ const addOnProductSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const productResponseSchema = new mongoose.Schema({
+  product_index: { type: Number, required: true },
+  product_name: { type: String },
+  response_text: { type: String, default: '' },
+  response_url: { type: String, default: '' },
+  is_saved: { type: Boolean, default: false },
+  saved_at: { type: Date }
+}, { _id: false });
+
 const addOnApplicationSchema = new mongoose.Schema({
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', required: true },
@@ -59,14 +68,14 @@ const addOnApplicationSchema = new mongoose.Schema({
   // FT assignment (Assign FT step)
   assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
-  // Product Approval Form — ONE form per application
-  // Admin creates it (file or text), client submits their response (file or text)
+  // Product Approval Form — ONE form per application authored by admin
+  // Client responds per product in the product_responses array
   product_approval_form: {
     form_file_url: String,   // Admin uploads a PDF template/document
-    form_text: String,       // OR admin writes the form text directly
+    form_text: String,       // Admin writes form text directly
+    is_draft: { type: Boolean, default: false },
     sent_at: Date,
-    client_response_url: String,  // Client uploads their completed form back
-    client_response_text: String, // OR client types their response
+    product_responses: { type: [productResponseSchema], default: [] },
     submitted_at: Date
   },
 
