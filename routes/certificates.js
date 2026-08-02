@@ -64,7 +64,7 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id.toString();
     }
     const data = await Certificate.find(query)
@@ -376,7 +376,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
 
     // Client can only download their own certificate
-    if (req.user.role !== 'admin' && certificate.client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && certificate.client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

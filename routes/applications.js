@@ -23,7 +23,7 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
     }
     if (req.query.status) query.status = req.query.status;

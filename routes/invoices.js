@@ -18,7 +18,7 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id.toString();
     }
     const data = await Invoice.find(query)
@@ -140,7 +140,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
     // Only the invoice owner or admin can mark as paid
-    if (req.user.role !== 'admin' && invoice.client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && invoice.client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

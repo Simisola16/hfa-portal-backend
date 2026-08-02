@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
     }
     const data = await Product.find(query).populate('site_id').sort({ created_at: -1 });

@@ -37,7 +37,7 @@ const sendClientEmail = async (clientId, subject, html) => {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id.toString();
     }
     const audits = await Audit.find(query)
@@ -132,7 +132,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       return res.json({ data: [] });
     }
     // Check permission
-    if (req.user.role !== 'admin' && audits[0].client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json({ data: audits });

@@ -15,7 +15,7 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id.toString();
     }
     const data = await Proposal.find(query)
@@ -149,7 +149,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
 
     // If not admin, check if it's the right client
-    if (req.user.role !== 'admin' && proposal.client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && proposal.client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

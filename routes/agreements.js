@@ -27,7 +27,7 @@ function getAdminNotificationEmails() {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id.toString();
     }
     const data = await Agreement.find(query)
@@ -167,7 +167,7 @@ router.put('/:id', authenticateToken, upload.fields([
     if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
 
     // If client, check ownership
-    if (req.user.role !== 'admin' && agreement.client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && agreement.client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

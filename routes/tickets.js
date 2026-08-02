@@ -8,7 +8,7 @@ const router = express.Router();
 // Get user tickets
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const filter = req.user.role === 'admin' ? {} : { user_id: req.user.id };
+    const filter = ['admin', 'superadmin'].includes(req.user.role) ? {} : { user_id: req.user.id };
     const tickets = await Ticket.find(filter).sort({ created_at: -1 });
     res.json({ data: tickets });
   } catch (err) {
@@ -60,12 +60,12 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
       message: req.body.message
     });
     
-    if (req.user.role === 'admin') ticket.status = 'in_progress';
+    if (['admin', 'superadmin'].includes(req.user.role)) ticket.status = 'in_progress';
     
     await ticket.save();
 
     // Notify the other party
-    const recipientId = req.user.role === 'admin' ? ticket.user_id : (await User.findOne({ role: 'admin' }))._id;
+    const recipientId = ['admin', 'superadmin'].includes(req.user.role) ? ticket.user_id : (await User.findOne({ role: { $in: ['admin', 'superadmin'] } }))._id;
     await createNotification(
       recipientId,
       'New Reply on Ticket 💬',
