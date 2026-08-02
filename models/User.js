@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   address: String,
   postcode: String,
   country: String,
-  role: { type: String, enum: ['client', 'admin', 'inspector', 'food_tech_manager', 'food_tech'], default: 'client' },
+  role: { type: String, enum: ['client', 'admin', 'inspector', 'food_tech_manager', 'food_tech', 'superadmin'], default: 'client' },
   is_active: { type: Boolean, default: false },
   is_verified: { type: Boolean, default: false },
   verification_token: String,

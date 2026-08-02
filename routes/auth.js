@@ -288,9 +288,9 @@ router.post('/admin/login', async (req, res) => {
     // Look up by username only — this field only exists on admin accounts
     const user = await User.findOne({ username });
 
-    // Reject if: user not found, wrong password, OR not an admin role.
+    // Reject if: user not found, wrong password, OR not an admin/superadmin role.
     // Use a single generic message to avoid info leakage.
-    if (!user || user.role !== 'admin' || !(await user.comparePassword(password))) {
+    if (!user || !['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(user.role) || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 

@@ -20,7 +20,7 @@ export const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found or token invalid' });
     }
 
-    if (user.role !== 'admin' && user.is_active === false) {
+    if (user.role !== 'admin' && user.role !== 'superadmin' && user.is_active === false) {
       // Scoped bypass for inactive clients:
       // - All GET requests (allows profile, site, product, notifications, and stats viewing)
       // - All site management requests (POST, PUT, DELETE to /api/sites)
@@ -51,7 +51,7 @@ export const authenticateToken = async (req, res, next) => {
 export const requireAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
@@ -74,7 +74,7 @@ export const requireFoodTechManager = async (req, res, next) => {
 
 export const requireFoodTechManagerOrAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.user.role !== 'food_tech_manager' && req.user.role !== 'admin') {
+  if (req.user.role !== 'food_tech_manager' && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
     return res.status(403).json({ error: 'Access denied. Food Tech Manager or Admin role required.' });
   }
   next();
@@ -90,7 +90,7 @@ export const requireFoodTech = async (req, res, next) => {
 
 export const requireStaff = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  const isStaff = ['admin', 'food_tech_manager', 'food_tech'].includes(req.user.role);
+  const isStaff = ['admin', 'superadmin', 'food_tech_manager', 'food_tech'].includes(req.user.role);
   if (!isStaff) {
     return res.status(403).json({ error: 'Staff access required' });
   }
