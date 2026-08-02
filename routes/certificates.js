@@ -67,7 +67,10 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       query.client_id = req.user._id.toString();
     }
-    const data = await Certificate.find(query).sort({ createdAt: -1 });
+    const data = await Certificate.find(query)
+      .populate('site_id')
+      .populate('application_id', 'establishment_name site_name scope')
+      .sort({ createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
