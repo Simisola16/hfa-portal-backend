@@ -1,14 +1,16 @@
 import express from 'express';
+import multer from 'multer';
 import AddOnApplication from '../models/AddOnApplication.js';
 import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
-import { authenticateToken, requireStaff, requireFoodTechManagerOrAdmin } from '../middleware/auth.js';
+import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
+import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
-import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -16,13 +18,76 @@ const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
-// Helper function to regenerate and update Certificate PDF
+// File upload middleware (for enabling form / client form response)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error('Only PDF and image files are allowed'));
+  },
+});
+
+// ─── Email helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Send a stage-transition email to the Contact Person email on the application.
+ * Failures are swallowed (logged only) so they never block the status update.
+ */
+async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
+  if (!contactEmail) return;
+  try {
+    await resend.emails.send({
+      from: emailFrom,
+      to: contactEmail,
+      subject,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
+          <div style="background:linear-gradient(135deg,#0e7490,#0891b2);border-radius:8px 8px 0 0;padding:20px 24px;color:white">
+            <h2 style="margin:0;font-size:20px;font-weight:800">Halal Food Authority</h2>
+            <p style="margin:4px 0 0;font-size:13px;opacity:0.9">Add-on Product Application Update</p>
+          </div>
+          <div style="padding:24px;background:white;border-radius:0 0 8px 8px">
+            <p style="margin-top:0;font-size:14px;color:#334155">Dear ${contactName || 'Applicant'},</p>
+            ${bodyHtml}
+            <p style="margin-top:24px;font-size:12px;color:#94a3b8">Please log in to the HFA Client Portal to view your application and take any required action.</p>
+            <p style="font-size:12px;color:#64748b">— Halal Food Authority</p>
+          </div>
+        </div>
+      `
+    });
+  } catch (err) {
+    console.error(`[AddOn] Failed to send email to ${contactEmail}:`, err.message);
+  }
+}
+
+/**
+ * Push a status history entry and notify admin users.
+ */
+async function pushHistory(app, status, note, changedBy) {
+  app.statusHistory.push({ status, changedAt: new Date(), changedBy, note });
+}
+
+async function notifyAdmins(title, body) {
+  try {
+    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    for (const a of admins) {
+      await createNotification(a._id, title, body, 'info', '/addon-applications');
+    }
+  } catch (err) {
+    console.error('[AddOn] Failed to notify admins:', err.message);
+  }
+}
+
+// ─── Regenerate Certificate PDF helper ────────────────────────────────────────
+
 async function regenerateCertPdf(certificate) {
   try {
     const { default: Application } = await import('../models/Application.js');
     const application = await Application.findById(certificate.application_id);
     const client = await User.findById(certificate.client_id);
-    
+
     const productCategories = (certificate.products_covered || []).map((p, idx) => ({
       code: `GEN-${String(idx + 1).padStart(2, '0')}`,
       name: p
@@ -43,46 +108,47 @@ async function regenerateCertPdf(certificate) {
     const pdfBuffer = await generateCertificate(certData);
     const filename = `${certificate.certificate_number}.pdf`;
     const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
-
     certificate.certificate_url = certificate_url;
     await certificate.save();
-    console.log(`Successfully regenerated certificate PDF for ${certificate.certificate_number}`);
+    console.log(`[AddOn] Regenerated certificate PDF: ${certificate.certificate_number}`);
   } catch (err) {
-    console.error('Failed to regenerate certificate PDF on add-on completion:', err);
+    console.error('[AddOn] Failed to regenerate certificate PDF:', err);
   }
 }
 
-// POST /api/add-on-applications — client submits a request
+// ═══════════════════════════════════════════════════════════════════════════════
+// ROUTES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── POST /api/add-on-applications ───────────────────────────────────────────
+// Client submits a new multi-product add-on application
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { certificate_id, contact_name, contact_email, contact_phone, action_type, product_name, new_product_name } = req.body;
-    
-    // Check if client has at least one active certificate
+    const { certificate_id, contact_name, contact_email, contact_phone, message, products } = req.body;
+
+    // Must have an active certificate
     const activeCerts = await Certificate.find({
       client_id: req.user._id.toString(),
       status: 'active',
       expiry_date: { $gte: new Date() }
     });
-
     if (activeCerts.length === 0) {
-      return res.status(400).json({ error: 'Add-on applications are available once you hold an active certificate.' });
+      return res.status(400).json({ error: 'Add-on applications are only available once you hold an active certificate.' });
     }
-
-    // Verify certificate_id belongs to the client and is active
     const cert = activeCerts.find(c => c._id.toString() === certificate_id);
     if (!cert) {
       return res.status(400).json({ error: 'Invalid or expired certificate selected.' });
     }
 
-    // Validate request inputs based on action type
-    if (action_type === 'add' && !new_product_name?.trim()) {
-      return res.status(400).json({ error: 'New product name is required.' });
+    // Validate required fields
+    if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact Person Name is required.' });
+    if (!contact_email?.trim()) return res.status(400).json({ error: 'Contact Person Email is required.' });
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'At least one product entry is required.' });
     }
-    if (action_type === 'remove' && !product_name?.trim()) {
-      return res.status(400).json({ error: 'Product name is required.' });
-    }
-    if (action_type === 'change_name' && (!product_name?.trim() || !new_product_name?.trim())) {
-      return res.status(400).json({ error: 'Both original and new product names are required.' });
+    for (const p of products) {
+      if (!p.name?.trim()) return res.status(400).json({ error: 'Each product must have a name.' });
+      if (!p.type) return res.status(400).json({ error: 'Each product must have a type selected.' });
     }
 
     const newApp = new AddOnApplication({
@@ -91,34 +157,41 @@ router.post('/', authenticateToken, async (req, res) => {
       contact_name,
       contact_email,
       contact_phone,
-      action_type,
-      product_name,
-      new_product_name,
+      message,
+      products,
       status: 'submitted',
       statusHistory: [{
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Add-on application submitted for action: ${action_type}`
+        note: `Add-on application submitted with ${products.length} product(s).`
       }]
     });
 
     const data = await newApp.save();
-
-    // Emit socket event
     emitAddOnUpdate(data, 'created');
 
-    // Notify food tech managers and admins
-    const staffToNotify = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } });
-    for (const s of staffToNotify) {
-      await createNotification(
-        s._id,
-        'New Add-on Request 📄',
-        `A new product add-on request has been submitted by ${req.user.company_name || req.user.full_name}.`,
-        'warning',
-        '/addon-applications'
-      );
-    }
+    // Notify admins
+    await notifyAdmins(
+      'New Add-on Application 📄',
+      `${req.user.company_name || req.user.full_name} submitted a new add-on application with ${products.length} product(s).`
+    );
+
+    // Email Contact Person
+    await sendContactEmail({
+      contactEmail: contact_email,
+      contactName: contact_name,
+      subject: '✅ HFA Add-on Application Submitted',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your add-on product application has been successfully submitted and is now <strong>under review</strong> by the HFA team.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          <strong>Products submitted: ${products.length}</strong>
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">We will notify you at this email address at every stage of the process.</p>
+      `
+    });
 
     res.status(201).json({ data });
   } catch (err) {
@@ -126,14 +199,13 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/add-on-applications — get applications (filtered based on role)
+// ─── GET /api/add-on-applications ────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
       query.client_id = req.user._id;
     } else if (req.user.role === 'food_tech') {
-      // Enforce route-level role-scoping: food_tech can only see what is assigned to them
       query.assigned_food_tech = req.user._id;
     }
 
@@ -149,19 +221,17 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/add-on-applications/:id — get single application details
+// ─── GET /api/add-on-applications/:id ────────────────────────────────────────
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id)
       .populate('client_id', 'company_name full_name email phone')
       .populate('certificate_id', 'certificate_number products_covered')
-      .populate('assigned_food_tech', 'full_name email phone');
+      .populate('assigned_food_tech', 'full_name email phone')
+      .populate('logsheet_id');
 
-    if (!app) {
-      return res.status(404).json({ error: 'Add-on application not found' });
-    }
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    // Role scoping checks
     if (req.user.role === 'client' && app.client_id._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -175,116 +245,368 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/add-on-applications/:id/review — Approve/Reject by manager
+// ─── PUT /api/add-on-applications/:id/review ─────────────────────────────────
+// Admin: Accept Or Reject
 router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
-    const { status, rejection_reason, food_tech_manager_notes } = req.body;
-    if (!['approved', 'rejected', 'under_review'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid review status.' });
+    const { decision, rejection_reason, notes } = req.body;
+    if (!['accepted', 'rejected'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be "accepted" or "rejected".' });
+    }
+    if (decision === 'rejected' && !rejection_reason?.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required.' });
     }
 
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+    if (app.status !== 'submitted') {
+      return res.status(400).json({ error: 'This application has already been reviewed.' });
+    }
 
-    app.status = status;
+    app.status = decision;
     if (rejection_reason) app.rejection_reason = rejection_reason;
-    if (food_tech_manager_notes) app.food_tech_manager_notes = food_tech_manager_notes;
-
-    app.statusHistory.push({
-      status,
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: status === 'rejected' ? `Rejected: ${rejection_reason}` : 'Approved by Food Tech Manager'
-    });
+    if (notes) app.notes = notes;
+    await pushHistory(app, decision, decision === 'rejected' ? `Rejected: ${rejection_reason}` : 'Application accepted by admin.', req.user._id);
 
     const data = await app.save();
-
-    // Emit socket event
     emitAddOnUpdate(data, 'reviewed');
+
+    const isAccepted = decision === 'accepted';
 
     // Notify client
     const client = await User.findById(app.client_id);
     if (client) {
       await createNotification(
         client._id,
-        status === 'approved' ? 'Add-on Approved! 👍' : 'Add-on Rejected ❌',
-        status === 'approved' 
-          ? `Your product add-on request has been approved. HFA will assign an inspector shortly.` 
-          : `Your product add-on request has been rejected. Reason: ${rejection_reason}`,
-        status === 'approved' ? 'success' : 'error',
+        isAccepted ? 'Add-on Application Accepted 👍' : 'Add-on Application Rejected ❌',
+        isAccepted ? 'Your add-on application has been accepted.' : `Your add-on application was rejected. Reason: ${rejection_reason}`,
+        isAccepted ? 'success' : 'error',
         '/addon-applications'
       );
+    }
 
-      // Email notification
-      try {
-        await resend.emails.send({
-          from: emailFrom,
-          to: client.email,
-          subject: status === 'approved' ? '👍 HFA Add-on Application Approved' : '❌ HFA Add-on Application Rejected',
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
-              <h2 style="color:#166534">Hello, ${client.full_name}!</h2>
-              <p>Your add-on request of type <strong>${app.action_type}</strong> has been <strong>${status}</strong>.</p>
-              ${status === 'rejected' ? `<p style="color:#dc2626"><strong>Reason for Rejection:</strong> ${rejection_reason}</p>` : ''}
-              <p style="margin-top:20px;font-size:12px;color:#64748b">Please log in to the HFA portal to check details.</p>
-            </div>
-          `
-        });
-      } catch (err) {
-        console.error('Failed to send review email:', err);
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: isAccepted ? '✅ HFA Add-on Application Accepted' : '❌ HFA Add-on Application Rejected',
+      bodyHtml: isAccepted
+        ? `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on product application has been <strong>accepted</strong>. HFA will now assign a Food Technologies staff member to your application.</p>`
+        : `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on product application has been <strong>rejected</strong>.</p>
+           <p style="font-size:14px;color:#dc2626;line-height:1.6"><strong>Reason:</strong> ${rejection_reason}</p>
+           <p style="font-size:14px;color:#334155;line-height:1.6">Please contact HFA if you have any questions.</p>`
+    });
+
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/assign-ft ──────────────────────────────
+// Admin: Assign FT
+router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+  try {
+    const { assigned_food_tech } = req.body;
+    if (!assigned_food_tech) return res.status(400).json({ error: 'Food Technologies staff ID is required.' });
+
+    const ft = await User.findOne({ _id: assigned_food_tech, role: 'food_tech' });
+    if (!ft) return res.status(400).json({ error: 'Selected user is not a Food Technologies staff member.' });
+
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+    if (app.status !== 'accepted') {
+      return res.status(400).json({ error: 'Application must be in "accepted" status to assign FT.' });
+    }
+
+    app.assigned_food_tech = assigned_food_tech;
+    app.status = 'ft_assigned';
+    await pushHistory(app, 'ft_assigned', `FT assigned: ${ft.full_name}`, req.user._id);
+
+    const data = await app.save();
+    emitAddOnUpdate(data, 'ft_assigned');
+
+    // Notify FT
+    await sendContactEmail({
+      contactEmail: ft.email,
+      contactName: ft.full_name,
+      subject: '🔍 New Add-on Application FT Assignment',
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as the Food Technologies staff member for a new Add-on Product Application. Please log in to the HFA Admin Portal to proceed.</p>`
+    });
+
+    // Notify contact person
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '👷 HFA: Food Technologies Staff Assigned',
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">A Food Technologies staff member has been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
+    });
+
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/enable-form ────────────────────────────
+// Admin: Enable Product Approval Form (upload PDF or write text, send to client)
+router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin, upload.single('form_file'), async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+    if (app.status !== 'ft_assigned') {
+      return res.status(400).json({ error: 'FT must be assigned before enabling the Product Approval Form.' });
+    }
+
+    const { form_text } = req.body;
+    let form_file_url = null;
+
+    if (req.file) {
+      form_file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    if (!form_file_url && !form_text?.trim()) {
+      return res.status(400).json({ error: 'You must either upload a form document or write form text content.' });
+    }
+
+    app.product_approval_form = {
+      form_file_url: form_file_url || undefined,
+      form_text: form_text?.trim() || undefined,
+      sent_at: new Date()
+    };
+    app.status = 'product_approval_form_enabled';
+    await pushHistory(app, 'product_approval_form_enabled', 'Product Approval Form enabled and sent to client.', req.user._id);
+
+    const data = await app.save();
+    emitAddOnUpdate(data, 'form_enabled');
+
+    // Notify client
+    const client = await User.findById(app.client_id);
+    if (client) {
+      await createNotification(
+        client._id,
+        'Product Approval Form Ready 📋',
+        'Your Product Approval Form is ready. Please log in to review and submit your response.',
+        'info',
+        '/addon-applications'
+      );
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '📋 HFA: Product Approval Form Enabled — Action Required',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your <strong>Product Approval Form</strong> has been prepared and is now available for you to review and complete.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Please log in to the HFA Client Portal, open your add-on application, and submit your completed response to the form.
+        </p>
+        <p style="font-size:14px;color:#dc2626;font-weight:700;line-height:1.6">
+          ⚠️ Action Required: Your application cannot progress until you submit the completed form.
+        </p>
+      `
+    });
+
+    res.json({ data, message: 'Product Approval Form enabled and sent to client.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/submit-form ────────────────────────────
+// Client: Submit Product Approval Form response (upload file or write text)
+router.put('/:id/submit-form', authenticateToken, upload.single('response_file'), async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    // Only the owning client can submit
+    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    if (app.status !== 'product_approval_form_enabled') {
+      return res.status(400).json({ error: 'The Product Approval Form is not currently enabled for this application.' });
+    }
+
+    const { response_text } = req.body;
+    let response_url = null;
+
+    if (req.file) {
+      response_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    if (!response_url && !response_text?.trim()) {
+      return res.status(400).json({ error: 'Please upload your completed form document or write your response text.' });
+    }
+
+    app.product_approval_form = {
+      ...app.product_approval_form,
+      client_response_url: response_url || app.product_approval_form?.client_response_url,
+      client_response_text: response_text?.trim() || app.product_approval_form?.client_response_text,
+      submitted_at: new Date()
+    };
+    app.status = 'all_forms_received';
+    await pushHistory(app, 'all_forms_received', 'Client submitted Product Approval Form response.', req.user._id);
+
+    const data = await app.save();
+    emitAddOnUpdate(data, 'form_submitted');
+
+    // Notify admins
+    await notifyAdmins(
+      'Product Approval Form Received 📋',
+      `Client has submitted their Product Approval Form response for add-on application.`
+    );
+
+    // Confirm to contact person
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '✅ HFA: Product Approval Form Response Received',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your Product Approval Form response has been successfully received by HFA. Our team will review your submission and proceed to the next stage.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">You will be notified when your application progresses.</p>
+      `
+    });
+
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/add-on-applications/:id/create-logsheet ───────────────────────
+// Admin: Create Logsheet (reuses ApplicationLogsheet infrastructure with source_type=addon_application)
+router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id)
+      .populate('client_id', 'company_name full_name email')
+      .populate('certificate_id', 'certificate_number issue_date expiry_date');
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+    if (app.status !== 'all_forms_received') {
+      return res.status(400).json({ error: 'All Product Approval Forms must be received before creating a logsheet.' });
+    }
+
+    // Check if logsheet already exists
+    const existing = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
+    if (existing) {
+      return res.status(409).json({ error: 'A logsheet already exists for this add-on application.', data: existing });
+    }
+
+    const { ...logsheetData } = req.body;
+
+    const logsheet = new ApplicationLogsheet({
+      source_type: 'addon_application',
+      addon_application_id: app._id,
+      client_id: app.client_id._id,
+      company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
+      contact_person: logsheetData.contact_person || app.contact_name,
+      contact_email: logsheetData.contact_email || app.contact_email,
+      ...logsheetData,
+      status: 'Waiting for Signature'
+    });
+
+    await logsheet.save();
+
+    app.logsheet_id = logsheet._id;
+    app.status = 'logsheet_created';
+    await pushHistory(app, 'logsheet_created', 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
+
+    const data = await app.save();
+    emitAddOnUpdate(data, 'logsheet_created');
+
+    // Send signatory email notifications (reuse LOGSHEET_SIGNATORY_EMAILS pattern)
+    const addresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+    const loginUrl = `${process.env.ADMIN_URL || 'http://localhost:5175'}/login`;
+    if (addresses.length > 0) {
+      for (const addr of addresses) {
+        try {
+          await resend.emails.send({
+            from: emailFrom,
+            to: addr,
+            subject: `LogSheet Signature Required — Add-on Application (${app.client_id?.company_name || app.client_id?.full_name})`,
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px">
+                <div style="background:linear-gradient(135deg,#0e7490,#0891b2);border-radius:8px 8px 0 0;padding:24px;text-align:center;color:white">
+                  <h2 style="margin:0;font-size:22px;font-weight:800">Halal Food Authority</h2>
+                  <p style="margin:4px 0 0;font-size:14px;opacity:0.9">Add-on Application LogSheet Signature Request</p>
+                </div>
+                <div style="padding:24px;background:white;border-radius:0 0 8px 8px">
+                  <h3 style="color:#1e293b;margin-top:0">Your Signature is Required</h3>
+                  <p style="font-size:14px;color:#475569;line-height:1.6">
+                    A Logsheet has been created for an <strong>Add-on Product Application</strong> and requires Shari'a Board signatures before proceeding.
+                  </p>
+                  <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:20px 0">
+                    <strong style="font-size:13px">Company:</strong> ${app.client_id?.company_name || app.client_id?.full_name}<br/>
+                    <strong style="font-size:13px">Products:</strong> ${app.products?.length} product(s)
+                  </div>
+                  <div style="text-align:center;margin-top:24px">
+                    <a href="${loginUrl}" style="display:inline-block;padding:12px 28px;background:#0e7490;color:white;text-decoration:none;border-radius:6px;font-weight:700;font-size:14px">Log In to Sign LogSheet</a>
+                  </div>
+                </div>
+              </div>
+            `
+          });
+        } catch (e) {
+          console.error(`[AddOn] Failed to send signatory email to ${addr}:`, e.message);
+        }
       }
     }
 
-    res.json({ data });
+    // Notify contact person
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '📋 HFA: Logsheet Created — Awaiting Shari\'a Board Signature',
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on application is progressing. A Logsheet has been created and is now awaiting the Shari'a Board signature. You will be notified once the approval is complete.</p>`
+    });
+
+    res.status(201).json({ data: logsheet, addon: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/add-on-applications/:id/assign — Assign inspector
-router.put('/:id/assign', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// ─── GET /api/add-on-applications/:id/logsheet ───────────────────────────────
+// Get the logsheet associated with this add-on application
+router.get('/:id/logsheet', authenticateToken, async (req, res) => {
   try {
-    const { assigned_food_tech } = req.body;
-    if (!assigned_food_tech) return res.status(400).json({ error: 'Assigned food tech inspector is required.' });
+    if (req.user.role === 'client') return res.status(403).json({ error: 'Access denied' });
 
-    const inspector = await User.findOne({ _id: assigned_food_tech, role: 'food_tech' });
-    if (!inspector) return res.status(400).json({ error: 'Invalid food tech inspector selected.' });
+    const logsheet = await ApplicationLogsheet.findOne({ addon_application_id: req.params.id });
+    if (!logsheet) return res.status(404).json({ error: 'No logsheet found for this application' });
+    res.json({ data: logsheet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
+// ─── PUT /api/add-on-applications/:id/sharia-signed ──────────────────────────
+// Called internally (or by logsheet sign-off) when logsheet reaches 3/4 signatures
+// This transitions add-on status to waiting_sharia_signature → product_form_approved
+router.put('/:id/sharia-signed', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+  try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    app.assigned_food_tech = assigned_food_tech;
-    app.status = 'inspection_assigned';
-    app.statusHistory.push({
-      status: 'inspection_assigned',
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: `Assigned to inspector: ${inspector.full_name}`
-    });
+    if (!['logsheet_created', 'waiting_sharia_signature'].includes(app.status)) {
+      return res.status(400).json({ error: 'Application must be in logsheet_created or waiting_sharia_signature status.' });
+    }
+
+    app.status = 'product_form_approved';
+    await pushHistory(app, 'product_form_approved', 'Shari\'a Board signature complete. Product Form Approved.', req.user._id);
 
     const data = await app.save();
+    emitAddOnUpdate(data, 'product_form_approved');
 
-    // Emit socket event
-    emitAddOnUpdate(data, 'assigned');
-
-    // Send email to inspector
-    try {
-      await resend.emails.send({
-        from: emailFrom,
-        to: inspector.email,
-        subject: '🔍 New Add-on Inspection Assignment',
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
-            <h2 style="color:#166534">Hello, ${inspector.full_name}!</h2>
-            <p>You have been assigned to conduct an inspection for a product add-on application.</p>
-            <p><strong>Action required:</strong> Please coordinate the inspection and submit your reports inside the portal.</p>
-            <p style="margin-top:20px;font-size:12px;color:#64748b">Halal Food Authority</p>
-          </div>
-        `
-      });
-    } catch (err) {
-      console.error('Failed to send inspector email:', err);
-    }
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '✅ HFA: Product Form Approved',
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Great news! Your Product Form has been approved by the Shari'a Board. Your application is now ready for the final certificate update.</p>`
+    });
 
     res.json({ data });
   } catch (err) {
@@ -292,107 +614,109 @@ router.put('/:id/assign', authenticateToken, requireFoodTechManagerOrAdmin, asyn
   }
 });
 
-// PUT /api/add-on-applications/:id/inspect — Submit inspection notes by assigned inspector
-router.put('/:id/inspect', authenticateToken, requireStaff, async (req, res) => {
+// ─── PUT /api/add-on-applications/:id/approve-form ───────────────────────────
+// Admin: Approve Product Form (manual approval action after logsheet sign-off)
+router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
-    const { inspection_notes } = req.body;
-    if (!inspection_notes?.trim()) return res.status(400).json({ error: 'Inspection notes are required.' });
-
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    // Enforce route-level scoping: food_tech user must be the assigned inspector
-    if (req.user.role === 'food_tech' && app.assigned_food_tech?.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied. You are not the assigned inspector for this application.' });
+    if (!['logsheet_created', 'waiting_sharia_signature', 'all_forms_received'].includes(app.status)) {
+      return res.status(400).json({ error: 'Logsheet must exist before approving the product form.' });
     }
 
-    app.inspection_notes = inspection_notes;
-    app.status = 'inspection_completed';
-    app.statusHistory.push({
-      status: 'inspection_completed',
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: 'Inspection completed and report submitted.'
+    app.status = 'product_form_approved';
+    await pushHistory(app, 'product_form_approved', 'Product Form approved by admin.', req.user._id);
+    const data = await app.save();
+    emitAddOnUpdate(data, 'product_form_approved');
+
+    // Also advance to ready_for_certificate immediately
+    app.status = 'ready_for_certificate';
+    await pushHistory(app, 'ready_for_certificate', 'Application ready for final certificate update.', req.user._id);
+    const finalData = await app.save();
+    emitAddOnUpdate(finalData, 'ready_for_certificate');
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '🎉 HFA: Product Form Approved — Ready for Certificate',
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Your Product Form has been approved. Your application is now <strong>Ready for Certificate</strong> — the HFA team will complete the final update to your certificate shortly.</p>`
     });
 
-    const data = await app.save();
-
-    // Emit socket event
-    emitAddOnUpdate(data, 'inspected');
-
-    // Notify managers
-    const managers = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } });
-    for (const m of managers) {
-      await createNotification(
-        m._id,
-        'Inspection Complete 🔍',
-        `Inspector ${req.user.full_name} has completed the inspection report for an add-on request.`,
-        'success',
-        '/addon-applications'
-      );
-    }
-
-    res.json({ data });
+    res.json({ data: finalData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/add-on-applications/:id/complete — Final completion & update certificate
+// ─── PUT /api/add-on-applications/:id/complete ───────────────────────────────
+// Admin: Issue Certificate — applies all product changes to Certificate.products_covered and regenerates PDF
 router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-
-    if (app.status !== 'inspection_completed') {
-      return res.status(400).json({ error: 'Cannot complete application before inspection is completed.' });
+    if (app.status !== 'ready_for_certificate') {
+      return res.status(400).json({ error: 'Application must be in "Ready for Certificate" status before completing.' });
     }
 
     const cert = await Certificate.findById(app.certificate_id);
-    if (!cert) return res.status(404).json({ error: 'Linked Certificate not found.' });
+    if (!cert) return res.status(404).json({ error: 'Linked certificate not found.' });
 
-    // Perform Certificate Products Covered array changes
-    let products = Array.isArray(cert.products_covered) ? cert.products_covered : [];
+    let products = Array.isArray(cert.products_covered) ? [...cert.products_covered] : [];
 
-    if (app.action_type === 'add') {
-      if (app.new_product_name && !products.includes(app.new_product_name)) {
-        products.push(app.new_product_name);
+    // Apply each product entry's action to the certificate's products_covered array
+    for (const p of app.products) {
+      if (p.type === 'Add product') {
+        if (p.name && !products.includes(p.name)) {
+          products.push(p.name);
+        }
+      } else if (p.type === 'Remove product') {
+        products = products.filter(pr => pr !== p.name);
+      } else if (p.type === 'Change name/code') {
+        products = products.map(pr => pr === p.name ? (p.code ? `${p.code} - ${p.name}` : p.name) : pr);
+      } else if (p.type === 'Change ingredients') {
+        // Ingredients change doesn't alter the product name on the certificate
+        // Record in history only
       }
-    } else if (app.action_type === 'remove') {
-      products = products.filter(p => p !== app.product_name);
-    } else if (app.action_type === 'change_name') {
-      products = products.map(p => p === app.product_name ? app.new_product_name : p);
     }
 
     cert.products_covered = products;
     cert.updated_at = new Date();
     await cert.save();
 
-    // Mark AddOnApplication completed
     app.status = 'completed';
-    app.statusHistory.push({
-      status: 'completed',
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: `Application finalized. Certificate ${cert.certificate_number} product list updated.`
-    });
-
+    await pushHistory(app, 'completed', `Completed. Certificate ${cert.certificate_number} product list updated.`, req.user._id);
     const data = await app.save();
-
-    // Emit socket event
     emitAddOnUpdate(data, 'completed');
 
-    // Regenerate the certificate PDF asynchronously
-    await regenerateCertPdf(cert);
+    // Regenerate PDF async
+    regenerateCertPdf(cert);
 
     // Notify client
-    await createNotification(
-      app.client_id,
-      'Add-on Finalized! 🎉',
-      `Your product add-on request has been finalized and your Certificate (${cert.certificate_number}) updated.`,
-      'success',
-      '/certificates'
-    );
+    const client = await User.findById(app.client_id);
+    if (client) {
+      await createNotification(
+        client._id,
+        'Add-on Application Completed! 🎉',
+        `Your add-on application is complete. Certificate ${cert.certificate_number} has been updated.`,
+        'success',
+        '/certificates'
+      );
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '🎉 HFA: Certificate Updated — Add-on Application Complete',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your add-on product application has been <strong>completed</strong>.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your certificate (<strong>${cert.certificate_number}</strong>) has been updated with the requested product changes. An updated certificate document will be available shortly in your portal.
+        </p>
+      `
+    });
 
     res.json({ data });
   } catch (err) {

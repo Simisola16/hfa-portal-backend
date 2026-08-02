@@ -1,33 +1,90 @@
 import mongoose from 'mongoose';
 
+const addOnProductSchema = new mongoose.Schema({
+  sn: { type: Number }, // auto-numbered on save
+  name: { type: String, required: true },
+  code: { type: String },
+  type: {
+    type: String,
+    enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients'],
+    required: true
+  }
+}, { _id: false });
+
 const addOnApplicationSchema = new mongoose.Schema({
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', required: true },
+
+  // Contact Person (receives email at every stage — may differ from the client account email)
   contact_name: { type: String, required: true },
   contact_email: { type: String, required: true },
   contact_phone: { type: String },
-  action_type: { type: String, enum: ['add', 'remove', 'change_name'], required: true },
-  product_name: { type: String }, // Required for 'remove' and 'change_name'
-  new_product_name: { type: String }, // Required for 'add' and 'change_name'
-  status: { 
-    type: String, 
-    enum: ['submitted', 'under_review', 'rejected', 'approved', 'inspection_assigned', 'inspection_completed', 'completed'], 
-    default: 'submitted' 
+
+  // Optional message from the client
+  message: { type: String },
+
+  // Multi-product table (one application can cover many products)
+  products: { type: [addOnProductSchema], default: [] },
+
+  // Canonical 10-state status flow
+  status: {
+    type: String,
+    enum: [
+      'submitted',
+      'accepted',
+      'rejected',
+      'ft_assigned',
+      'product_approval_form_enabled',
+      'all_forms_received',
+      'logsheet_created',
+      'waiting_sharia_signature',
+      'product_form_approved',
+      'ready_for_certificate',
+      'completed'
+    ],
+    default: 'submitted'
   },
+
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     note: String
   }],
-  assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  food_tech_manager_notes: String,
+
+  // Admin decision
   rejection_reason: String,
-  inspection_notes: String
-}, { 
+  notes: String, // internal admin notes
+
+  // FT assignment (Assign FT step)
+  assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Product Approval Form — ONE form per application
+  // Admin creates it (file or text), client submits their response (file or text)
+  product_approval_form: {
+    form_file_url: String,   // Admin uploads a PDF template/document
+    form_text: String,       // OR admin writes the form text directly
+    sent_at: Date,
+    client_response_url: String,  // Client uploads their completed form back
+    client_response_text: String, // OR client types their response
+    submitted_at: Date
+  },
+
+  // Linked logsheet (once admin creates it in the "Create Logsheet" step)
+  logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet' }
+
+}, {
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
+});
+
+// Auto-number products on save
+addOnApplicationSchema.pre('save', function(next) {
+  if (this.products && this.products.length > 0) {
+    this.products.forEach((p, i) => { p.sn = i + 1; });
+  }
+  next();
 });
 
 export default mongoose.model('AddOnApplication', addOnApplicationSchema);

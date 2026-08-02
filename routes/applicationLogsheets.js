@@ -281,8 +281,25 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       logsheet.status = 'Waiting For Certificate';
       await logsheet.save();
 
-      // Update the linked application to application_successful (canonical milestone after logsheet sign-off)
-      if (logsheet.application_id) {
+      // Handle add-on application logsheets separately
+      if (logsheet.source_type === 'addon_application' && logsheet.addon_application_id) {
+        try {
+          const { default: AddOnApplication } = await import('../models/AddOnApplication.js');
+          const addonApp = await AddOnApplication.findById(logsheet.addon_application_id);
+          if (addonApp) {
+            addonApp.status = 'product_form_approved';
+            addonApp.statusHistory.push({ status: 'product_form_approved', changedAt: new Date(), changedBy: req.user._id, note: `Shari'a Board logsheet signed (${sigCount}/4). Product Form Approved.` });
+            addonApp.status = 'ready_for_certificate';
+            addonApp.statusHistory.push({ status: 'ready_for_certificate', changedAt: new Date(), changedBy: req.user._id, note: 'Ready for Certificate — logsheet complete.' });
+            await addonApp.save();
+          }
+        } catch (addonErr) {
+          console.error('[Logsheet] Failed to update add-on application after sign-off:', addonErr.message);
+        }
+      }
+
+      // Update the linked main application to application_successful (canonical milestone after logsheet sign-off)
+      if (logsheet.source_type !== 'addon_application' && logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const app = await Application.findByIdAndUpdate(
           appId,
