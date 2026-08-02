@@ -285,13 +285,17 @@ router.post('/login', async (req, res) => {
 router.post('/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    // Look up by username only — this field only exists on admin accounts
-    const user = await User.findOne({ username });
+    // Look up by username or email for staff accounts
+    const searchVal = username?.trim();
+    const user = await User.findOne({
+      $or: [
+        { username: searchVal },
+        { email: searchVal?.toLowerCase() }
+      ]
+    });
 
-    // Reject if: user not found, wrong password, OR not an admin/superadmin role.
-    // Use a single generic message to avoid info leakage.
     if (!user || !['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(user.role) || !(await user.comparePassword(password))) {
-      return res.status(401).json({ error: 'Invalid admin credentials' });
+      return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });

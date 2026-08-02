@@ -9,17 +9,17 @@ import { createNotification } from '../lib/notifications.js';
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const { email, password, full_name, role, username } = req.body;
+  const isStaffRole = ['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
+  if (isStaffRole && !username?.trim()) {
+    return res.status(400).json({ error: 'Username is required for HFA Staff accounts.' });
+  }
+
   try {
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: 'Email already exists' });
-    const cleanUsername = username && username.trim() ? username.trim().toLowerCase() : undefined;
-    if (cleanUsername) {
-      const existingUser = await User.findOne({ username: cleanUsername });
+    if (username?.trim()) {
+      const existingUser = await User.findOne({ username: username.trim() });
       if (existingUser) return res.status(400).json({ error: 'Username already exists' });
-    }
-
-    if (['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(role) && !cleanUsername) {
-      return res.status(400).json({ error: 'Username is required for HFA staff accounts.' });
     }
 
     const user = new User({
@@ -27,7 +27,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       password,
       full_name,
       role: role || 'client',
-      username: cleanUsername,
+      username: username || undefined,
       is_verified: true,
       is_active: true
     });
