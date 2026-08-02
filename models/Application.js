@@ -58,6 +58,7 @@ const applicationSchema = new mongoose.Schema({
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     note: { type: String, default: '' },
   }],
+  renewed_certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', default: null },
   documents: {
     halal_policy: String,
     ingredient_list: String,

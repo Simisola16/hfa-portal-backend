@@ -464,4 +464,152 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/applications/renew — client submits a renewal for an expired/expiring certificate
+router.post('/renew', authenticateToken, upload.fields([
+  { name: 'supporting_docs', maxCount: 10 },
+]), async (req, res) => {
+  try {
+    const { certificate_id, contact_person } = req.body;
+
+    if (!certificate_id) return res.status(400).json({ error: 'certificate_id is required.' });
+    if (!contact_person?.trim()) return res.status(400).json({ error: 'Contact person name is required.' });
+
+    // Load the certificate
+    const cert = await Certificate.findById(certificate_id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
+
+    // Only the certificate owner may renew
+    if (cert.client_id !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You can only renew your own certificates.' });
+    }
+
+    // Gate: certificate must be expired OR expiring within 90 days
+    const now = new Date();
+    const ninetyDays = 90 * 24 * 60 * 60 * 1000;
+    const isExpired = cert.status === 'expired' || (cert.expiry_date && new Date(cert.expiry_date) < now);
+    const isExpiringSoon = cert.expiry_date && (new Date(cert.expiry_date) - now) <= ninetyDays;
+
+    if (!isExpired && !isExpiringSoon) {
+      const expiryStr = cert.expiry_date
+        ? new Date(cert.expiry_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'unknown';
+      return res.status(400).json({
+        error: `This certificate is still active and not due for renewal yet (valid until ${expiryStr}). Renewal applications can only be submitted within 90 days of expiry or after expiry.`
+      });
+    }
+
+    // Gate: no ongoing application for this site
+    if (cert.site_id) {
+      const ongoingApp = await Application.findOne({
+        site_id: cert.site_id,
+        client_id: req.user._id,
+        status: { $nin: ['rejected', 'certificate_issued'] }
+      });
+      if (ongoingApp) {
+        return res.status(400).json({
+          error: `This site already has an application in progress (#${ongoingApp.application_number} – status: ${ongoingApp.status.replace(/_/g, ' ')}). Please wait for it to complete before submitting a renewal.`
+        });
+      }
+    }
+
+    // Pull original application data to pre-fill the renewal
+    const originalApp = await Application.findOne({ application_id: cert.application_id })
+      || await Application.findById(cert.application_id);
+
+    // Upload supporting documents
+    const uploadedDocs = [];
+    if (req.files?.supporting_docs) {
+      for (const f of req.files.supporting_docs) {
+        const url = await uploadToGridFS(f.buffer, f.originalname, f.mimetype);
+        uploadedDocs.push(url);
+      }
+    }
+
+    const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
+
+    const application = new Application({
+      application_number: appNumber,
+      client_id: req.user._id,
+      application_type: 'renewal',
+      renewed_certificate_id: cert._id,
+      category: originalApp?.category || cert.certificate_type || 'Annual Certification – Food and General processing',
+      site_id: cert.site_id,
+      site_name: originalApp?.site_name || '',
+      establishment_name: originalApp?.establishment_name || req.user.company_name || '',
+      establishment_address: originalApp?.establishment_address || '',
+      managing_director: contact_person.trim(),
+      finance_contact: originalApp?.finance_contact || '',
+      qa_contact: originalApp?.qa_contact || '',
+      halal_coordinator: originalApp?.halal_coordinator || '',
+      production_contact: originalApp?.production_contact || '',
+      production_schedule: originalApp?.production_schedule || '',
+      employee_count: originalApp?.employee_count || 0,
+      has_porcine: originalApp?.has_porcine || false,
+      has_intoxicants: originalApp?.has_intoxicants || false,
+      porcine_details: originalApp?.porcine_details || '',
+      intoxicants_details: originalApp?.intoxicants_details || '',
+      scope: originalApp?.scope || cert.certificate_type || 'Halal Food Certification',
+      products: originalApp?.products || cert.products_covered?.map(p => ({ name: p, brand: '', category: '' })) || [],
+      documents: {
+        supporting_docs: uploadedDocs
+      },
+      declared_true: true,
+      notes: `Renewal of certificate ${cert.certificate_number}${cert.expiry_date ? ` (expired/expiring: ${new Date(cert.expiry_date).toLocaleDateString('en-GB')})` : ''}.`,
+      status: 'submitted',
+      statusHistory: [{
+        status: 'submitted',
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Renewal application submitted for certificate ${cert.certificate_number}.`,
+      }],
+    });
+
+    const data = await application.save();
+    emitApplicationUpdate(data, 'created');
+
+    // Confirmation email to client
+    try {
+      await resend.emails.send({
+        from: emailFrom,
+        to: req.user.email,
+        subject: `Renewal Application Received – ${appNumber}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
+            <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
+              <h1 style="color:white;margin:0">🔄 Renewal Submitted</h1>
+              <p style="color:#bbf7d0;margin:8px 0 0">Halal Food Authority</p>
+            </div>
+            <div style="background:white;border-radius:12px;padding:32px">
+              <h2 style="color:#166534;margin:0 0 16px">Renewal Application Received</h2>
+              <p style="color:#374151">Dear ${req.user.full_name},</p>
+              <p style="color:#374151">Your renewal application <strong>${appNumber}</strong> for certificate <strong>${cert.certificate_number}</strong> has been received and is under review.</p>
+              <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/applications" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">Track Application</a>
+            </div>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error('Renewal email error:', emailErr);
+    }
+
+    // Notify admins
+    const admins = await User.find({ role: { $in: ['admin', 'superadmin'] } });
+    for (const admin of admins) {
+      await createNotification(
+        admin._id,
+        '🔄 Renewal Application Received',
+        `A renewal application (${appNumber}) has been submitted by ${req.user.company_name || req.user.full_name} for certificate ${cert.certificate_number}.`,
+        'info',
+        `/applications?appId=${data._id}`
+      );
+    }
+
+    res.status(201).json({ data, message: 'Renewal application submitted successfully.' });
+  } catch (err) {
+    console.error('Renewal application error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+
