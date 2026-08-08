@@ -177,6 +177,72 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
   }
 });
 
+// POST /api/invoices/confirm-payment — admin confirms payment for application
+router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { application_id, invoice_id } = req.body;
+    let invoice = null;
+
+    if (invoice_id) {
+      invoice = await Invoice.findById(invoice_id);
+    }
+    if (!invoice && application_id) {
+      invoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
+    }
+
+    if (invoice) {
+      invoice.status = 'paid';
+      invoice.payment_date = new Date();
+      await invoice.save();
+    }
+
+    const targetAppId = application_id || invoice?.application_id;
+    let updatedApp = null;
+
+    if (targetAppId) {
+      const isFinal = invoice?.invoice_type === 'final' || invoice?.stage === 'final';
+      const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
+
+      const histEntry = {
+        status: targetStatus,
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice?.invoice_number || ''}.`,
+      };
+
+      const updateData = {
+        status: targetStatus,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      };
+
+      updatedApp = await Application.findByIdAndUpdate(
+        targetAppId,
+        updateData,
+        { new: true }
+      );
+      if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+    }
+
+    // Notify the client
+    const clientId = invoice?.client_id || updatedApp?.client_id;
+    if (clientId) {
+      await createNotification(
+        clientId,
+        'Payment Confirmed ✅',
+        `Your payment${invoice ? ` for invoice ${invoice.invoice_number}` : ''} has been confirmed by HFA. Your application will now proceed to the next stage.`,
+        'success',
+        '/applications'
+      );
+    }
+
+    res.json({ data: invoice, application: updatedApp });
+  } catch (err) {
+    console.error('Error confirming payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/invoices/:id/confirm-payment — admin confirms client payment
 router.put('/:id/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
   try {
