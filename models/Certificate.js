@@ -10,7 +10,9 @@ const certificateSchema = new mongoose.Schema({
   expiry_date: Date,
   products_covered: { type: [String], default: [] },
   certificate_url: String,
-  status: { type: String, enum: ['active', 'expired', 'revoked'], default: 'active' },
+  status: { type: String, enum: ['active', 'expired', 'revoked', 'renewed'], default: 'active' },
+  is_renewed: { type: Boolean, default: false },
+  renewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate' },
   revocation_reason: String,
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }

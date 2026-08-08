@@ -84,10 +84,10 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('application_id', 'establishment_name site_name scope')
       .sort({ createdAt: -1 });
 
-    // Auto-expire: mark any active certificate whose expiry_date is in the past
+    // Auto-expire: mark any active certificate whose expiry_date is in the past and not renewed
     const now = new Date();
     const expiredIds = data
-      .filter(c => c.status === 'active' && c.expiry_date && new Date(c.expiry_date) < now)
+      .filter(c => c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now)
       .map(c => c._id);
 
     if (expiredIds.length > 0) {
@@ -95,7 +95,6 @@ router.get('/', authenticateToken, async (req, res) => {
         { _id: { $in: expiredIds } },
         { $set: { status: 'expired', updated_at: now } }
       );
-      // Reflect the change in the returned data without a second DB round-trip
       data.forEach(c => {
         if (expiredIds.some(id => id.equals(c._id))) {
           c.status = 'expired';
@@ -159,6 +158,26 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     });
 
     const data = await certificate.save();
+
+    // If this is a renewal application, mark the old certificate as renewed
+    const app = await Application.findById(application_id);
+    if (app && (app.application_type === 'renewal' || app.renewed_certificate_id)) {
+      const oldCertId = app.renewed_certificate_id || (await Certificate.findOne({
+        site_id: app.site_id,
+        client_id,
+        _id: { $ne: data._id },
+        status: { $in: ['active', 'expired'] }
+      }).sort({ expiry_date: -1 }))?._id;
+
+      if (oldCertId) {
+        await Certificate.findByIdAndUpdate(oldCertId, {
+          status: 'renewed',
+          is_renewed: true,
+          renewed_by: data._id,
+          updated_at: new Date()
+        });
+      }
+    }
 
     // Update application status to certificate_issued with statusHistory entry
     await Application.findByIdAndUpdate(application_id, {

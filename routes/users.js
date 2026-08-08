@@ -79,12 +79,17 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     const update = {};
     if (is_active !== undefined) {
       update.is_active = is_active;
-      // If activating, clear suspension reason
-      if (is_active) update.suspension_reason = null;
+      if (is_active) {
+        update.is_verified = true;
+        update.suspension_reason = null;
+      }
     }
     if (status !== undefined) {
       update.is_active = (status === 'active');
-      if (status === 'active') update.suspension_reason = null;
+      if (status === 'active') {
+        update.is_verified = true;
+        update.suspension_reason = null;
+      }
     }
     if (suspension_reason !== undefined) {
       update.suspension_reason = suspension_reason;

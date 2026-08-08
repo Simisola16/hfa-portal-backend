@@ -119,11 +119,17 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     const clientReject = rejectClients(req, res);
     if (clientReject) return;
 
-    const logsheet = await ApplicationLogsheet.findOne({ application_id: req.params.appId })
+    const appId = req.params.appId;
+    let query = { $or: [{ application_id: appId }, { addon_application_id: appId }] };
+    if (mongoose.Types.ObjectId.isValid(appId)) {
+      query.$or.push({ _id: appId });
+    }
+
+    const logsheet = await ApplicationLogsheet.findOne(query)
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address');
     
-    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+    if (!logsheet) return res.json({ data: null });
     res.json({ data: logsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });

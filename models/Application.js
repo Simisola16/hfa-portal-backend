@@ -68,6 +68,24 @@ const applicationSchema = new mongoose.Schema({
   },
   inspector_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Inspector' },
   audit_date: Date,
+  audit_reports: [{
+    name: String,
+    url: String,
+    uploaded_at: { type: Date, default: Date.now },
+    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  }],
+  nc_reports: [{
+    text: String,
+    url: String,
+    client_response: String,
+    client_response_url: String,
+    client_responded_at: Date,
+    admin_reply: String,
+    admin_reply_at: Date,
+    admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    status: { type: String, enum: ['flagged', 'client_responded', 'admin_replied', 'closed'], default: 'flagged' },
+    flagged_at: { type: Date, default: Date.now }
+  }],
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 }, { 

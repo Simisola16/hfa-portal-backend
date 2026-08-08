@@ -23,6 +23,9 @@ const applicationLogsheetSchema = new mongoose.Schema({
   current_cycle_start: Date,
   original_cycle_start: Date,
   document_url: String, // from File upload
+  document_urls: [{ name: String, url: String, uploaded_at: { type: Date, default: Date.now } }],
+  audit_reports: [{ name: String, url: String, uploaded_at: { type: Date, default: Date.now } }],
+  nc_reports_files: [{ name: String, url: String, uploaded_at: { type: Date, default: Date.now } }],
 
   // Tab 2: Review of Application
   audit_type: String,
