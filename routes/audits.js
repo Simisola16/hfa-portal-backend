@@ -656,6 +656,138 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
   }
 });
 
+// POST /api/audits/nc-reply (Admin - Replies to NC correction / provides feedback)
+router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_document'), async (req, res) => {
+  try {
+    const { audit_id, application_id, reply_text } = req.body;
+    let reply_doc_url = null;
+    if (req.file) {
+      reply_doc_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    let audit = null;
+    if (audit_id) {
+      audit = await Audit.findById(audit_id);
+    } else if (application_id) {
+      audit = await Audit.findOne({ application_id }).sort({ created_at: -1 });
+    }
+
+    if (audit && audit.nc_reports && audit.nc_reports.length > 0) {
+      const report = audit.nc_reports[audit.nc_reports.length - 1];
+      report.admin_reply = reply_text || 'Admin reviewed your correction.';
+      report.admin_reply_at = new Date();
+      report.admin_reply_by = req.user._id;
+      if (reply_doc_url) report.admin_reply_document_url = reply_doc_url;
+      report.status = 'admin_replied';
+      await audit.save();
+    }
+
+    const appId = application_id || audit?.application_id;
+    if (appId) {
+      const app = await Application.findById(appId);
+      if (app) {
+        if (!app.nc_reports) app.nc_reports = [];
+        if (app.nc_reports.length > 0) {
+          const report = app.nc_reports[app.nc_reports.length - 1];
+          report.admin_reply = reply_text || 'Admin reviewed your correction.';
+          report.admin_reply_at = new Date();
+          report.admin_reply_by = req.user._id;
+          if (reply_doc_url) report.admin_reply_document_url = reply_doc_url;
+          report.status = 'admin_replied';
+        } else {
+          app.nc_reports.push({
+            text: 'Non-Conformity review',
+            admin_reply: reply_text || 'Admin reviewed your correction.',
+            admin_reply_at: new Date(),
+            admin_reply_by: req.user._id,
+            admin_reply_document_url: reply_doc_url,
+            status: 'admin_replied'
+          });
+        }
+        await app.save();
+        emitApplicationUpdate(app, 'nc_replied');
+
+        const clientId = app.client_id || app.user_id;
+        if (clientId) {
+          await createNotification(
+            clientId,
+            'HFA Admin Replied to Your NC Correction 💬',
+            `Admin has replied regarding your NC submission: "${reply_text ? reply_text.slice(0, 80) : 'See details in portal.'}"`,
+            'info',
+            '/applications'
+          );
+        }
+      }
+    }
+
+    res.json({ message: 'Admin reply submitted successfully', data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/audits/nc-close (Admin - Closes NC and advances application to NC Closed)
+router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { audit_id, application_id, note } = req.body;
+    let appId = application_id;
+    if (!appId && audit_id) {
+      const audit = await Audit.findById(audit_id);
+      if (audit) appId = audit.application_id;
+    }
+
+    if (!appId) return res.status(400).json({ error: 'Application ID is required' });
+
+    if (audit_id) {
+      const audit = await Audit.findById(audit_id);
+      if (audit && audit.nc_reports) {
+        audit.nc_reports.forEach(r => { r.status = 'closed'; });
+        await audit.save();
+      }
+    }
+
+    const updatedApp = await Application.findByIdAndUpdate(
+      appId,
+      {
+        status: 'nc_closed',
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'nc_closed',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: note || 'NC closed — all non-conformities reviewed and closed by admin.'
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (updatedApp) {
+      if (updatedApp.nc_reports) {
+        updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
+        await updatedApp.save();
+      }
+      emitApplicationUpdate(updatedApp, 'nc_closed');
+    }
+
+    const clientId = updatedApp?.client_id || updatedApp?.user_id;
+    if (clientId) {
+      await createNotification(
+        clientId,
+        'NC Closed — Non-Conformities Resolved ✅',
+        'Your Non-Conformity items have been reviewed, accepted, and closed by HFA admin.',
+        'success',
+        '/applications'
+      );
+    }
+
+    res.json({ data: updatedApp, message: 'NC Closed successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/audits/complete-clean (Admin - Marks audit stage completed)
 router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
   try {
