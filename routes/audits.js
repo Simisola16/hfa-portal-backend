@@ -527,83 +527,124 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
 });
 
 
-// POST /api/audits/flag-nc (Admin)
+// POST /api/audits/flag-nc (Admin - Flags an NC report)
 router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_document'), async (req, res) => {
   try {
-    const { audit_id, text } = req.body;
-    const audit = await Audit.findById(audit_id);
-    if (!audit) return res.status(404).json({ error: 'Audit not found' });
+    const { audit_id, application_id, text } = req.body;
+    let audit = null;
+
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id);
+    }
+
+    let appId = application_id || audit?.application_id;
+
+    if (!audit && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
+    }
+
+    let targetApp = null;
+    if (appId && mongoose.Types.ObjectId.isValid(appId)) {
+      targetApp = await Application.findById(appId);
+    } else if (audit?.application_id) {
+      targetApp = await Application.findById(audit.application_id);
+      appId = audit.application_id;
+    }
+
+    if (!targetApp && !audit) {
+      return res.status(404).json({ error: 'Audit or Application not found' });
+    }
+
+    // Auto-create audit document if it did not exist
+    if (!audit && targetApp) {
+      audit = new Audit({
+        application_id: targetApp._id,
+        client_id: targetApp.client_id?.toString() || targetApp.user_id?.toString(),
+        status: 'audit_completed',
+        stage: 1,
+        nc_reports: []
+      });
+    }
 
     let document_url = null;
     if (req.file) {
       document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
-    audit.nc_reports.push({
-      text,
+    const ncReportData = {
+      text: text || 'Non-Conformity flagged during audit inspection.',
       document_url,
       status: 'flagged',
       flagged_at: new Date()
-    });
-    
-    await audit.save();
-
-    // Update application status to on_hold so the client can see the NC on their timeline
-    const ncHistEntry = {
-      status: 'on_hold',
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: `Non-Conformity report flagged. Corrective action required: ${text || 'See audit report.'}`,
     };
-    const updatedApp = await Application.findByIdAndUpdate(
-      audit.application_id,
-      {
-        status: 'on_hold',
-        updated_at: new Date(),
-        $push: { statusHistory: ncHistEntry }
-      },
-      { new: true }
-    );
-    if (updatedApp) emitApplicationUpdate(updatedApp, 'on_hold');
 
-    await createNotification(
-      audit.client_id,
-      'Non-Conformity Report Flagged ⚠️',
-      'An NC report has been flagged during your audit. Please upload corrective actions.',
-      'warning',
-      '/applications'
-    );
+    if (audit) {
+      if (!audit.nc_reports) audit.nc_reports = [];
+      audit.nc_reports.push(ncReportData);
+      await audit.save();
+    }
 
-    const appRef = updatedApp?.application_number || 'HFA Audit';
-    await sendClientEmail(
-      audit.client_id,
-      `Action Required: Non-Conformity (NC) Report Flagged (${appRef}) ⚠️`,
-      `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #fecaca; border-radius: 12px;">
-          <div style="background: linear-gradient(135deg, #dc2626, #991b1b); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
-            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
-            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Urgent: Non-Conformity Report Flagged</p>
-          </div>
-          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
-            <h3 style="color: #991b1b; margin-top: 0;">Corrective Action Required</h3>
-            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-              A Non-Conformity (NC) report has been flagged during your audit for application <strong>${appRef}</strong>. Corrective action is required before your certification can proceed.
-            </p>
-            <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; margin: 20px 0;">
-              <h4 style="margin: 0 0 8px 0; color: #991b1b; font-size: 13px; text-transform: uppercase;">Auditor Findings</h4>
-              <p style="margin: 0; font-size: 14px; color: #7f1d1d;">${text || 'Non-Conformity flagged during audit.'}</p>
+    if (targetApp) {
+      if (!targetApp.nc_reports) targetApp.nc_reports = [];
+      targetApp.nc_reports.push({
+        text: text || 'Non-Conformity flagged during audit inspection.',
+        url: document_url,
+        status: 'flagged',
+        flagged_at: new Date()
+      });
+      targetApp.status = 'nc_flagged';
+      targetApp.updated_at = new Date();
+      targetApp.statusHistory.push({
+        status: 'nc_flagged',
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Non-Conformity report flagged: ${text || 'Corrective action required.'}`
+      });
+      await targetApp.save();
+      emitApplicationUpdate(targetApp, 'nc_flagged');
+
+      const clientId = targetApp.client_id || targetApp.user_id;
+      if (clientId) {
+        await createNotification(
+          clientId,
+          'Non-Conformity Report Flagged ⚠️',
+          'An NC report has been flagged during your audit. Please upload corrective actions.',
+          'warning',
+          '/applications'
+        );
+
+        const appRef = targetApp.application_number || 'HFA Audit';
+        await sendClientEmail(
+          clientId,
+          `Action Required: Non-Conformity (NC) Report Flagged (${appRef}) ⚠️`,
+          `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #fecaca; border-radius: 12px;">
+              <div style="background: linear-gradient(135deg, #dc2626, #991b1b); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Urgent: Non-Conformity Report Flagged</p>
+              </div>
+              <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+                <h3 style="color: #991b1b; margin-top: 0;">Corrective Action Required</h3>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  A Non-Conformity (NC) report has been flagged during your audit for application <strong>${appRef}</strong>. Corrective action is required before your certification can proceed.
+                </p>
+                <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; margin: 20px 0;">
+                  <h4 style="margin: 0 0 8px 0; color: #991b1b; font-size: 13px; text-transform: uppercase;">Auditor Findings</h4>
+                  <p style="margin: 0; font-size: 14px; color: #7f1d1d;">${text || 'Non-Conformity flagged during audit.'}</p>
+                </div>
+                <div style="text-align: center; margin-top: 24px;">
+                  <a href="${clientPortalUrl}/applications" style="display: inline-block; padding: 12px 24px; background-color: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                    Upload NC Correction
+                  </a>
+                </div>
+              </div>
             </div>
-            <div style="text-align: center; margin-top: 24px;">
-              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
-                Upload NC Correction
-              </a>
-            </div>
-          </div>
-        </div>
-      `
-    );
+          `
+        );
+      }
+    }
 
-    res.json({ data: audit });
+    res.json({ data: audit, app: targetApp });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -612,12 +653,15 @@ router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_docum
 // POST /api/audits/resolve-nc (Client - Uploads NC Correction)
 router.post('/resolve-nc', authenticateToken, upload.single('correction_document'), async (req, res) => {
   try {
-    const { audit_id, report_id, response_text } = req.body;
-    const audit = await Audit.findById(audit_id);
-    if (!audit) return res.status(404).json({ error: 'Audit not found' });
+    const { audit_id, application_id, report_id, response_text } = req.body;
+    let audit = null;
 
-    if (audit.client_id !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id);
+    }
+    let appId = application_id || audit?.application_id;
+    if (!audit && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
     }
 
     let correction_document_url = null;
@@ -625,19 +669,35 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
       correction_document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
-    let report = report_id ? audit.nc_reports.id(report_id) : null;
-    if (!report && audit.nc_reports && audit.nc_reports.length > 0) {
-      report = audit.nc_reports.find(r => r.status === 'flagged') || audit.nc_reports[0];
+    if (audit) {
+      let report = report_id ? audit.nc_reports.id(report_id) : null;
+      if (!report && audit.nc_reports && audit.nc_reports.length > 0) {
+        report = audit.nc_reports.find(r => r.status === 'flagged') || audit.nc_reports[audit.nc_reports.length - 1];
+      }
+
+      if (report) {
+        report.status = 'corrected';
+        report.corrected_at = new Date();
+        if (response_text) report.client_response = response_text;
+        if (correction_document_url) report.correction_document_url = correction_document_url;
+      }
+      await audit.save();
     }
 
-    if (report) {
-      report.status = 'corrected';
-      report.corrected_at = new Date();
-      if (response_text) report.client_response = response_text;
-      if (correction_document_url) report.correction_document_url = correction_document_url;
+    if (appId && mongoose.Types.ObjectId.isValid(appId)) {
+      const app = await Application.findById(appId);
+      if (app) {
+        if (app.nc_reports && app.nc_reports.length > 0) {
+          const r = app.nc_reports[app.nc_reports.length - 1];
+          r.status = 'client_responded';
+          r.client_response = response_text;
+          if (correction_document_url) r.client_response_url = correction_document_url;
+          r.client_responded_at = new Date();
+        }
+        await app.save();
+        emitApplicationUpdate(app, 'nc_responded');
+      }
     }
-    
-    await audit.save();
 
     const admins = await User.find({ role: 'admin' });
     for (const admin of admins) {
@@ -666,10 +726,12 @@ router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_d
     }
 
     let audit = null;
-    if (audit_id) {
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
       audit = await Audit.findById(audit_id);
-    } else if (application_id) {
-      audit = await Audit.findOne({ application_id }).sort({ created_at: -1 });
+    }
+    let appId = application_id || audit?.application_id;
+    if (!audit && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
     }
 
     if (audit && audit.nc_reports && audit.nc_reports.length > 0) {
@@ -682,8 +744,7 @@ router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_d
       await audit.save();
     }
 
-    const appId = application_id || audit?.application_id;
-    if (appId) {
+    if (appId && mongoose.Types.ObjectId.isValid(appId)) {
       const app = await Application.findById(appId);
       if (app) {
         if (!app.nc_reports) app.nc_reports = [];
@@ -731,19 +792,18 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { audit_id, application_id, note } = req.body;
     let appId = application_id;
-    if (!appId && audit_id) {
-      const audit = await Audit.findById(audit_id);
+    let audit = null;
+
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id);
       if (audit) appId = audit.application_id;
     }
 
     if (!appId) return res.status(400).json({ error: 'Application ID is required' });
 
-    if (audit_id) {
-      const audit = await Audit.findById(audit_id);
-      if (audit && audit.nc_reports) {
-        audit.nc_reports.forEach(r => { r.status = 'closed'; });
-        await audit.save();
-      }
+    if (audit && audit.nc_reports) {
+      audit.nc_reports.forEach(r => { r.status = 'closed'; });
+      await audit.save();
     }
 
     const updatedApp = await Application.findByIdAndUpdate(
@@ -791,19 +851,33 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
 // POST /api/audits/complete-clean (Admin - Marks audit stage completed)
 router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { audit_id } = req.body;
-    const audit = await Audit.findById(audit_id).populate('application_id');
-    if (!audit) return res.status(404).json({ error: 'Audit not found' });
+    const { audit_id, application_id } = req.body;
+    let audit = null;
 
-    audit.status = 'audit_completed';
-    await audit.save();
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id).populate('application_id');
+    }
 
-    const app = audit.application_id;
+    let appId = application_id || audit?.application_id?._id || audit?.application_id;
+
+    if (!audit && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
+    }
+
+    if (audit) {
+      audit.status = 'audit_completed';
+      await audit.save();
+    }
+
+    let app = audit?.application_id;
+    if (!app && appId) {
+      app = await Application.findById(appId);
+    }
+
     const isDualStage = app?.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE';
-    const isFinalStage = !isDualStage || audit.stage === 2;
+    const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {
-      // Update the linked application status to audit_completed
       const updatedApp = await Application.findByIdAndUpdate(
         app._id,
         {
@@ -822,49 +896,55 @@ router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res)
       );
       if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_completed');
 
-      await createNotification(
-        audit.client_id,
-        'Audit Completed Successfully! 🎉',
-        'Congratulations! Your audit session has been completed successfully.',
-        'success',
-        '/applications'
-      );
+      const clientId = app.client_id || app.user_id;
+      if (clientId) {
+        await createNotification(
+          clientId,
+          'Audit Completed Successfully! 🎉',
+          'Congratulations! Your audit session has been completed successfully.',
+          'success',
+          '/applications'
+        );
 
-      const appRef = app?.application_number || 'HFA Audit';
-      await sendClientEmail(
-        audit.client_id,
-        `Audit Completed Successfully: ${appRef} 🎉`,
-        `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #bbf7d0; border-radius: 12px;">
-            <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
-              <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
-              <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Session Completed</p>
-            </div>
-            <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
-              <h3 style="color: #15803d; margin-top: 0;">Congratulations! Your Audit Session Has Concluded</h3>
-              <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-                Your audit session for application <strong>${appRef}</strong> has been marked as complete. All findings have been reviewed and closed.
-              </p>
-              <div style="text-align: center; margin-top: 24px;">
-                <a href="${clientPortalUrl}/applications" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
-                  Track Application Status
-                </a>
+        const appRef = app?.application_number || 'HFA Audit';
+        await sendClientEmail(
+          clientId,
+          `Audit Completed Successfully: ${appRef} 🎉`,
+          `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #bbf7d0; border-radius: 12px;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Session Completed</p>
+              </div>
+              <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+                <h3 style="color: #15803d; margin-top: 0;">Congratulations! Your Audit Session Has Concluded</h3>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  Your audit session for application <strong>${appRef}</strong> has been marked as complete. All findings have been reviewed and closed.
+                </p>
+                <div style="text-align: center; margin-top: 24px;">
+                  <a href="${clientPortalUrl}/applications" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                    Track Application Status
+                  </a>
+                </div>
               </div>
             </div>
-          </div>
-        `
-      );
+          `
+        );
+      }
     } else if (app) {
-      await createNotification(
-        audit.client_id,
-        'Stage 1 Audit Completed ✅',
-        'Your Stage 1 audit has been completed successfully. You can now proceed with Stage 2 scheduling.',
-        'info',
-        '/applications'
-      );
+      const clientId = app.client_id || app.user_id;
+      if (clientId) {
+        await createNotification(
+          clientId,
+          'Stage 1 Audit Completed ✅',
+          'Your Stage 1 audit has been completed successfully. You can now proceed with Stage 2 scheduling.',
+          'info',
+          '/applications'
+        );
+      }
     }
 
-    res.json({ data: audit });
+    res.json({ data: audit, app });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
