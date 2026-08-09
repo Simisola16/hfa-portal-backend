@@ -64,7 +64,12 @@ router.get('/', authenticateToken, async (req, res) => {
       const combinedNc = [...(a.nc_reports || [])];
       const appNcList = a.application_id?.nc_reports || [];
       appNcList.forEach(appNc => {
-        if (!combinedNc.some(c => c.text === appNc.text && String(c.flagged_at || '') === String(appNc.flagged_at || ''))) {
+        const isMatch = combinedNc.some(c => {
+          if (c._id && appNc._id && String(c._id) === String(appNc._id)) return true;
+          if (c.text && appNc.text && c.text.trim().toLowerCase() === appNc.text.trim().toLowerCase()) return true;
+          return false;
+        });
+        if (!isMatch) {
           combinedNc.push({
             _id: appNc._id,
             text: appNc.text,
@@ -181,7 +186,12 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
         if (idx === 0) {
           const combined = [...(auditObj.nc_reports || [])];
           targetApp.nc_reports.forEach(appNc => {
-            if (!combined.some(c => c.text === appNc.text && String(c.flagged_at || '') === String(appNc.flagged_at || ''))) {
+            const isMatch = combined.some(c => {
+              if (c._id && appNc._id && String(c._id) === String(appNc._id)) return true;
+              if (c.text && appNc.text && c.text.trim().toLowerCase() === appNc.text.trim().toLowerCase()) return true;
+              return false;
+            });
+            if (!isMatch) {
               combined.push({
                 _id: appNc._id,
                 text: appNc.text,
@@ -642,11 +652,14 @@ router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_docum
       document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
+    const ncId = new mongoose.Types.ObjectId();
+    const flaggedTime = new Date();
     const ncReportData = {
+      _id: ncId,
       text: text || 'Non-Conformity flagged during audit inspection.',
       document_url,
       status: 'flagged',
-      flagged_at: new Date()
+      flagged_at: flaggedTime
     };
 
     if (audit) {
@@ -658,10 +671,11 @@ router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_docum
     if (targetApp) {
       if (!targetApp.nc_reports) targetApp.nc_reports = [];
       targetApp.nc_reports.push({
+        _id: ncId,
         text: text || 'Non-Conformity flagged during audit inspection.',
         url: document_url,
         status: 'flagged',
-        flagged_at: new Date()
+        flagged_at: flaggedTime
       });
       targetApp.status = 'nc_flagged';
       targetApp.updated_at = new Date();
