@@ -158,6 +158,29 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
 
     const data = await invoice.save();
 
+    // Ensure Application status is advanced to invoice_sent if it was on nc_closed / audit_report_submitted
+    if (invoice.application_id) {
+      try {
+        const app = await Application.findById(invoice.application_id);
+        if (app && ['nc_closed', 'audit_report_submitted', 'audit_completed', 'audit_successful'].includes(app.status)) {
+          const isFinal = invoice.invoice_type === 'final' || invoice.stage === 'final';
+          const targetStatus = isFinal ? 'final_invoice_sent' : 'invoice_sent';
+          app.status = targetStatus;
+          app.updated_at = new Date();
+          app.statusHistory.push({
+            status: targetStatus,
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: `Client submitted payment for invoice ${invoice.invoice_number}.`
+          });
+          await app.save();
+          emitApplicationUpdate(app, targetStatus);
+        }
+      } catch (appErr) {
+        console.error('Error updating application on invoice pay:', appErr);
+      }
+    }
+
     // Notify admins
     const { default: User } = await import('../models/User.js');
     const admins = await User.find({ role: 'admin' });

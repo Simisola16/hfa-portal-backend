@@ -4,6 +4,7 @@ import AddOnApplication from '../models/AddOnApplication.js';
 import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
+import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
@@ -383,14 +384,15 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
       form_file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     }
 
-    if (!form_file_url && !form_text?.trim() && !isDraftBool) {
-      return res.status(400).json({ error: 'You must either upload a form document or write form text content.' });
+    let form_text_val = form_text !== undefined ? form_text.trim() : (app.product_approval_form?.form_text || '');
+    if (!form_text_val && !form_file_url && !isDraftBool) {
+      form_text_val = 'Please complete and submit the Product Approval Form for each product.';
     }
 
     app.product_approval_form = {
       ...app.product_approval_form,
       form_file_url: form_file_url || app.product_approval_form?.form_file_url,
-      form_text: form_text !== undefined ? form_text.trim() : app.product_approval_form?.form_text,
+      form_text: form_text_val,
       is_draft: isDraftBool
     };
 
@@ -401,7 +403,7 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
 
     app.product_approval_form.sent_at = new Date();
     app.status = 'product_approval_form_enabled';
-    await pushHistory(app, 'product_approval_form_enabled', 'Product Approval Form enabled and sent to client.', req.user._id);
+    await pushHistory(app, 'product_approval_form_enabled', 'Request for Product Approval Form sent to client.', req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'form_enabled');
@@ -411,8 +413,8 @@ router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin,
     if (client) {
       await createNotification(
         client._id,
-        'Product Approval Form Ready 📋',
-        'Your Product Approval Form is ready. Please log in to review and submit your response.',
+        'Request for Product Approval Form 📋',
+        'Your Product Approval Forms are ready. Please log in to review and submit your responses.',
         'info',
         `/addon-applications/${app._id}/approval-form`
       );
@@ -756,19 +758,50 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
 
     let products = Array.isArray(cert.products_covered) ? [...cert.products_covered] : [];
 
-    // Apply each product entry's action to the certificate's products_covered array
+    // Apply each product entry's action to the certificate's products_covered array and Product collection
     for (const p of app.products) {
       if (p.type === 'Add product') {
-        if (p.name && !products.includes(p.name)) {
-          products.push(p.name);
+        const prodName = p.new_name || p.name;
+        if (prodName) {
+          if (!products.includes(prodName)) {
+            products.push(prodName);
+          }
+          // Add or activate in Product collection
+          await Product.findOneAndUpdate(
+            { client_id: app.client_id, name: prodName },
+            { 
+              client_id: app.client_id, 
+              name: prodName, 
+              barcode: p.new_code || p.code || '', 
+              category: cert.scope || 'Halal Certified Product',
+              status: 'active',
+              certificate_id: cert._id.toString()
+            },
+            { upsert: true, new: true }
+          );
         }
       } else if (p.type === 'Remove product') {
-        products = products.filter(pr => pr !== p.name);
+        const targetName = p.original_name || p.name;
+        products = products.filter(pr => pr !== targetName);
+        // Remove from Product collection so only approved products show
+        await Product.deleteMany({ client_id: app.client_id, name: targetName });
       } else if (p.type === 'Change name/code') {
-        products = products.map(pr => pr === p.name ? (p.code ? `${p.code} - ${p.name}` : p.name) : pr);
-      } else if (p.type === 'Change ingredients') {
-        // Ingredients change doesn't alter the product name on the certificate
-        // Record in history only
+        const oldName = p.original_name || p.name;
+        const newName = p.new_name || p.name;
+        const newCode = p.new_code || p.code || '';
+        
+        products = products.map(pr => pr === oldName ? (newCode ? `${newCode} - ${newName}` : newName) : pr);
+        
+        // Update product in Product collection
+        await Product.findOneAndUpdate(
+          { client_id: app.client_id, name: oldName },
+          { 
+            name: newName, 
+            barcode: newCode, 
+            status: 'active',
+            certificate_id: cert._id.toString()
+          }
+        );
       }
     }
 
