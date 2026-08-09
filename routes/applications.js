@@ -524,7 +524,7 @@ router.post('/renew', authenticateToken, upload.fields([
   { name: 'supporting_docs', maxCount: 10 },
 ]), async (req, res) => {
   try {
-    const { certificate_id, contact_person } = req.body;
+    const { certificate_id, contact_person, contact_email, contact_phone } = req.body;
 
     if (!certificate_id) return res.status(400).json({ error: 'certificate_id is required.' });
     if (!contact_person?.trim()) return res.status(400).json({ error: 'Contact person name is required.' });
@@ -591,6 +591,8 @@ router.post('/renew', authenticateToken, upload.fields([
     };
 
     const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
+    const emailVal = (contact_email && contact_email.trim()) || originalApp?.primary_email || originalApp?.company_email || req.user.email || '';
+    const phoneVal = (contact_phone && contact_phone.trim()) || originalApp?.primary_work_tel || originalApp?.primary_mobile || req.user.phone || '';
 
     const application = new Application({
       application_number: appNumber,
@@ -603,6 +605,11 @@ router.post('/renew', authenticateToken, upload.fields([
       establishment_name: originalApp?.establishment_name || req.user.company_name || '',
       establishment_address: originalApp?.establishment_address || '',
       managing_director: contact_person.trim(),
+      primary_contact_name: contact_person.trim(),
+      primary_email: emailVal,
+      company_email: emailVal,
+      primary_work_tel: phoneVal,
+      primary_mobile: phoneVal,
       finance_contact: originalApp?.finance_contact || '',
       qa_contact: originalApp?.qa_contact || '',
       halal_coordinator: originalApp?.halal_coordinator || '',
