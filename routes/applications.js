@@ -534,35 +534,29 @@ router.post('/renew', authenticateToken, upload.fields([
     if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
 
     // Only the certificate owner may renew
-    if (cert.client_id !== req.user._id.toString()) {
+    if (cert.client_id?.toString() !== req.user._id?.toString()) {
       return res.status(403).json({ error: 'You can only renew your own certificates.' });
     }
 
-    // Gate: certificate must be expired OR expiring within 90 days
-    const now = new Date();
-    const ninetyDays = 90 * 24 * 60 * 60 * 1000;
-    const isExpired = cert.status === 'expired' || (cert.expiry_date && new Date(cert.expiry_date) < now);
-    const isExpiringSoon = cert.expiry_date && (new Date(cert.expiry_date) - now) <= ninetyDays;
-
-    if (!isExpired && !isExpiringSoon) {
-      const expiryStr = cert.expiry_date
-        ? new Date(cert.expiry_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-        : 'unknown';
-      return res.status(400).json({
-        error: `This certificate is still active and not due for renewal yet (valid until ${expiryStr}). Renewal applications can only be submitted within 90 days of expiry or after expiry.`
-      });
+    if (cert.is_renewed || cert.status === 'renewed') {
+      return res.status(400).json({ error: 'This certificate has already been renewed.' });
     }
 
-    // Gate: no ongoing application for this site
+    // Gate: no ongoing renewal application for this site
     if (cert.site_id) {
-      const ongoingApp = await Application.findOne({
+      const ongoingQuery = {
         site_id: cert.site_id,
         client_id: req.user._id,
+        application_type: 'renewal',
         status: { $nin: ['rejected', 'certificate_issued'] }
-      });
+      };
+      if (cert.application_id) {
+        ongoingQuery._id = { $ne: cert.application_id };
+      }
+      const ongoingApp = await Application.findOne(ongoingQuery);
       if (ongoingApp) {
         return res.status(400).json({
-          error: `This site already has an application in progress (#${ongoingApp.application_number} – status: ${ongoingApp.status.replace(/_/g, ' ')}). Please wait for it to complete before submitting a renewal.`
+          error: `This site already has a renewal application in progress (#${ongoingApp.application_number} – status: ${ongoingApp.status.replace(/_/g, ' ')}). Please wait for it to complete.`
         });
       }
     }
