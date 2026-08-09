@@ -806,19 +806,46 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
       await audit.save();
     }
 
+    const currentApp = await Application.findById(appId);
+    if (!currentApp) return res.status(404).json({ error: 'Application not found' });
+
+    const postNcStatuses = [
+      'logsheet_created',
+      'logsheet_signed',
+      'application_successful',
+      'agreement_sent',
+      'agreement_signed',
+      'agreement_finalised',
+      'final_invoice_sent',
+      'final_invoice_paid',
+      'ready_for_certificate',
+      'certificate_issued'
+    ];
+
+    const shouldChangeStatus = !postNcStatuses.includes(currentApp.status);
+
+    const updateFields = {
+      updated_at: new Date()
+    };
+
+    if (shouldChangeStatus) {
+      updateFields.status = 'nc_closed';
+    }
+
     const updatedApp = await Application.findByIdAndUpdate(
       appId,
       {
-        status: 'nc_closed',
-        updated_at: new Date(),
-        $push: {
-          statusHistory: {
-            status: 'nc_closed',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: note || 'NC closed — all non-conformities reviewed and closed by admin.'
+        ...updateFields,
+        ...(shouldChangeStatus ? {
+          $push: {
+            statusHistory: {
+              status: 'nc_closed',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: note || 'NC closed — all non-conformities reviewed and closed by admin.'
+            }
           }
-        }
+        } : {})
       },
       { new: true }
     );
@@ -828,7 +855,7 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
         updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
         await updatedApp.save();
       }
-      emitApplicationUpdate(updatedApp, 'nc_closed');
+      emitApplicationUpdate(updatedApp, updatedApp.status);
     }
 
     const clientId = updatedApp?.client_id || updatedApp?.user_id;

@@ -221,11 +221,11 @@ const countLogsheetSignatures = (logsheet) => {
 // PUT /api/application-logsheets/:id/status (Admin only)
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, force } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
-    if (status === 'Signed' || status === 'Completed' || status === 'Waiting For Certificate') {
+    if ((status === 'Signed' || status === 'Completed' || status === 'Waiting For Certificate') && !force) {
       const sigCount = countLogsheetSignatures(logsheet);
       if (sigCount < 3) {
         return res.status(400).json({ error: `Cannot transition logsheet to ${status} without at least 3 of 4 required signatures applied (currently ${sigCount}/4).` });
@@ -233,36 +233,44 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     logsheet.status = status;
+    logsheet.updated_at = new Date();
     await logsheet.save();
 
     if ((status === 'Signed' || status === 'Waiting For Certificate' || status === 'Completed') && logsheet.application_id) {
       const appId = logsheet.application_id._id || logsheet.application_id;
       const sigCount = countLogsheetSignatures(logsheet);
-      const app = await Application.findByIdAndUpdate(
-        appId,
-        {
+      
+      const app = await Application.findById(appId);
+      if (app) {
+        const hasLogsheetCreated = app.statusHistory?.some(h => h.status === 'logsheet_created');
+        const newHistory = [];
+        if (!hasLogsheetCreated) {
+          newHistory.push({
+            status: 'logsheet_created',
+            changedAt: new Date(Date.now() - 2000),
+            changedBy: req.user._id,
+            note: 'LogSheet generated for technical & shariah review.'
+          });
+        }
+        newHistory.push({
+          status: 'logsheet_signed',
+          changedAt: new Date(Date.now() - 1000),
+          changedBy: req.user._id,
+          note: `LogSheet marked as done and verified with ${sigCount}/4 signatures.`
+        });
+        newHistory.push({
           status: 'application_successful',
-          updated_at: new Date(),
-          $push: {
-            statusHistory: [
-              {
-                status: 'logsheet_signed',
-                changedAt: new Date(),
-                changedBy: req.user._id,
-                note: `LogSheet marked as signed with ${sigCount}/4 signatures.`
-              },
-              {
-                status: 'application_successful',
-                changedAt: new Date(),
-                changedBy: req.user._id,
-                note: 'Application Successful — proceeding to certification agreement.'
-              }
-            ]
-          }
-        },
-        { new: true }
-      );
-      if (app) emitApplicationUpdate(app, 'application_successful');
+          changedAt: new Date(),
+          changedBy: req.user._id,
+          note: 'Application Successful — logsheet completed. Proceeding to Certification Agreement.'
+        });
+
+        app.status = 'application_successful';
+        app.updated_at = new Date();
+        app.statusHistory.push(...newHistory);
+        await app.save();
+        emitApplicationUpdate(app, 'application_successful');
+      }
     }
 
     res.json({ data: logsheet, message: 'Logsheet status updated successfully' });
