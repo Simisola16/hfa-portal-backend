@@ -97,6 +97,7 @@ router.post('/register', async (req, res) => {
       verification_token: verificationToken,
       verification_token_expiry: verificationExpiry,
       is_verified: false,
+      is_active: true,
     });
 
     await user.save();

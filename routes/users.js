@@ -121,6 +121,33 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+router.put('/:id/verify-email', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const data = await User.findByIdAndUpdate(
+      req.params.id,
+      {
+        is_verified: true,
+        verification_token: undefined,
+        verification_token_expiry: undefined
+      },
+      { new: true }
+    );
+    if (!data) return res.status(404).json({ error: 'User not found' });
+    
+    await createNotification(
+      req.params.id,
+      'Email Verified by Admin ✅',
+      'Your email address has been verified by HFA Administration. You now have full portal access.',
+      'success',
+      '/dashboard'
+    );
+
+    res.json({ data, message: 'Email verified successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.id);
