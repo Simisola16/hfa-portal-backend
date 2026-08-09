@@ -400,4 +400,64 @@ router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('fin
   }
 });
 
+// POST /api/agreements/:id/mark-done (Admin only — Marks agreement as verified & advances application)
+router.post('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+
+    agreement.status = 'finalized';
+    agreement.client_signed = true;
+    if (!agreement.client_sign_date) agreement.client_sign_date = new Date();
+    if (!agreement.client_sign_name) agreement.client_sign_name = 'Verified by HFA Admin';
+    const data = await agreement.save();
+
+    const app = await Application.findById(agreement.application_id);
+    if (app) {
+      const isRenewal = app.application_type === 'renewal';
+      const nextStatus = isRenewal ? 'agreement_finalised' : 'agreement_finalised';
+
+      const newHistory = [];
+      const hasAgreementSigned = app.statusHistory?.some(h => h.status === 'agreement_signed');
+      if (!hasAgreementSigned) {
+        newHistory.push({
+          status: 'agreement_signed',
+          changedAt: new Date(Date.now() - 1000),
+          changedBy: req.user._id,
+          note: 'Agreement signed & verified by admin.'
+        });
+      }
+      newHistory.push({
+        status: nextStatus,
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: 'Certification Agreement approved & marked done by admin. Ready for Next Stage.'
+      });
+
+      app.status = nextStatus;
+      app.updated_at = new Date();
+      app.statusHistory.push(...newHistory);
+      await app.save();
+
+      emitApplicationUpdate(app, nextStatus);
+
+      // Notify Client
+      const clientId = app.client_id || app.user_id;
+      if (clientId) {
+        await createNotification(
+          clientId,
+          'Certification Agreement Approved ✅',
+          'Your certification agreement has been verified and approved by HFA.',
+          'success',
+          '/agreements'
+        );
+      }
+    }
+
+    res.json({ data, message: 'Certification Agreement marked as done successfully!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
