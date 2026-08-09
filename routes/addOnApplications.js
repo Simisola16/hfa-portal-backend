@@ -124,20 +124,20 @@ async function regenerateCertPdf(certificate) {
 // Client submits a new multi-product add-on application
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { certificate_id, contact_name, contact_email, contact_phone, message, products } = req.body;
+    const { certificate_id, application_id, site_id, contact_name, contact_email, contact_phone, message, products } = req.body;
 
-    // Must have an active certificate
-    const activeCerts = await Certificate.find({
-      client_id: req.user._id.toString(),
-      status: 'active',
-      expiry_date: { $gte: new Date() }
-    });
-    if (activeCerts.length === 0) {
-      return res.status(400).json({ error: 'Add-on applications are only available once you hold an active certificate.' });
-    }
-    const cert = activeCerts.find(c => c._id.toString() === certificate_id);
-    if (!cert) {
-      return res.status(400).json({ error: 'Invalid or expired certificate selected.' });
+    let targetCertId = certificate_id;
+    if (certificate_id) {
+      const activeCerts = await Certificate.find({
+        client_id: req.user._id.toString(),
+        status: 'active',
+        expiry_date: { $gte: new Date() }
+      });
+      const cert = activeCerts.find(c => c._id.toString() === certificate_id);
+      if (!cert) {
+        // Warning only if certificate explicitly provided
+        console.warn(`[AddOn] Certificate ${certificate_id} not found among active certs for user ${req.user._id}`);
+      }
     }
 
     // Validate required fields
@@ -153,7 +153,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const newApp = new AddOnApplication({
       client_id: req.user._id,
-      certificate_id,
+      certificate_id: targetCertId || undefined,
+      application_id: application_id || undefined,
+      site_id: site_id || undefined,
       contact_name,
       contact_email,
       contact_phone,
@@ -164,7 +166,7 @@ router.post('/', authenticateToken, async (req, res) => {
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Add-on application submitted with ${products.length} product(s).`
+        note: `Add-on product application submitted with ${products.length} product(s).`
       }]
     });
 
@@ -212,6 +214,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const data = await AddOnApplication.find(query)
       .populate('client_id', 'company_name full_name email phone')
       .populate('certificate_id', 'certificate_number products_covered')
+      .populate('application_id', 'application_number establishment_name site_name scope status')
+      .populate('site_id', 'name address city')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .sort({ createdAt: -1 });
@@ -226,8 +230,10 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id)
-      .populate('client_id', 'company_name full_name email phone')
+      .populate('client_id', 'company_name full_name email phone address')
       .populate('certificate_id', 'certificate_number products_covered')
+      .populate('application_id', 'application_number establishment_name site_name scope status manufacturer_name manufacturer_address')
+      .populate('site_id', 'name address city postal_code country')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('logsheet_id');
@@ -454,7 +460,15 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
       return res.status(400).json({ error: 'Invalid product index.' });
     }
 
-    const { response_text } = req.body;
+    const { response_text, form_data } = req.body;
+    let parsedFormData = {};
+    if (form_data) {
+      try {
+        parsedFormData = typeof form_data === 'string' ? JSON.parse(form_data) : form_data;
+      } catch (e) {
+        console.warn('Could not parse form_data JSON:', e.message);
+      }
+    }
     let response_url = null;
 
     if (req.file) {
@@ -477,6 +491,7 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
         product_name: product.name,
         response_text: response_text?.trim() || '',
         response_url: response_url || '',
+        form_data: parsedFormData,
         is_saved: true,
         saved_at: new Date()
       };
@@ -485,6 +500,7 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
       respItem.product_name = product.name;
       if (response_text !== undefined) respItem.response_text = response_text.trim();
       if (response_url) respItem.response_url = response_url;
+      if (Object.keys(parsedFormData).length > 0) respItem.form_data = parsedFormData;
       respItem.is_saved = true;
       respItem.saved_at = new Date();
     }

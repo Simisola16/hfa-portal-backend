@@ -16,13 +16,16 @@ const productResponseSchema = new mongoose.Schema({
   product_name: { type: String },
   response_text: { type: String, default: '' },
   response_url: { type: String, default: '' },
+  form_data: { type: mongoose.Schema.Types.Mixed, default: {} },
   is_saved: { type: Boolean, default: false },
   saved_at: { type: Date }
 }, { _id: false });
 
 const addOnApplicationSchema = new mongoose.Schema({
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', required: true },
+  certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', required: false },
+  application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
+  site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
 
   // Contact Person (receives email at every stage — may differ from the client account email)
   contact_name: { type: String, required: true },
