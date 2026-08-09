@@ -227,8 +227,8 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
 
     if ((status === 'Signed' || status === 'Completed' || status === 'Waiting For Certificate') && !force) {
       const sigCount = countLogsheetSignatures(logsheet);
-      if (sigCount < 3) {
-        return res.status(400).json({ error: `Cannot transition logsheet to ${status} without at least 3 of 4 required signatures applied (currently ${sigCount}/4).` });
+      if (sigCount < 4) {
+        return res.status(400).json({ error: `All 4 committee roles must be signed before marking logsheet as done (currently ${sigCount}/4 signed).` });
       }
     }
 
@@ -301,8 +301,8 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
     if (finalizeSignOff) {
       const sigCount = countLogsheetSignatures(logsheet);
-      if (sigCount < 3) {
-        return res.status(400).json({ error: `Cannot finalize logsheet without at least 3 of 4 required committee signatures (currently ${sigCount}/4 signed).` });
+      if (sigCount < 4) {
+        return res.status(400).json({ error: `Cannot finalize logsheet without all 4 committee signatures (currently ${sigCount}/4 signed).` });
       }
 
       logsheet.status = 'Waiting For Certificate';
@@ -386,18 +386,22 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
     for (const r of rolesArray) {
       const roleLower = r.toLowerCase();
       if (roleLower === 'mufti') {
+        if (logsheet.mufti_signature) return res.status(400).json({ error: 'Mufti role has already been signed.' });
         logsheet.mufti_signature = signature_url;
         logsheet.mufti_sign_name = signature_name;
         logsheet.mufti_sign_date = new Date();
       } else if (roleLower === 'ceo') {
+        if (logsheet.ceo_signature) return res.status(400).json({ error: 'CEO role has already been signed.' });
         logsheet.ceo_signature = signature_url;
         logsheet.ceo_sign_name = signature_name;
         logsheet.ceo_sign_date = new Date();
       } else if (roleLower === 'manager') {
+        if (logsheet.manager_signature) return res.status(400).json({ error: 'Manager role has already been signed.' });
         logsheet.manager_signature = signature_url;
         logsheet.manager_sign_name = signature_name;
         logsheet.manager_sign_date = new Date();
       } else if (roleLower === 'mufti2') {
+        if (logsheet.mufti2_signature) return res.status(400).json({ error: 'Mufti 2 role has already been signed.' });
         logsheet.mufti2_signature = signature_url;
         logsheet.mufti2_sign_name = signature_name;
         logsheet.mufti2_sign_date = new Date();

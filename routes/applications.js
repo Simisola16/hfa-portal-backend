@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import multer from 'multer';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Application from '../models/Application.js';
@@ -562,9 +563,13 @@ router.post('/renew', authenticateToken, upload.fields([
     }
 
     // Pull original application data to pre-fill the renewal
-    const originalApp = await Application.findOne({ application_id: cert.application_id })
-      || await Application.findById(cert.application_id)
-      || await Application.findOne({ site_id: cert.site_id, client_id: req.user._id }).sort({ created_at: -1 });
+    let originalApp = null;
+    if (cert.application_id && mongoose.isValidObjectId(cert.application_id)) {
+      originalApp = await Application.findById(cert.application_id);
+    }
+    if (!originalApp && cert.site_id) {
+      originalApp = await Application.findOne({ site_id: cert.site_id, client_id: req.user._id }).sort({ created_at: -1 });
+    }
 
     // Upload supporting documents
     const uploadedDocs = [];
