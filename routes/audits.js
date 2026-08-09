@@ -41,7 +41,7 @@ router.get('/', authenticateToken, async (req, res) => {
       query.client_id = req.user._id.toString();
     }
     const audits = await Audit.find(query)
-      .populate('application_id', 'application_number status')
+      .populate('application_id', 'application_number status nc_reports')
       .populate('inspector_id', 'full_name email')
       .sort({ createdAt: -1 });
 
@@ -61,6 +61,25 @@ router.get('/', authenticateToken, async (req, res) => {
         ? a.auditors.map(aud => aud.name).join(', ')
         : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
 
+      const combinedNc = [...(a.nc_reports || [])];
+      const appNcList = a.application_id?.nc_reports || [];
+      appNcList.forEach(appNc => {
+        if (!combinedNc.some(c => c.text === appNc.text && String(c.flagged_at || '') === String(appNc.flagged_at || ''))) {
+          combinedNc.push({
+            _id: appNc._id,
+            text: appNc.text,
+            document_url: appNc.url,
+            url: appNc.url,
+            client_response: appNc.client_response,
+            correction_document_url: appNc.client_response_url,
+            client_response_url: appNc.client_response_url,
+            admin_reply: appNc.admin_reply,
+            status: appNc.status,
+            flagged_at: appNc.flagged_at
+          });
+        }
+      });
+
       return {
         _id: a._id.toString(),
         id: a._id.toString(),
@@ -76,7 +95,7 @@ router.get('/', authenticateToken, async (req, res) => {
         selected_dates: a.selected_dates || [],
         finalized_date: a.finalized_date,
         auditors: a.auditors || [],
-        nc_reports: a.nc_reports || [],
+        nc_reports: combinedNc,
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
       };
     });
@@ -128,11 +147,63 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
     let audits = await Audit.find({ application_id: req.params.appId }).sort({ stage: 1, createdAt: 1 });
+    const targetApp = await Application.findById(req.params.appId);
+
     if (!audits || audits.length === 0) {
+      if (targetApp && targetApp.nc_reports?.length > 0) {
+        // Return synthetic audit with the NC reports
+        const synthetic = [{
+          application_id: targetApp._id,
+          stage: 1,
+          status: targetApp.status || 'nc_flagged',
+          nc_reports: targetApp.nc_reports.map(r => ({
+            _id: r._id,
+            text: r.text,
+            document_url: r.url,
+            url: r.url,
+            client_response: r.client_response,
+            correction_document_url: r.client_response_url,
+            client_response_url: r.client_response_url,
+            admin_reply: r.admin_reply,
+            status: r.status,
+            flagged_at: r.flagged_at
+          }))
+        }];
+        return res.json({ data: synthetic });
+      }
       return res.json({ data: [] });
     }
+
+    // Merge application nc_reports into audit[0] if needed
+    if (targetApp && targetApp.nc_reports?.length > 0) {
+      audits = audits.map((a, idx) => {
+        const auditObj = a.toObject ? a.toObject() : { ...a };
+        if (idx === 0) {
+          const combined = [...(auditObj.nc_reports || [])];
+          targetApp.nc_reports.forEach(appNc => {
+            if (!combined.some(c => c.text === appNc.text && String(c.flagged_at || '') === String(appNc.flagged_at || ''))) {
+              combined.push({
+                _id: appNc._id,
+                text: appNc.text,
+                document_url: appNc.url,
+                url: appNc.url,
+                client_response: appNc.client_response,
+                correction_document_url: appNc.client_response_url,
+                client_response_url: appNc.client_response_url,
+                admin_reply: appNc.admin_reply,
+                status: appNc.status,
+                flagged_at: appNc.flagged_at
+              });
+            }
+          });
+          auditObj.nc_reports = combined;
+        }
+        return auditObj;
+      });
+    }
+
     // Check permission
-    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id !== req.user._id.toString()) {
+    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id && audits[0].client_id !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json({ data: audits });
