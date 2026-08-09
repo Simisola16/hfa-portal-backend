@@ -242,12 +242,6 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
       
       const app = await Application.findById(appId);
       if (app) {
-        const isRenewal = app.application_type === 'renewal';
-        const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
-        const finalNote = isRenewal
-          ? 'Ready for Certificate — Renewal logsheet completed. Certificate awaiting issuance.'
-          : 'Application Successful — logsheet completed. Proceeding to Certification Agreement.';
-
         const hasLogsheetCreated = app.statusHistory?.some(h => h.status === 'logsheet_created');
         const newHistory = [];
         if (!hasLogsheetCreated) {
@@ -265,17 +259,17 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
           note: `LogSheet marked as done and verified with ${sigCount}/4 signatures.`
         });
         newHistory.push({
-          status: targetStatus,
+          status: 'application_successful',
           changedAt: new Date(),
           changedBy: req.user._id,
-          note: finalNote
+          note: 'Application Successful — logsheet completed. Proceeding to Certification Agreement.'
         });
 
-        app.status = targetStatus;
+        app.status = 'application_successful';
         app.updated_at = new Date();
         app.statusHistory.push(...newHistory);
         await app.save();
-        emitApplicationUpdate(app, targetStatus);
+        emitApplicationUpdate(app, 'application_successful');
       }
     }
 
@@ -319,20 +313,13 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         }
       }
 
-      // Update the linked main application to appropriate milestone after logsheet sign-off
+      // Update the linked main application to application_successful (canonical milestone after logsheet sign-off)
       if (logsheet.source_type !== 'addon_application' && logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
-        const currentApp = await Application.findById(appId);
-        const isRenewal = currentApp?.application_type === 'renewal';
-        const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
-        const finalNote = isRenewal
-          ? 'Ready for Certificate — Renewal logsheet completed. Awaiting certificate issuance.'
-          : 'Application Successful — proceeding to certification agreement.';
-
         const app = await Application.findByIdAndUpdate(
           appId,
           {
-            status: targetStatus,
+            status: 'application_successful',
             updated_at: new Date(),
             $push: {
               statusHistory: [
@@ -343,17 +330,17 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                   note: `LogSheet marked as done with ${sigCount}/4 committee signatures.`
                 },
                 {
-                  status: targetStatus,
+                  status: 'application_successful',
                   changedAt: new Date(),
                   changedBy: req.user._id,
-                  note: finalNote
+                  note: 'Application Successful — proceeding to certification agreement.'
                 }
               ]
             }
           },
           { new: true }
         );
-        if (app) emitApplicationUpdate(app, targetStatus);
+        if (app) emitApplicationUpdate(app, 'application_successful');
       }
 
       return res.json({ data: logsheet, message: 'Logsheet marked as done and moved to Waiting For Certificate!' });
