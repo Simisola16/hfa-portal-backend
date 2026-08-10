@@ -6,7 +6,7 @@ const addOnProductSchema = new mongoose.Schema({
   code: { type: String },
   type: {
     type: String,
-    enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients'],
+    enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients', 'Change ingredient'],
     required: true
   }
 }, { _id: false });
