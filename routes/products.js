@@ -9,7 +9,10 @@ const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    let query = {};
+    // Delete any orphaned pending products so Product List only displays active/certified products
+    await Product.deleteMany({ status: 'pending' }).catch(() => {});
+
+    let query = { status: { $ne: 'pending' } };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
     }
@@ -59,60 +62,60 @@ router.post('/', authenticateToken, async (req, res) => {
       barcode, product_type, contact_name, contact_number, contact_email, subject, message
     } = req.body;
 
-    const product = new Product({
-      client_id: req.user._id,
-      name,
-      description,
-      category,
-      site_id: site_id || undefined,
-      ingredients,
-      barcode: barcode || '',
-      status: 'pending'
-    });
-    const data = await product.save();
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
 
-    // If added by a client, automatically create an AddOnApplication so it enters the admin add-on flow
-    if (req.user.role === 'client' || !['admin', 'superadmin'].includes(req.user.role)) {
-      try {
-        const addOnApp = new AddOnApplication({
-          client_id: req.user._id,
-          site_id: site_id || undefined,
-          contact_name: contact_name || req.user.full_name || req.user.company_name || 'Client Contact',
-          contact_email: contact_email || req.user.email || 'client@example.com',
-          contact_phone: contact_number || req.user.phone || '',
-          message: subject ? `Subject: ${subject}\n\n${message || ''}` : (message || ''),
-          products: [{
-            name,
-            code: barcode || '',
-            type: product_type === 'Change ingredient' ? 'Change ingredients' : (product_type || 'Add product')
-          }],
-          status: 'submitted',
-          statusHistory: [{
-            status: 'submitted',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: `Product "${name}" submitted from Products page.`
-          }]
-        });
-        const savedAddOn = await addOnApp.save();
-        emitAddOnUpdate(savedAddOn, 'created');
-
-        const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
-        for (const a of admins) {
-          await createNotification(
-            a._id,
-            'New Add-on Application 📄',
-            `${req.user.company_name || req.user.full_name} submitted a product (${name}) via Products page.`,
-            'info',
-            '/addon-applications'
-          );
-        }
-      } catch (addonErr) {
-        console.error('[Products] Failed to create add-on application for product:', addonErr.message);
-      }
+    // If added by admin directly, create as active product
+    if (isAdmin) {
+      const product = new Product({
+        client_id: req.body.client_id || req.user._id,
+        name,
+        description,
+        category,
+        site_id: site_id || undefined,
+        ingredients,
+        barcode: barcode || '',
+        status: 'active'
+      });
+      const data = await product.save();
+      return res.status(201).json({ data });
     }
 
-    res.status(201).json({ data });
+    // All add-on product requests from clients MUST go to the Add-on Request page ONLY
+    const addOnApp = new AddOnApplication({
+      client_id: req.user._id,
+      site_id: site_id || undefined,
+      contact_name: contact_name || req.user.full_name || req.user.company_name || 'Client Contact',
+      contact_email: contact_email || req.user.email || 'client@example.com',
+      contact_phone: contact_number || req.user.phone || '',
+      message: subject ? `Subject: ${subject}\n\n${message || ''}` : (message || ''),
+      products: [{
+        name,
+        code: barcode || '',
+        type: product_type === 'Change ingredient' ? 'Change ingredients' : (product_type || 'Add product')
+      }],
+      status: 'submitted',
+      statusHistory: [{
+        status: 'submitted',
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Product "${name}" requested from Products page.`
+      }]
+    });
+    const savedAddOn = await addOnApp.save();
+    emitAddOnUpdate(savedAddOn, 'created');
+
+    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    for (const a of admins) {
+      await createNotification(
+        a._id,
+        'New Add-on Application 📄',
+        `${req.user.company_name || req.user.full_name} submitted a product addition request (${name}).`,
+        'info',
+        '/addon-applications'
+      );
+    }
+
+    res.status(201).json({ data: savedAddOn, message: 'Product request submitted to Add-on Requests.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

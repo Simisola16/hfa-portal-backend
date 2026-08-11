@@ -174,27 +174,6 @@ router.post('/', authenticateToken, async (req, res) => {
     const data = await newApp.save();
     emitAddOnUpdate(data, 'created');
 
-    // Create pending Product entries for 'Add product' items so they show in the client Products list
-    for (const p of products) {
-      if (p.type === 'Add product' && p.name?.trim()) {
-        try {
-          const existing = await Product.findOne({ client_id: req.user._id, name: p.name.trim() });
-          if (!existing) {
-            await Product.create({
-              client_id: req.user._id,
-              name: p.name.trim(),
-              barcode: p.code?.trim() || '',
-              status: 'pending',
-              certificate_id: targetCertId || undefined,
-              site_id: site_id || undefined
-            });
-          }
-        } catch (e) {
-          console.warn('[AddOn] Could not create pending product record:', e.message);
-        }
-      }
-    }
-
     // Notify admins
     await notifyAdmins(
       'New Add-on Application 📄',
