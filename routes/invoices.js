@@ -183,7 +183,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
 
     // Notify admins
     const { default: User } = await import('../models/User.js');
-    const admins = await User.find({ role: 'admin' });
+    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
     for (const admin of admins) {
       await createNotification(
         admin._id,

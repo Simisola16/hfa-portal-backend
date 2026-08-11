@@ -241,7 +241,7 @@ router.post('/', authenticateToken, upload.fields([
     }
 
     // Notify Admin
-    const admins = await User.find({ role: 'admin' });
+    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
     for (const admin of admins) {
       await createNotification(
         admin._id,

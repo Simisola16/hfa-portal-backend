@@ -231,7 +231,7 @@ router.put('/:id', authenticateToken, upload.fields([
       const companyName = app?.establishment_name || 'HFA Partner';
 
       // Notify HFA Admins in-portal
-      const admins = await User.find({ role: 'admin' });
+      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
       for (const admin of admins) {
         await createNotification(
           admin._id,

@@ -335,7 +335,7 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
         }, { new: true });
         if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
       
-      const admins = await User.find({ role: 'admin' });
+      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -367,7 +367,7 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
         }, { new: true });
         if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
 
-      const admins = await User.find({ role: 'admin' });
+      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -784,7 +784,7 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
       }
     }
 
-    const admins = await User.find({ role: 'admin' });
+    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
     for (const admin of admins) {
       await createNotification(
         admin._id,

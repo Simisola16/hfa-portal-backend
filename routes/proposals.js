@@ -182,6 +182,26 @@ router.put('/:id', authenticateToken, async (req, res) => {
       console.error('Proposal update email error:', e.message);
     }
 
+    // Notify admins when a client (non-admin) responds to a proposal
+    if (status && !['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'].includes(req.user.role)) {
+      try {
+        const clientName = req.user.company_name || req.user.full_name || 'A client';
+        const statusLabel = status === 'accepted' ? 'accepted ✅' : status === 'rejected' ? 'rejected ❌' : `updated to "${status}"`;
+        const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager'] } });
+        for (const admin of admins) {
+          await createNotification(
+            admin._id,
+            `Proposal ${status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'Updated'} 📑`,
+            `${clientName} has ${statusLabel} the proposal: ${data.title}.${client_comment ? ` Comment: "${client_comment}"` : ''}`,
+            status === 'accepted' ? 'success' : status === 'rejected' ? 'warning' : 'info',
+            data.application_id ? `/applications?appId=${data.application_id}` : '/proposals'
+          );
+        }
+      } catch (e) {
+        console.error('Admin proposal notification error:', e.message);
+      }
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
