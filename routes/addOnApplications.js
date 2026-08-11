@@ -259,8 +259,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
     const { decision, rejection_reason, notes } = req.body;
-    if (!['accepted', 'rejected'].includes(decision)) {
-      return res.status(400).json({ error: 'Decision must be "accepted" or "rejected".' });
+    if (!['accepted', 'rejected', 'on_hold'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be "accepted", "rejected", or "on_hold".' });
     }
     if (decision === 'rejected' && !rejection_reason?.trim()) {
       return res.status(400).json({ error: 'Rejection reason is required.' });
@@ -268,28 +268,34 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'submitted') {
-      return res.status(400).json({ error: 'This application has already been reviewed.' });
+    if (!['submitted', 'on_hold'].includes(app.status)) {
+      return res.status(400).json({ error: 'This application has already been reviewed or accepted.' });
     }
 
     app.status = decision;
     if (rejection_reason) app.rejection_reason = rejection_reason;
     if (notes) app.notes = notes;
-    await pushHistory(app, decision, decision === 'rejected' ? `Rejected: ${rejection_reason}` : 'Application accepted by admin.', req.user._id);
+    const historyNote = decision === 'rejected' 
+      ? `Rejected: ${rejection_reason}` 
+      : decision === 'on_hold' 
+      ? `Application placed on hold: ${notes || 'Under review'}` 
+      : 'Application accepted by admin.';
+    await pushHistory(app, decision, historyNote, req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'reviewed');
 
     const isAccepted = decision === 'accepted';
+    const isOnHold = decision === 'on_hold';
 
     // Notify client
     const client = await User.findById(app.client_id);
     if (client) {
       await createNotification(
         client._id,
-        isAccepted ? 'Add-on Application Accepted 👍' : 'Add-on Application Rejected ❌',
-        isAccepted ? 'Your add-on application has been accepted.' : `Your add-on application was rejected. Reason: ${rejection_reason}`,
-        isAccepted ? 'success' : 'error',
+        isAccepted ? 'Add-on Application Accepted 👍' : isOnHold ? 'Add-on Application On Hold ⏸️' : 'Add-on Application Rejected ❌',
+        isAccepted ? 'Your add-on application has been accepted.' : isOnHold ? `Your add-on application has been placed on hold. Note: ${notes || 'Further review needed.'}` : `Your add-on application was rejected. Reason: ${rejection_reason}`,
+        isAccepted ? 'success' : isOnHold ? 'warning' : 'error',
         '/addon-applications'
       );
     }
@@ -297,9 +303,12 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: isAccepted ? '✅ HFA Add-on Application Accepted' : '❌ HFA Add-on Application Rejected',
+      subject: isAccepted ? '✅ HFA Add-on Application Accepted' : isOnHold ? '⏸️ HFA Add-on Application On Hold' : '❌ HFA Add-on Application Rejected',
       bodyHtml: isAccepted
         ? `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on product application has been <strong>accepted</strong>. HFA will now assign a Food Technologies staff member to your application.</p>`
+        : isOnHold
+        ? `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on product application has been placed <strong>on hold</strong> for further review.</p>
+           ${notes ? `<p style="font-size:14px;color:#475569;line-height:1.6"><strong>Note:</strong> ${notes}</p>` : ''}`
         : `<p style="font-size:14px;color:#334155;line-height:1.6">Your add-on product application has been <strong>rejected</strong>.</p>
            <p style="font-size:14px;color:#dc2626;line-height:1.6"><strong>Reason:</strong> ${rejection_reason}</p>
            <p style="font-size:14px;color:#334155;line-height:1.6">Please contact HFA if you have any questions.</p>`
