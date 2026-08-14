@@ -43,7 +43,9 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/applications/:id
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const data = await Application.findById(req.params.id)
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
+    const data = await Application.findOne(query)
       .populate('profiles')
       .populate('inspectors');
     if (!data) return res.status(404).json({ error: 'Application not found' });
@@ -52,7 +54,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (data.status && (data.status.includes(' ') || data.status !== data.status.toLowerCase())) {
       const normalized = data.status.toLowerCase().replace(/ /g, '_');
       data.status = normalized;
-      await Application.findByIdAndUpdate(req.params.id, { status: normalized });
+      await Application.findByIdAndUpdate(data._id, { status: normalized });
     }
 
     res.json({ data });

@@ -230,6 +230,9 @@ router.get('/', authenticateToken, async (req, res) => {
 // ─── GET /api/add-on-applications/:id ────────────────────────────────────────
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Add-on application not found' });
+    }
     const app = await AddOnApplication.findById(req.params.id)
       .populate('client_id', 'company_name full_name email phone address')
       .populate('certificate_id', 'certificate_number products_covered')
