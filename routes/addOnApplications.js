@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import multer from 'multer';
 import AddOnApplication from '../models/AddOnApplication.js';
 import Certificate from '../models/Certificate.js';
