@@ -455,11 +455,22 @@ router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) 
 // POST /api/audits/assign-auditors (Admin)
 router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { audit_id, auditors } = req.body;
-    const audit = await Audit.findById(audit_id).populate('application_id');
+    const { audit_id, application_id, stage, auditors } = req.body;
+    let audit = null;
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id).populate('application_id');
+    }
+    if (!audit && (application_id || audit_id)) {
+      const targetAppId = application_id || audit_id;
+      if (mongoose.Types.ObjectId.isValid(targetAppId)) {
+        audit = await Audit.findOne({ application_id: targetAppId, ...(stage ? { stage } : {}) })
+          .sort({ stage: 1 })
+          .populate('application_id');
+      }
+    }
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
-    audit.auditors = auditors;
+    audit.auditors = Array.isArray(auditors) ? auditors : [];
     audit.status = 'auditors_assigned';
     await audit.save();
 
