@@ -762,8 +762,34 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       return res.status(400).json({ error: 'Application must be in "Ready for Certificate" status before completing.' });
     }
 
-    const cert = await Certificate.findById(app.certificate_id);
-    if (!cert) return res.status(404).json({ error: 'Linked certificate not found.' });
+    let cert = null;
+    const targetCertId = req.body?.certificate_id || app.certificate_id;
+    if (targetCertId) {
+      cert = await Certificate.findById(targetCertId);
+    }
+
+    // Robust fallbacks if certificate is not explicitly linked
+    if (!cert && app.application_id) {
+      cert = await Certificate.findOne({ application_id: app.application_id });
+    }
+    if (!cert && app.site_id) {
+      cert = await Certificate.findOne({ site_id: app.site_id, client_id: app.client_id });
+    }
+    if (!cert && app.client_id) {
+      cert = await Certificate.findOne({ client_id: app.client_id, status: 'active' });
+    }
+    if (!cert && app.client_id) {
+      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ createdAt: -1 });
+    }
+
+    if (!cert) {
+      return res.status(404).json({ error: 'Linked certificate not found. Please ensure the client has an active certificate in the system.' });
+    }
+
+    // Ensure app is linked to the resolved certificate
+    if (!app.certificate_id || app.certificate_id.toString() !== cert._id.toString()) {
+      app.certificate_id = cert._id;
+    }
 
     let products = Array.isArray(cert.products_covered) ? [...cert.products_covered] : [];
 

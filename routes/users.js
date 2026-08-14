@@ -8,7 +8,7 @@ import Certificate from '../models/Certificate.js';
 import { createNotification } from '../lib/notifications.js';
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, username } = req.body;
+  const { email, password, full_name, role, username, company_name, phone, address, postcode, country } = req.body;
   const isStaffRole = ['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
   if (isStaffRole && !username?.trim()) {
     return res.status(400).json({ error: 'Username is required for HFA Staff accounts.' });
@@ -26,6 +26,11 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       email,
       password,
       full_name,
+      company_name: company_name || full_name,
+      phone,
+      address,
+      postcode,
+      country,
       role: role || 'client',
       username: username || undefined,
       is_verified: true,
