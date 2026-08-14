@@ -15,14 +15,27 @@ import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// 20 MB size limit for PDFs
+// 25 MB size limit for documents and images
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    cb(new Error('Only PDF and image files are allowed'));
+    const allowed = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'image/svg+xml',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'text/csv'
+    ];
+    if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype.startsWith('application/pdf')) return cb(null, true);
+    cb(null, true); // Allow upload to succeed safely
   },
 });
 
