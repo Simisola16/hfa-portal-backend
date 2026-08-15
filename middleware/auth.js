@@ -74,7 +74,7 @@ export const requireFoodTechManager = async (req, res, next) => {
 
 export const requireFoodTechManagerOrAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.user.role !== 'food_tech_manager' && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+  if (req.user.role !== 'food_tech_manager' && req.user.role !== 'admin' && req.user.role !== 'superadmin' && req.user.role !== 'food_tech') {
     return res.status(403).json({ error: 'Access denied. Food Tech Manager or Admin role required.' });
   }
   next();
