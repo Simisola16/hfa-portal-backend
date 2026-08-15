@@ -539,14 +539,14 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
   }
 });
 
-// ─── PUT /api/add-on-applications/:id/request-more-info ──────────────────────
+// ─── PUT / POST /api/add-on-applications/:id/request-more-info ──────────────
 // Admin: Request additional information / documents from the client for their product approval form
-router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), async (req, res) => {
+const handleRequestMoreInfoRoute = async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    const { message } = req.body;
+    const message = req.body?.message || req.body?.form_text || '';
     if (!message?.trim()) {
       return res.status(400).json({ error: 'Message detailing the requested information is required.' });
     }
@@ -564,7 +564,7 @@ router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.sin
       app.product_approval_form.form_file_url = file_url;
     }
 
-    await pushHistory(app, 'product_approval_form_enabled', `More information requested: ${message.trim()}`, req.user._id);
+    await pushHistory(app, 'product_approval_form_enabled', `More information requested: ${message.trim()}`, req.user?._id);
 
     const data = await app.save();
 
@@ -624,7 +624,10 @@ router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.sin
     console.error('[AddOn] request-more-info error:', err);
     res.status(500).json({ error: err.message || 'Server error processing request' });
   }
-});
+};
+
+router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), handleRequestMoreInfoRoute);
+router.post('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), handleRequestMoreInfoRoute);
 
 // ─── PUT /api/add-on-applications/:id/submit-all-responses ───────────────────
 // Client: Final submit when responses for ALL products have been saved
