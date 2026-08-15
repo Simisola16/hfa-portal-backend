@@ -301,24 +301,82 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
     if (finalizeSignOff) {
       const sigCount = countLogsheetSignatures(logsheet);
-      if (sigCount < 4) {
-        return res.status(400).json({ error: `Cannot finalize logsheet without all 4 committee signatures (currently ${sigCount}/4 signed).` });
+      if (sigCount < 3) {
+        return res.status(400).json({ error: `Cannot finalize logsheet without at least 3 committee signatures (currently ${sigCount}/4 signed).` });
       }
 
       logsheet.status = 'Waiting For Certificate';
       await logsheet.save();
 
+      const { approved_products } = req.body;
+
       // Handle add-on application logsheets separately
       if (logsheet.source_type === 'addon_application' && logsheet.addon_application_id) {
         try {
           const { default: AddOnApplication } = await import('../models/AddOnApplication.js');
+          const { default: Product } = await import('../models/Product.js');
           const addonApp = await AddOnApplication.findById(logsheet.addon_application_id);
           if (addonApp) {
+            const approvedList = Array.isArray(approved_products) && approved_products.length > 0
+              ? approved_products
+              : addonApp.products || [];
+
             addonApp.status = 'product_form_approved';
-            addonApp.statusHistory.push({ status: 'product_form_approved', changedAt: new Date(), changedBy: req.user._id, note: `Shari'a Board logsheet signed (${sigCount}/4). Product Form Approved.` });
+            addonApp.statusHistory.push({
+              status: 'product_form_approved',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: `Committee signatures verified (${sigCount}/4). ${approvedList.length} product(s) approved.`
+            });
             addonApp.status = 'ready_for_certificate';
-            addonApp.statusHistory.push({ status: 'ready_for_certificate', changedAt: new Date(), changedBy: req.user._id, note: 'Ready for Certificate — logsheet complete.' });
+            addonApp.statusHistory.push({
+              status: 'ready_for_certificate',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Ready for Certificate — product approval complete.'
+            });
             await addonApp.save();
+
+            // Sync approved products to Product collection for client dashboard visibility
+            const clientId = addonApp.client_id?._id || addonApp.client_id;
+            const siteId = addonApp.site_id?._id || addonApp.site_id;
+            const certId = addonApp.certificate_id?._id || addonApp.certificate_id;
+
+            for (const prod of approvedList) {
+              const pName = prod.new_name || prod.name;
+              const pCode = prod.new_code || prod.code || '';
+              const pType = prod.type || 'Add product';
+              if (pType === 'Add product' || pType === 'Change name/code') {
+                await Product.findOneAndUpdate(
+                  { client_id: clientId, name: pName },
+                  {
+                    client_id: clientId,
+                    name: pName,
+                    code: pCode,
+                    site_id: siteId,
+                    certificate_id: certId ? String(certId) : undefined,
+                    status: 'approved',
+                    category: addonApp.category || 'Halal Certified',
+                    updated_at: new Date()
+                  },
+                  { upsert: true, new: true }
+                );
+              } else if (pType === 'Remove product') {
+                await Product.findOneAndUpdate(
+                  { client_id: clientId, name: prod.name },
+                  { status: 'inactive', updated_at: new Date() }
+                );
+              }
+            }
+
+            try {
+              const { getIO } = await import('../lib/socket.js');
+              const io = getIO();
+              if (io) {
+                io.emit('addon_updated', { addOnId: addonApp._id, status: 'ready_for_certificate' });
+                io.emit('product_updated', { client_id: clientId });
+              }
+            } catch (sockErr) {}
           }
         } catch (addonErr) {
           console.error('[Logsheet] Failed to update add-on application after sign-off:', addonErr.message);
@@ -337,7 +395,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_signed',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: `LogSheet marked as done with ${sigCount}/4 committee signatures.`
+            note: `LogSheet marked as done with ${sigCount}/4 committee signatures. Products approved.`
           }
         ];
 
@@ -369,9 +427,38 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           { new: true }
         );
         if (app) emitApplicationUpdate(app, targetStatus);
+
+        // Sync approved products to Product collection
+        if (Array.isArray(approved_products) && approved_products.length > 0 && currentApp) {
+          try {
+            const { default: Product } = await import('../models/Product.js');
+            const clientId = currentApp.client_id?._id || currentApp.client_id;
+            const siteId = currentApp.site_id?._id || currentApp.site_id;
+            for (const prod of approved_products) {
+              const pName = prod.name || prod.product_name;
+              if (pName) {
+                await Product.findOneAndUpdate(
+                  { client_id: clientId, name: pName },
+                  {
+                    client_id: clientId,
+                    name: pName,
+                    code: prod.code || '',
+                    category: prod.category || currentApp.category || 'Halal Certified',
+                    site_id: siteId,
+                    status: 'approved',
+                    updated_at: new Date()
+                  },
+                  { upsert: true, new: true }
+                );
+              }
+            }
+          } catch (pErr) {
+            console.error('Failed to sync main app products:', pErr.message);
+          }
+        }
       }
 
-      return res.json({ data: logsheet, message: 'Logsheet marked as done and moved to Waiting For Certificate!' });
+      return res.json({ data: logsheet, message: 'Products approved and logsheet marked as done!' });
     }
 
     if (sendWithoutSignature) {
