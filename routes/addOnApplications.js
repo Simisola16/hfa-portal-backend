@@ -379,7 +379,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 
 // ─── PUT /api/add-on-applications/:id/enable-form ────────────────────────────
 // Admin: Enable or Save Draft Product Approval Form (upload PDF or write text)
-router.put('/:id/enable-form', authenticateToken, requireStaff, upload.single('form_file'), async (req, res) => {
+router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
@@ -391,8 +391,9 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.single('f
     const isDraftBool = is_draft === 'true' || is_draft === true;
     let form_file_url = app.product_approval_form?.form_file_url || null;
 
-    if (req.file) {
-      form_file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
+    if (uploadedFile) {
+      form_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
     }
 
     let form_text_val = form_text !== undefined ? form_text.trim() : (app.product_approval_form?.form_text || '');
@@ -552,8 +553,9 @@ const handleRequestMoreInfoRoute = async (req, res) => {
     }
 
     let file_url = null;
-    if (req.file) {
-      file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
+    if (uploadedFile) {
+      file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
     }
 
     app.status = 'product_approval_form_enabled';
@@ -626,8 +628,8 @@ const handleRequestMoreInfoRoute = async (req, res) => {
   }
 };
 
-router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), handleRequestMoreInfoRoute);
-router.post('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), handleRequestMoreInfoRoute);
+router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
+router.post('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
 
 // ─── PUT /api/add-on-applications/:id/submit-all-responses ───────────────────
 // Client: Final submit when responses for ALL products have been saved
