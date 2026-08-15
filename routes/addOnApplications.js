@@ -385,8 +385,8 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.single('f
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (!['ft_assigned', 'product_approval_form_enabled'].includes(app.status)) {
-      return res.status(400).json({ error: 'FT must be assigned before editing or enabling the Product Approval Form.' });
+    if (!['ft_assigned', 'product_approval_form_enabled', 'all_forms_received', 'logsheet_created', 'waiting_sharia_signature'].includes(app.status)) {
+      return res.status(400).json({ error: 'Cannot edit or enable Product Approval Form in current status.' });
     }
 
     const { form_text, is_draft } = req.body;
@@ -522,6 +522,79 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
 
     const data = await app.save();
     res.json({ data, message: `Response saved for product ${idx + 1}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/request-more-info ──────────────────────
+// Admin: Request additional information / documents from the client for their product approval form
+router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.single('info_file'), async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    const { message } = req.body;
+    if (!message?.trim()) {
+      return res.status(400).json({ error: 'Message detailing the requested information is required.' });
+    }
+
+    let file_url = null;
+    if (req.file) {
+      file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    app.status = 'product_approval_form_enabled';
+    if (!app.product_approval_form) app.product_approval_form = {};
+    app.product_approval_form.submitted_at = null; // Re-open submission for client
+    app.product_approval_form.form_text = message.trim();
+    if (file_url) {
+      app.product_approval_form.form_file_url = file_url;
+    }
+
+    await pushHistory(app, 'product_approval_form_enabled', `More information requested: ${message.trim()}`, req.user._id);
+
+    const data = await app.save();
+    emitAddOnUpdate(data, 'more_info_requested');
+
+    // Notify client
+    const client = await User.findById(app.client_id);
+    if (client) {
+      await createNotification(
+        client._id,
+        'Action Required: More Information Requested 📝',
+        `HFA team requested additional details on your Product Approval Form: "${message.trim().slice(0, 100)}..."`,
+        'warning',
+        `/addon-applications/${app._id}/approval-form`
+      );
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '⚠️ HFA: More Information Requested for Product Approval Form',
+      bodyHtml: `
+        <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #ea580c; margin-bottom: 12px;">More Information Required</h2>
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            The HFA Technical team reviewed your submitted Product Approval Form and has requested additional information before proceeding with certification:
+          </p>
+          <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #9a3412; font-weight: 600; white-space: pre-wrap;">${message.trim()}</p>
+          </div>
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            Please log in to your portal and update your product responses accordingly.
+          </p>
+          <div style="margin-top: 24px;">
+            <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
+              Open Product Approval Form
+            </a>
+          </div>
+        </div>
+      `
+    });
+
+    res.json({ data, message: 'Request for more information sent to client successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
