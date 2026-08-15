@@ -37,7 +37,7 @@ const sendClientEmail = async (clientId, subject, html) => {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (req.user.role === 'client') {
       query.client_id = req.user._id.toString();
     }
     const audits = await Audit.find(query)
@@ -91,6 +91,8 @@ router.get('/', authenticateToken, async (req, res) => {
         application_id: a.application_id,
         applications: a.application_id ? { application_number: a.application_id.application_number } : null,
         profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
+        company_name: client?.company_name || client?.full_name || 'Unknown Client',
+        inspector_id: a.inspector_id,
         inspectors: { full_name: inspectorName },
         sites: { name: 'Main Site' },
         audit_type: a.audit_type || 'Initial',
