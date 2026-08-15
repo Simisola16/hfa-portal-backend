@@ -422,40 +422,54 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.single('f
     await pushHistory(app, 'product_approval_form_enabled', 'Request for Product Approval Form sent to client.', req.user._id);
 
     const data = await app.save();
-    emitAddOnUpdate(data, 'form_enabled');
 
-    // Notify client
-    const client = await User.findById(app.client_id);
-    if (client) {
-      await createNotification(
-        client._id,
-        'Request for Product Approval Form 📋',
-        'Your Product Approval Forms are ready. Please log in to review and submit your responses.',
-        'info',
-        `/addon-applications/${app._id}/approval-form`
-      );
+    try {
+      emitAddOnUpdate(data, 'form_enabled');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
     }
 
-    await sendContactEmail({
-      contactEmail: app.contact_email,
-      contactName: app.contact_name,
-      subject: '📋 HFA: Product Approval Form Enabled — Action Required',
-      bodyHtml: `
-        <p style="font-size:14px;color:#334155;line-height:1.6">
-          Your <strong>Product Approval Form</strong> has been prepared and is now available for you to review and complete.
-        </p>
-        <p style="font-size:14px;color:#334155;line-height:1.6">
-          Please log in to the HFA Client Portal, open your add-on application, and submit your responses for each product.
-        </p>
-        <p style="font-size:14px;color:#dc2626;font-weight:700;line-height:1.6">
-          ⚠️ Action Required: Your application cannot progress until you submit responses for all products.
-        </p>
-      `
-    });
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Request for Product Approval Form 📋',
+          'Your Product Approval Forms are ready. Please log in to review and submit your responses.',
+          'info',
+          `/addon-applications/${app._id}/approval-form`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    try {
+      await sendContactEmail({
+        contactEmail: app.contact_email,
+        contactName: app.contact_name,
+        subject: '📋 HFA: Product Approval Form Enabled — Action Required',
+        bodyHtml: `
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            Your <strong>Product Approval Form</strong> has been prepared and is now available for you to review and complete.
+          </p>
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            Please log in to the HFA Client Portal, open your add-on application, and submit your responses for each product.
+          </p>
+          <p style="font-size:14px;color:#dc2626;font-weight:700;line-height:1.6">
+            ⚠️ Action Required: Your application cannot progress until you submit responses for all products.
+          </p>
+        `
+      });
+    } catch (e) {
+      console.warn('[AddOn] Failed to send email:', e.message);
+    }
 
     res.json({ data, message: 'Product Approval Form enabled and sent to client.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[AddOn] enable-form error:', err);
+    res.status(500).json({ error: err.message || 'Server error enabling form' });
   }
 });
 
