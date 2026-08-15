@@ -66,7 +66,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
             <tr><td style="padding: 4px 0; font-weight: 600; width: 150px;">Application Ref:</td><td style="padding: 4px 0; font-weight: 700; color: #0e7490;">${appRef}</td></tr>
             <tr><td style="padding: 4px 0; font-weight: 600;">Company:</td><td style="padding: 4px 0;">${companyName}</td></tr>
             <tr><td style="padding: 4px 0; font-weight: 600;">Issue Date:</td><td style="padding: 4px 0;">${issueDate}</td></tr>
-            <tr><td style="padding: 4px 0; font-weight: 600;">Audit Type:</td><td style="padding: 4px 0;">${logsheet.audit_type || 'Initial'}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Audit Type:</td><td style="padding: 4px 0;">${logsheet.audit_type || 'New'}</td></tr>
           </table>
         </div>
         <p style="font-size: 13px; color: #64748b; line-height: 1.5;">
