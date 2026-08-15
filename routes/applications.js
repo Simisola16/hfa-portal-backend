@@ -46,9 +46,23 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
     const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
     const data = await Application.findOne(query)
+      .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors');
     if (!data) return res.status(404).json({ error: 'Application not found' });
+
+    let finalData = data.toObject ? data.toObject() : data;
+
+    // Attach site details if site_id is present
+    if (finalData.site_id) {
+      try {
+        const Site = mongoose.model('Site');
+        if (mongoose.Types.ObjectId.isValid(finalData.site_id)) {
+          const s = await Site.findById(finalData.site_id).lean();
+          if (s) finalData.site = s;
+        }
+      } catch (sErr) {}
+    }
 
     // Auto-fix legacy uppercase statuses in DB (e.g. "PAYMENT RECEIVED" -> "payment_received")
     if (data.status && (data.status.includes(' ') || data.status !== data.status.toLowerCase())) {
@@ -57,7 +71,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       await Application.findByIdAndUpdate(data._id, { status: normalized });
     }
 
-    res.json({ data });
+    res.json({ data: finalData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
