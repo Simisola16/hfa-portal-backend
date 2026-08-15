@@ -80,7 +80,16 @@ const addOnApplicationSchema = new mongoose.Schema({
     is_draft: { type: Boolean, default: false },
     sent_at: Date,
     product_responses: { type: [productResponseSchema], default: [] },
-    submitted_at: Date
+    submitted_at: Date,
+
+    // More Information request & Client reply fields
+    more_info_requested: { type: Boolean, default: false },
+    more_info_message: String,
+    more_info_file_url: String,
+    more_info_requested_at: Date,
+    client_reply_text: String,
+    client_reply_file_url: String,
+    client_replied_at: Date
   },
 
   // Linked logsheet (once admin creates it in the "Create Logsheet" step)

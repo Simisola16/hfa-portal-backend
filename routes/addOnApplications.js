@@ -561,8 +561,12 @@ const handleRequestMoreInfoRoute = async (req, res) => {
     app.status = 'product_approval_form_enabled';
     if (!app.product_approval_form) app.product_approval_form = {};
     app.product_approval_form.submitted_at = null; // Re-open submission for client
+    app.product_approval_form.more_info_requested = true;
+    app.product_approval_form.more_info_message = message.trim();
+    app.product_approval_form.more_info_requested_at = new Date();
     app.product_approval_form.form_text = message.trim();
     if (file_url) {
+      app.product_approval_form.more_info_file_url = file_url;
       app.product_approval_form.form_file_url = file_url;
     }
 
@@ -607,7 +611,7 @@ const handleRequestMoreInfoRoute = async (req, res) => {
               <p style="margin: 0; font-size: 14px; color: #9a3412; font-weight: 600; white-space: pre-wrap;">${message.trim()}</p>
             </div>
             <p style="font-size:14px;color:#334155;line-height:1.6">
-              Please log in to your portal and update your product responses accordingly.
+              Please log in to your portal and update your product responses or upload your reply documents accordingly.
             </p>
             <div style="margin-top: 24px;">
               <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
@@ -630,6 +634,75 @@ const handleRequestMoreInfoRoute = async (req, res) => {
 
 router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
 router.post('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
+
+// ─── PUT / POST /api/add-on-applications/:id/reply-more-info ─────────────────
+// Client: Submit reply message and upload supporting documents in response to Admin's Request for More Info
+const handleReplyMoreInfoRoute = async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const reply_text = req.body?.reply_text || req.body?.message || '';
+    let reply_file_url = null;
+
+    const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
+    if (uploadedFile) {
+      reply_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+    }
+
+    if (!reply_text.trim() && !reply_file_url) {
+      return res.status(400).json({ error: 'Please provide a response message or attach a supporting document.' });
+    }
+
+    if (!app.product_approval_form) app.product_approval_form = {};
+    if (reply_text.trim()) {
+      app.product_approval_form.client_reply_text = reply_text.trim();
+    }
+    if (reply_file_url) {
+      app.product_approval_form.client_reply_file_url = reply_file_url;
+    }
+    app.product_approval_form.client_replied_at = new Date();
+    app.product_approval_form.more_info_requested = false;
+    app.product_approval_form.submitted_at = new Date(); // marks as submitted so Admin can review and receive!
+
+    await pushHistory(
+      app,
+      'product_approval_form_enabled',
+      `Client uploaded reply & supporting documents: "${reply_text.trim().slice(0, 120) || 'Attached document'}"`,
+      req.user?._id
+    );
+
+    const data = await app.save();
+
+    try {
+      emitAddOnUpdate(data, 'more_info_replied');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify admins
+    try {
+      await notifyAdmins(
+        'Client Replied to Information Request 📋',
+        `Client responded with explanation and documents for add-on application (${app.contact_name}).`
+      );
+    } catch (e) {
+      console.warn('[AddOn] Failed to notify admins:', e.message);
+    }
+
+    res.json({ data, message: 'Your reply and documents have been submitted to HFA successfully.' });
+  } catch (err) {
+    console.error('[AddOn] reply-more-info error:', err);
+    res.status(500).json({ error: err.message || 'Server error submitting reply' });
+  }
+};
+
+router.put('/:id/reply-more-info', authenticateToken, upload.any(), handleReplyMoreInfoRoute);
+router.post('/:id/reply-more-info', authenticateToken, upload.any(), handleReplyMoreInfoRoute);
 
 // ─── PUT /api/add-on-applications/:id/confirm-form-received ───────────────────
 // Admin / Staff: Confirm that the Product Form responses have been received
