@@ -631,6 +631,54 @@ const handleRequestMoreInfoRoute = async (req, res) => {
 router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
 router.post('/:id/request-more-info', authenticateToken, requireStaff, upload.any(), handleRequestMoreInfoRoute);
 
+// ─── PUT /api/add-on-applications/:id/confirm-form-received ───────────────────
+// Admin / Staff: Confirm that the Product Form responses have been received
+router.put('/:id/confirm-form-received', authenticateToken, requireStaff, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+    if (!['product_approval_form_enabled', 'all_forms_received'].includes(app.status)) {
+      return res.status(400).json({ error: 'Cannot confirm form received in current status.' });
+    }
+
+    if (!app.product_approval_form) app.product_approval_form = {};
+    if (!app.product_approval_form.submitted_at) {
+      app.product_approval_form.submitted_at = new Date();
+    }
+    app.status = 'all_forms_received';
+    await pushHistory(app, 'all_forms_received', 'Product Approval Form responses confirmed and marked as received by HFA admin.', req.user?._id);
+
+    const data = await app.save();
+
+    try {
+      emitAddOnUpdate(data, 'form_submitted');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Product Approval Form Received ✅',
+          'Your Product Approval Form responses have been reviewed and marked as received by the HFA team.',
+          'success',
+          `/addon-applications/${app._id}/track`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    res.json({ data, message: 'Product Form marked as Received successfully.' });
+  } catch (err) {
+    console.error('[AddOn] confirm-form-received error:', err);
+    res.status(500).json({ error: err.message || 'Server error confirming form received' });
+  }
+});
+
 // ─── PUT /api/add-on-applications/:id/submit-all-responses ───────────────────
 // Client: Final submit when responses for ALL products have been saved
 router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
