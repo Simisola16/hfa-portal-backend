@@ -641,6 +641,15 @@ router.put('/:id/confirm-form-received', authenticateToken, requireStaff, async 
       return res.status(400).json({ error: 'Cannot confirm form received in current status.' });
     }
 
+    const productCount = app.products?.length || 0;
+    const responses = app.product_approval_form?.product_responses || [];
+    for (let i = 0; i < productCount; i++) {
+      const resp = responses.find(r => r.product_index === i && r.is_saved);
+      if (!resp) {
+        return res.status(400).json({ error: `Cannot mark form as received: Product #${i + 1} (${app.products[i]?.name || ''}) has not been filled by the client yet.` });
+      }
+    }
+
     if (!app.product_approval_form) app.product_approval_form = {};
     if (!app.product_approval_form.submitted_at) {
       app.product_approval_form.submitted_at = new Date();
