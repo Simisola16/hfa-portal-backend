@@ -116,8 +116,8 @@ app.get('/', (req, res) => {
 
 // Error handling
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+  console.error('[Server Error]', err.stack || err);
+  res.status(err.status || 500).json({ error: err.message || 'Something went wrong!' });
 });
 
 // Start server for local and persistent hosting (like Render.com)

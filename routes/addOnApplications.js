@@ -20,15 +20,10 @@ const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
-// File upload middleware (for enabling form / client form response)
+// File upload middleware (for enabling form / client form response / reference attachments)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    cb(new Error('Only PDF and image files are allowed'));
-  },
 });
 
 // ─── Email helpers ────────────────────────────────────────────────────────────
