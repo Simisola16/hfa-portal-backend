@@ -73,6 +73,7 @@ const auditSchema = new mongoose.Schema({
     default: 'pending'
   },
   stage: { type: Number, default: 1 },
+  completed_at: { type: Date },
 
 }, {
   timestamps: true,

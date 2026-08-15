@@ -104,6 +104,9 @@ router.get('/', authenticateToken, async (req, res) => {
         auditors: a.auditors || [],
         nc_reports: combinedNc,
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
+        completed_at: a.completed_at || (['audit_completed', 'completed', 'done', 'inspection_completed'].includes(a.status) ? a.updatedAt : null),
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
       };
     });
 
@@ -991,6 +994,7 @@ router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res)
 
     if (audit) {
       audit.status = 'audit_completed';
+      audit.completed_at = new Date();
       await audit.save();
     }
 
