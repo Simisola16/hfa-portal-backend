@@ -68,6 +68,9 @@ async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }
  * Push a status history entry and notify admin users.
  */
 async function pushHistory(app, status, note, changedBy) {
+  if (!Array.isArray(app.statusHistory)) {
+    app.statusHistory = [];
+  }
   app.statusHistory.push({ status, changedAt: new Date(), changedBy, note });
 }
 
@@ -555,48 +558,62 @@ router.put('/:id/request-more-info', authenticateToken, requireStaff, upload.sin
     await pushHistory(app, 'product_approval_form_enabled', `More information requested: ${message.trim()}`, req.user._id);
 
     const data = await app.save();
-    emitAddOnUpdate(data, 'more_info_requested');
 
-    // Notify client
-    const client = await User.findById(app.client_id);
-    if (client) {
-      await createNotification(
-        client._id,
-        'Action Required: More Information Requested 📝',
-        `HFA team requested additional details on your Product Approval Form: "${message.trim().slice(0, 100)}..."`,
-        'warning',
-        `/addon-applications/${app._id}/approval-form`
-      );
+    try {
+      emitAddOnUpdate(data, 'more_info_requested');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
     }
 
-    await sendContactEmail({
-      contactEmail: app.contact_email,
-      contactName: app.contact_name,
-      subject: '⚠️ HFA: More Information Requested for Product Approval Form',
-      bodyHtml: `
-        <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #ea580c; margin-bottom: 12px;">More Information Required</h2>
-          <p style="font-size:14px;color:#334155;line-height:1.6">
-            The HFA Technical team reviewed your submitted Product Approval Form and has requested additional information before proceeding with certification:
-          </p>
-          <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
-            <p style="margin: 0; font-size: 14px; color: #9a3412; font-weight: 600; white-space: pre-wrap;">${message.trim()}</p>
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Action Required: More Information Requested 📝',
+          `HFA team requested additional details on your Product Approval Form: "${message.trim().slice(0, 100)}..."`,
+          'warning',
+          `/addon-applications/${app._id}/approval-form`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    try {
+      await sendContactEmail({
+        contactEmail: app.contact_email,
+        contactName: app.contact_name,
+        subject: '⚠️ HFA: More Information Requested for Product Approval Form',
+        bodyHtml: `
+          <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #ea580c; margin-bottom: 12px;">More Information Required</h2>
+            <p style="font-size:14px;color:#334155;line-height:1.6">
+              The HFA Technical team reviewed your submitted Product Approval Form and has requested additional information before proceeding with certification:
+            </p>
+            <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
+              <p style="margin: 0; font-size: 14px; color: #9a3412; font-weight: 600; white-space: pre-wrap;">${message.trim()}</p>
+            </div>
+            <p style="font-size:14px;color:#334155;line-height:1.6">
+              Please log in to your portal and update your product responses accordingly.
+            </p>
+            <div style="margin-top: 24px;">
+              <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
+                Open Product Approval Form
+              </a>
+            </div>
           </div>
-          <p style="font-size:14px;color:#334155;line-height:1.6">
-            Please log in to your portal and update your product responses accordingly.
-          </p>
-          <div style="margin-top: 24px;">
-            <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
-              Open Product Approval Form
-            </a>
-          </div>
-        </div>
-      `
-    });
+        `
+      });
+    } catch (e) {
+      console.warn('[AddOn] Failed to send email:', e.message);
+    }
 
     res.json({ data, message: 'Request for more information sent to client successfully.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[AddOn] request-more-info error:', err);
+    res.status(500).json({ error: err.message || 'Server error processing request' });
   }
 });
 
