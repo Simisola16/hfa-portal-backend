@@ -6,7 +6,7 @@ import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
-import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
@@ -381,7 +381,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 
 // ─── PUT /api/add-on-applications/:id/enable-form ────────────────────────────
 // Admin: Enable or Save Draft Product Approval Form (upload PDF or write text)
-router.put('/:id/enable-form', authenticateToken, requireFoodTechManagerOrAdmin, upload.single('form_file'), async (req, res) => {
+router.put('/:id/enable-form', authenticateToken, requireStaff, upload.single('form_file'), async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
