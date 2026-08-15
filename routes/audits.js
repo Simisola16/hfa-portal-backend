@@ -888,22 +888,28 @@ router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_d
   }
 });
 
-// POST /api/audits/nc-close (Admin - Closes NC and advances application to NC Closed)
-router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/audits/nc-close (Admin/Auditor - Closes NC and advances application to NC Closed)
+router.post('/nc-close', authenticateToken, async (req, res) => {
   try {
-    const { audit_id, application_id, note } = req.body;
+    const { audit_id, application_id, report_id, note } = req.body;
     let appId = application_id;
     let audit = null;
 
     if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
       audit = await Audit.findById(audit_id);
-      if (audit) appId = audit.application_id;
+      if (audit && !appId) appId = audit.application_id;
     }
 
+    if (!appId && audit?.application_id) appId = audit.application_id;
     if (!appId) return res.status(400).json({ error: 'Application ID is required' });
 
     if (audit && audit.nc_reports) {
-      audit.nc_reports.forEach(r => { r.status = 'closed'; });
+      if (report_id) {
+        const r = audit.nc_reports.id(report_id) || audit.nc_reports.find(item => String(item._id) === String(report_id));
+        if (r) r.status = 'closed';
+      } else {
+        audit.nc_reports.forEach(r => { r.status = 'closed'; });
+      }
       await audit.save();
     }
 
@@ -943,7 +949,7 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
               status: 'nc_closed',
               changedAt: new Date(),
               changedBy: req.user._id,
-              note: note || 'NC closed — all non-conformities reviewed and closed by admin.'
+              note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
             }
           }
         } : {})
@@ -953,7 +959,12 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
 
     if (updatedApp) {
       if (updatedApp.nc_reports) {
-        updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
+        if (report_id) {
+          const r = updatedApp.nc_reports.id(report_id) || updatedApp.nc_reports.find(item => String(item._id) === String(report_id));
+          if (r) r.status = 'closed';
+        } else {
+          updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
+        }
         await updatedApp.save();
       }
       emitApplicationUpdate(updatedApp, updatedApp.status);
