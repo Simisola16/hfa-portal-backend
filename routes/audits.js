@@ -624,8 +624,8 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
 });
 
 
-// POST /api/audits/flag-nc (Admin - Flags an NC report)
-router.post('/flag-nc', authenticateToken, requireAdmin, upload.single('nc_document'), async (req, res) => {
+// POST /api/audits/flag-nc (Admin/Auditor - Flags an NC report)
+router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (req, res) => {
   try {
     const { audit_id, application_id, text } = req.body;
     let audit = null;
@@ -976,8 +976,8 @@ router.post('/nc-close', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/audits/complete-clean (Admin - Marks audit stage completed)
-router.post('/complete-clean', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/audits/complete-clean (Admin/Auditor - Marks audit stage as completed/audited)
+router.post('/complete-clean', authenticateToken, async (req, res) => {
   try {
     const { audit_id, application_id } = req.body;
     let audit = null;
