@@ -705,8 +705,7 @@ router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
     }
 
     app.product_approval_form.submitted_at = new Date();
-    app.status = 'all_forms_received';
-    await pushHistory(app, 'all_forms_received', 'Client submitted Product Approval Form responses for all products.', req.user._id);
+    await pushHistory(app, 'product_approval_form_enabled', 'Client submitted Product Approval Form responses for all products. Awaiting review.', req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'form_submitted');
