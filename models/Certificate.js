@@ -14,6 +14,9 @@ const certificateSchema = new mongoose.Schema({
   is_renewed: { type: Boolean, default: false },
   renewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate' },
   revocation_reason: String,
+  is_direct_issuance: { type: Boolean, default: false },
+  issued_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  notes: String,
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 }, { 
