@@ -6,6 +6,7 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 
@@ -66,7 +67,12 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     }
 
     // Auto-generate invoice number
-    invoiceData.invoice_number = `INV-${Date.now().toString().slice(-8)}`;
+    let companyForId = 'HFA';
+    if (invoiceData.client_id) {
+      const clientUser = await User.findById(invoiceData.client_id);
+      companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
+    }
+    invoiceData.invoice_number = invoiceData.invoice_number || generateHfaId(companyForId);
 
     const invoice = new Invoice(invoiceData);
     const data = await invoice.save();

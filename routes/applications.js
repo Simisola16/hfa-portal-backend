@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { createNotification } from '../lib/notifications.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -176,7 +177,8 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
 
-    const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
+    const companyForId = req.body.establishment_name || req.body.site_name || req.user.company_name || req.user.full_name || 'HFA';
+    const appNumber = generateHfaId(companyForId);
     
     // Parse products if they come as a JSON string
     let products = [];
@@ -419,7 +421,8 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       try {
         const existingCert = await Certificate.findOne({ application_id: data._id, status: 'active' });
         if (!existingCert) {
-          const certNumber = `HFA-UK-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+          const companyForId = client ? (client.company_name || client.full_name) : data.establishment_name;
+          const certNumber = generateHfaId(companyForId);
           
           const productCategories = (data.products || []).map(p => ({
             code: p.brand || 'GEN',
@@ -605,7 +608,8 @@ router.post('/renew', authenticateToken, upload.fields([
       supporting_docs: [...uploadedDocs, ...pastSupporting]
     };
 
-    const appNumber = `HFA-${Date.now().toString().slice(-8)}`;
+    const companyForId = originalApp?.establishment_name || req.user.company_name || req.user.full_name || 'HFA';
+    const appNumber = generateHfaId(companyForId);
     const emailVal = (contact_email && contact_email.trim()) || originalApp?.primary_email || originalApp?.company_email || req.user.email || '';
     const phoneVal = (contact_phone && contact_phone.trim()) || originalApp?.primary_work_tel || originalApp?.primary_mobile || req.user.phone || '';
 

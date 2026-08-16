@@ -1,6 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
 const router = express.Router();
 
 import Application from '../models/Application.js';
@@ -8,8 +8,8 @@ import Certificate from '../models/Certificate.js';
 import { createNotification } from '../lib/notifications.js';
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, username, company_name, phone, address, postcode, country } = req.body;
-  const isStaffRole = ['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
+  const { email, password, full_name, role, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
+  const isStaffRole = ['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
   if (isStaffRole && !username?.trim()) {
     return res.status(400).json({ error: 'Username is required for HFA Staff accounts.' });
   }
@@ -32,6 +32,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       postcode,
       country,
       role: role || 'client',
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate),
       username: username || undefined,
       is_verified: true,
       is_active: true
@@ -73,6 +74,41 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     const { role } = req.body;
     const data = await User.findByIdAndUpdate(req.params.id, { role }, { new: true });
     res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/:id/direct-cert-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_issue_direct_certificate } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+    await user.save();
+
+    if (user.can_issue_direct_certificate) {
+      await createNotification(
+        user._id,
+        'Privilege Granted: Direct Certificate Studio ⚡',
+        'Superadmin has granted you permission to directly issue Halal certificates and products without application.',
+        'success',
+        '/superadmin/direct-certificate'
+      );
+    } else {
+      await createNotification(
+        user._id,
+        'Privilege Revoked: Direct Certificate Studio',
+        'Your direct certificate issuance permission has been revoked by Superadmin.',
+        'warning',
+        '/dashboard'
+      );
+    }
+
+    const resData = user.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Direct Certificate privilege ${user.can_issue_direct_certificate ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

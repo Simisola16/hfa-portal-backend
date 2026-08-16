@@ -57,6 +57,16 @@ export const requireSuperAdmin = async (req, res, next) => {
   next();
 };
 
+export const requireDirectCertificatePermission = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const hasPermission = req.user.role === 'superadmin' || req.user.can_issue_direct_certificate === true;
+  if (!hasPermission) {
+    return res.status(403).json({ error: 'Direct certificate issuance privilege required. Contact Superadmin for access.' });
+  }
+  next();
+};
+
 export const requireAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -97,9 +107,17 @@ export const requireFoodTech = async (req, res, next) => {
   next();
 };
 
+export const requireAuditManager = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.user.role !== 'audit_manager' && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Audit Manager or Admin access required' });
+  }
+  next();
+};
+
 export const requireStaff = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  const isStaff = ['admin', 'superadmin', 'food_tech_manager', 'food_tech'].includes(req.user.role);
+  const isStaff = ['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(req.user.role);
   if (!isStaff) {
     return res.status(403).json({ error: 'Staff access required' });
   }

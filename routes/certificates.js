@@ -7,8 +7,9 @@ import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
@@ -135,7 +136,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, upload.single('certificate_file'), async (req, res) => {
   try {
     const { client_id, application_id, site_id, certificate_type, issue_date, expiry_date, products_covered, certificate_number } = req.body;
-    const certNo = certificate_number || `HFA-CERT-${Date.now().toString().slice(-8)}`;
+    let companyForId = 'HFA';
+    if (client_id) {
+      const cUser = await User.findById(client_id);
+      companyForId = cUser?.company_name || cUser?.full_name || 'HFA';
+    }
+    const certNo = certificate_number || generateHfaId(companyForId);
 
     let certificate_url = null;
     if (req.file) {
@@ -242,7 +248,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 async function buildCertDataFromApplication(application) {
   const User = (await import('../models/User.js')).default;
   const client = await User.findById(application.client_id);
-  const certNumber = `HFA-UK-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+  const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
+  const certNumber = generateHfaId(companyForId);
   
   const productCategories = (application.products || []).map(p => ({
     code: p.brand || 'GEN',
@@ -452,8 +459,8 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/certificates/direct-issue (Superadmin only: direct certificate and product issuance without application)
-router.post('/direct-issue', authenticateToken, requireSuperAdmin, upload.single('certificate_file'), async (req, res) => {
+// POST /api/certificates/direct-issue (Superadmin & Authorized Staff: direct certificate and product issuance without application)
+router.post('/direct-issue', authenticateToken, requireDirectCertificatePermission, upload.single('certificate_file'), async (req, res) => {
   try {
     const {
       client_id,
@@ -548,9 +555,10 @@ router.post('/direct-issue', authenticateToken, requireSuperAdmin, upload.single
     }
 
     // 3. Resolve Certificate Number
+    const companyForId = targetClient?.company_name || targetClient?.full_name || new_client_company || 'HFA';
     const certNumber = (certificate_number && certificate_number.trim())
       ? certificate_number.trim()
-      : `HFA-UK-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+      : generateHfaId(companyForId);
 
     const existingCertWithNo = await Certificate.findOne({ certificate_number: certNumber });
     if (existingCertWithNo) {
@@ -709,8 +717,8 @@ router.post('/direct-issue', authenticateToken, requireSuperAdmin, upload.single
   }
 });
 
-// GET /api/certificates/direct-history (Superadmin only)
-router.get('/direct-history', authenticateToken, requireSuperAdmin, async (req, res) => {
+// GET /api/certificates/direct-history (Superadmin & Authorized Staff)
+router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
   try {
     const certs = await Certificate.find({ is_direct_issuance: true })
       .populate('site_id')

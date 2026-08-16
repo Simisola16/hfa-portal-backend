@@ -295,7 +295,7 @@ router.post('/admin/login', async (req, res) => {
       ]
     });
 
-    if (!user || !['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'inspector'].includes(user.role) || !(await user.comparePassword(password))) {
+    if (!user || !['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(user.role) || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
@@ -308,14 +308,16 @@ router.post('/admin/login', async (req, res) => {
         email: user.email,
         username: user.username,
         full_name: user.full_name,
-        role: user.role
+        role: user.role,
+        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin')
       },
       profile: {
         id: user._id,
         email: user.email,
         username: user.username,
         full_name: user.full_name,
-        role: user.role
+        role: user.role,
+        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin')
       }
     });
   } catch (err) {
