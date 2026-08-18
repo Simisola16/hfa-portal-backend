@@ -7,6 +7,99 @@ import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
 import { createNotification } from '../lib/notifications.js';
 
+// GET /api/users/company/subusers (Client endpoint to get primary user + subusers)
+router.get('/company/subusers', authenticateToken, async (req, res) => {
+  try {
+    const parentId = req.user.parent_client_id || req.user._id;
+    const [primaryUser, subUsers] = await Promise.all([
+      User.findById(parentId).select('-password'),
+      User.find({ parent_client_id: parentId }).select('-password').sort({ created_at: -1 })
+    ]);
+
+    const result = [];
+    if (primaryUser) {
+      const pObj = primaryUser.toJSON();
+      result.push({
+        ...pObj,
+        id: pObj._id.toString(),
+        is_owner: true,
+        role: pObj.client_role || 'owner',
+        display_role: 'Account Owner'
+      });
+    }
+    subUsers.forEach(u => {
+      const uObj = u.toJSON();
+      result.push({
+        ...uObj,
+        id: uObj._id.toString(),
+        is_owner: false,
+        role: uObj.client_role || 'viewer',
+        display_role: uObj.client_role ? (uObj.client_role.charAt(0).toUpperCase() + uObj.client_role.slice(1)) : 'Viewer'
+      });
+    });
+
+    res.json({ data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/users/company/subusers (Client endpoint to add a subuser)
+router.post('/company/subusers', authenticateToken, async (req, res) => {
+  try {
+    const { full_name, email, role, password } = req.body;
+    if (!full_name?.trim()) return res.status(400).json({ error: 'Full name is required' });
+    if (!email?.trim()) return res.status(400).json({ error: 'Email is required' });
+
+    const parentId = req.user.parent_client_id || req.user._id;
+    const parent = await User.findById(parentId);
+    if (!parent) return res.status(404).json({ error: 'Primary client account not found' });
+
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
+    if (existing) return res.status(400).json({ error: 'User with this email already exists' });
+
+    const subUserPassword = password || `HFA${Math.random().toString(36).slice(-8)}!`;
+
+    const subUser = new User({
+      full_name: full_name.trim(),
+      email: email.trim().toLowerCase(),
+      password: subUserPassword,
+      role: 'client',
+      client_role: ['admin', 'editor', 'viewer'].includes(role) ? role : 'viewer',
+      parent_client_id: parentId,
+      company_name: parent.company_name || parent.full_name,
+      phone: parent.phone,
+      address: parent.address,
+      postcode: parent.postcode,
+      country: parent.country,
+      is_verified: true,
+      is_active: true
+    });
+
+    const data = await subUser.save();
+    const resData = data.toJSON();
+    delete resData.password;
+
+    res.status(201).json({ data: resData, message: 'Team member added successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/users/company/subusers/:id (Client endpoint to remove subuser)
+router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
+  try {
+    const parentId = req.user.parent_client_id || req.user._id;
+    const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
+    if (!subUser) return res.status(404).json({ error: 'Team member not found or cannot be removed' });
+
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Team member removed successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const { email, password, full_name, role, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
   const isStaffRole = ['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);

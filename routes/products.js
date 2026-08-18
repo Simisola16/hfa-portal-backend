@@ -123,6 +123,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins can change product status.' });
+    }
     const { status, notes } = req.body;
     const data = await Product.findByIdAndUpdate(
       req.params.id, 
@@ -138,6 +141,9 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Clients cannot modify certified products directly. Please submit an Add-on request.' });
+    }
     const data = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!data) return res.status(404).json({ error: 'Product not found' });
     res.json({ data });
@@ -148,6 +154,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Clients cannot delete certified products directly. Please submit an Add-on removal request.' });
+    }
     const result = await Product.findByIdAndDelete(req.params.id);
     if (!result) return res.status(404).json({ error: 'Product not found' });
     res.json({ message: 'Product deleted' });

@@ -11,6 +11,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
   
   // Tab 1: Company Details
+  site_name: String,
   company_name: String,
   company_address: String,
   manufacturing_address: String,
