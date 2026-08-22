@@ -231,8 +231,25 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { application_id, client_id, dates, stage } = req.body;
-    if (!dates || dates.length !== 3) {
+    if (!dates || !Array.isArray(dates) || dates.length !== 3) {
       return res.status(400).json({ error: 'Must provide exactly 3 dates' });
+    }
+
+    // Check for past dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (const d of dates) {
+      const dt = new Date(d);
+      dt.setHours(0, 0, 0, 0);
+      if (isNaN(dt.getTime()) || dt < today) {
+        return res.status(400).json({ error: 'Proposed audit dates cannot be in the past. Please select future dates.' });
+      }
+    }
+
+    // Check for duplicate dates
+    const unique = new Set(dates.map(d => String(d).trim()));
+    if (unique.size !== 3) {
+      return res.status(400).json({ error: 'Please provide 3 distinct dates. Duplicate dates are not allowed.' });
     }
 
     let audit = await Audit.findOne({ application_id, stage: stage || 1 });
