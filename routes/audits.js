@@ -271,8 +271,18 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     audit.proposed_dates = dates;
     audit.client_unavailable = false;
     audit.selected_dates = [];
+    audit.finalized_date = null;
+    audit.scheduled_date = null;
     audit.status = 'dates_proposed';
     await audit.save();
+
+    if (application_id) {
+      await Audit.deleteMany({
+        application_id,
+        stage: stage || 1,
+        _id: { $ne: audit._id }
+      });
+    }
 
     if (application_id) {
       const isStage2 = (stage === 2);

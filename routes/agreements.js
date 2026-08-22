@@ -76,11 +76,21 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
       agreement.client_sign_name = undefined;
       agreement.client_sign_date = undefined;
       agreement.signed_agreement_url = undefined;
+      agreement.final_agreement_url = undefined;
+      agreement.final_agreement_sent_at = undefined;
     } else {
       agreement = new Agreement(agreementData);
     }
 
     const data = await agreement.save();
+
+    // Clean up any duplicate agreements for this application
+    if (agreementData.application_id) {
+      await Agreement.deleteMany({
+        application_id: agreementData.application_id,
+        _id: { $ne: data._id }
+      });
+    }
 
     // Fetch app for ref number
     const app = await Application.findById(agreement.application_id);

@@ -154,6 +154,14 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     
     await logsheet.save();
 
+    // Clean up any other duplicate logsheets for this application
+    if (application_id) {
+      await ApplicationLogsheet.deleteMany({
+        application_id,
+        _id: { $ne: logsheet._id }
+      });
+    }
+
     // Update application status to logsheet_created (fix: was incorrectly setting 'AGREEMENT SENT')
     const app = await Application.findByIdAndUpdate(
       application_id,

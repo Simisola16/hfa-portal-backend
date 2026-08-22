@@ -83,6 +83,35 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
         console.error('Proposal Resend Email error:', e.message);
       }
 
+      // Clean up any other duplicate proposals for this application
+      if (application_id) {
+        await Proposal.deleteMany({
+          application_id,
+          _id: { $ne: data._id }
+        });
+
+        // Update application status to proposal_sent
+        try {
+          const Application = (await import('../models/Application.js')).default;
+          const { emitApplicationUpdate } = await import('../lib/socket.js');
+          const updatedApp = await Application.findByIdAndUpdate(application_id, {
+            status: 'proposal_sent',
+            updated_at: new Date(),
+            $push: {
+              statusHistory: {
+                status: 'proposal_sent',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: `Revised certification proposal (v${data.version}) sent: "${data.title}"`
+              }
+            }
+          }, { new: true });
+          if (updatedApp) emitApplicationUpdate(updatedApp, 'proposal_sent');
+        } catch (appErr) {
+          console.error('[Proposal] Error updating application status:', appErr.message);
+        }
+      }
+
       // Notify Client
       await createNotification(
         data.client_id,
@@ -107,6 +136,35 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
 
       const newProposal = new Proposal(proposalData);
       const data = await newProposal.save();
+
+      // Clean up any other duplicate proposals for this application
+      if (application_id) {
+        await Proposal.deleteMany({
+          application_id,
+          _id: { $ne: data._id }
+        });
+
+        // Update application status to proposal_sent
+        try {
+          const Application = (await import('../models/Application.js')).default;
+          const { emitApplicationUpdate } = await import('../lib/socket.js');
+          const updatedApp = await Application.findByIdAndUpdate(application_id, {
+            status: 'proposal_sent',
+            updated_at: new Date(),
+            $push: {
+              statusHistory: {
+                status: 'proposal_sent',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: `Certification proposal sent: "${data.title}"`
+              }
+            }
+          }, { new: true });
+          if (updatedApp) emitApplicationUpdate(updatedApp, 'proposal_sent');
+        } catch (appErr) {
+          console.error('[Proposal] Error updating application status:', appErr.message);
+        }
+      }
 
       // Send Email Notification
       try {
