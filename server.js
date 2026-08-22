@@ -58,8 +58,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // 4. DB Connection Middleware with Timeout
 app.use(async (req, res, next) => {
-  // Skip DB connection for the health check or simple root route if needed
-  if (req.path === '/api/health') return next();
+  // Skip DB connection for preflight OPTIONS, health check or simple root route
+  if (req.method === 'OPTIONS' || req.path === '/api/health') return next();
 
   try {
     // Set a timeout for the DB connection
