@@ -35,7 +35,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/invoices/application/:appId/all — fetch all invoices for a specific application
 router.get('/application/:appId/all', authenticateToken, async (req, res) => {
   try {
-    const data = await Invoice.find({ application_id: req.params.appId }).sort({ createdAt: 1 });
+    const data = await Invoice.find({ application_id: req.params.appId }).sort({ updatedAt: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -45,14 +45,14 @@ router.get('/application/:appId/all', authenticateToken, async (req, res) => {
 // GET /api/invoices/application/:appId — fetch latest invoice for a specific application
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Invoice.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
+    const data = await Invoice.findOne({ application_id: req.params.appId }).sort({ updatedAt: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/invoices — client or admin creates/uploads invoice (supports file upload)
+// POST /api/invoices — client or admin creates/uploads invoice (supports file upload & revision override)
 router.post('/', authenticateToken, upload.single('invoice_file'), async (req, res) => {
   try {
     const invoiceData = { ...req.body };
@@ -66,25 +66,78 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
       );
     }
 
-    // Auto-generate invoice number
+    const isFinal = invoiceData.invoice_type === 'final' || invoiceData.stage === 'final' || invoiceData.target_status === 'final_invoice_sent';
+    const invoiceType = isFinal ? 'final' : 'initial';
+    invoiceData.invoice_type = invoiceType;
+
     let companyForId = 'HFA';
     if (invoiceData.client_id) {
       const clientUser = await User.findById(invoiceData.client_id);
       companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
     }
-    invoiceData.invoice_number = invoiceData.invoice_number || generateHfaId(companyForId);
 
-    const invoice = new Invoice(invoiceData);
-    const data = await invoice.save();
+    let data;
+    let isRevision = false;
+
+    // Check if an existing invoice of this type already exists for this application
+    if (invoiceData.application_id) {
+      const typeQuery = isFinal
+        ? {
+            application_id: invoiceData.application_id,
+            $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
+          }
+        : {
+            application_id: invoiceData.application_id,
+            $or: [
+              { invoice_type: 'initial' },
+              { invoice_type: { $exists: false } },
+              { invoice_type: null },
+              { stage: 'initial' },
+              { invoice_type: { $ne: 'final' } }
+            ]
+          };
+
+      let existingInvoice = await Invoice.findOne(typeQuery).sort({ createdAt: -1 });
+
+      if (existingInvoice) {
+        isRevision = true;
+        if (invoiceData.title) existingInvoice.title = invoiceData.title;
+        if (invoiceData.amount !== undefined) existingInvoice.amount = Number(invoiceData.amount);
+        if (invoiceData.notes !== undefined) existingInvoice.notes = invoiceData.notes;
+        if (invoiceData.invoice_url) existingInvoice.invoice_url = invoiceData.invoice_url;
+        existingInvoice.invoice_type = invoiceType;
+        existingInvoice.status = 'unpaid';
+        existingInvoice.payment_proof_url = null;
+        existingInvoice.paid_at = null;
+        existingInvoice.version = (existingInvoice.version || 1) + 1;
+
+        data = await existingInvoice.save();
+
+        // Clean up any other duplicate invoices of this type for this application
+        await Invoice.deleteMany({
+          application_id: invoiceData.application_id,
+          _id: { $ne: existingInvoice._id },
+          ...typeQuery
+        });
+      }
+    }
+
+    if (!data) {
+      invoiceData.invoice_number = invoiceData.invoice_number || generateHfaId(companyForId);
+      const invoice = new Invoice(invoiceData);
+      data = await invoice.save();
+    }
 
     // Update application status
     if (invoiceData.application_id) {
-      const targetStatus = invoiceData.target_status === 'INVOICE SENT' ? 'invoice_sent' : (invoiceData.target_status || 'invoice_sent');
+      const targetStatus = isFinal ? 'final_invoice_sent' : 'invoice_sent';
       const histEntry = {
         status: targetStatus,
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
+        note: isRevision
+          ? `Revised ${isFinal ? 'Final ' : 'Initial '}Invoice issued: ${data.invoice_number} (Amount: £${data.amount}, v${data.version || 1})`
+          : `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
       };
       const updatedApp = await Application.findByIdAndUpdate(invoiceData.application_id, {
         status: targetStatus,
@@ -101,11 +154,13 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
-          subject: `HFA Invoice Issued: ${data.invoice_number}`,
+          subject: isRevision
+            ? `HFA Revised Invoice Issued: ${data.invoice_number}`
+            : `HFA Invoice Issued: ${data.invoice_number}`,
           html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2>Invoice Issued</h2>
+            <h2>${isRevision ? 'Revised Invoice Issued' : 'Invoice Issued'}</h2>
             <p>Dear ${clientUser.full_name || 'Client'},</p>
-            <p>Invoice <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
+            <p>${isRevision ? 'A revised invoice' : 'Invoice'} <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
             <p>Please log in to your HFA Portal account to view and process payment.</p>
           </div>`
         });
@@ -117,13 +172,13 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     // Notify Client
     await createNotification(
       data.client_id,
-      'Invoice Issued 🧾',
-      `A new invoice (${data.invoice_number}) has been issued for your application. Amount: £${data.amount}. Please review and confirm payment.`,
+      isRevision ? 'Revised Invoice Issued 🧾' : 'Invoice Issued 🧾',
+      `A ${isRevision ? 'revised ' : ''}invoice (${data.invoice_number}) has been issued for your application. Amount: £${data.amount}. Please review and confirm payment.`,
       'warning',
       '/invoices'
     );
 
-    res.status(201).json({ data });
+    res.status(isRevision ? 200 : 201).json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -15,6 +15,7 @@ const invoiceSchema = new mongoose.Schema({
   paid_at: Date,
   invoice_url: String,
   payment_proof_url: String,
+  version: { type: Number, default: 1 },
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },
