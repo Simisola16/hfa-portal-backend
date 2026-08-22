@@ -41,7 +41,7 @@ router.get('/', authenticateToken, async (req, res) => {
       query.client_id = req.user._id.toString();
     }
     const audits = await Audit.find(query)
-      .populate('application_id', 'application_number status nc_reports')
+      .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
       .populate('inspector_id', 'full_name email')
       .sort({ createdAt: -1 });
 
@@ -60,6 +60,8 @@ router.get('/', authenticateToken, async (req, res) => {
       const inspectorName = a.auditors && a.auditors.length > 0
         ? a.auditors.map(aud => aud.name).join(', ')
         : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
+
+      const resolvedSiteName = a.application_id?.site_name || a.application_id?.establishment_name || 'Manufacturing Site';
 
       const combinedNc = [...(a.nc_reports || [])];
       const appNcList = a.application_id?.nc_reports || [];
@@ -89,12 +91,17 @@ router.get('/', authenticateToken, async (req, res) => {
         _id: a._id.toString(),
         id: a._id.toString(),
         application_id: a.application_id,
-        applications: a.application_id ? { application_number: a.application_id.application_number } : null,
+        applications: a.application_id ? { 
+          application_number: a.application_id.application_number,
+          site_name: resolvedSiteName,
+          status: a.application_id.status
+        } : null,
         profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
         company_name: client?.company_name || client?.full_name || 'Unknown Client',
         inspector_id: a.inspector_id,
         inspectors: { full_name: inspectorName },
-        sites: { name: 'Main Site' },
+        site_name: resolvedSiteName,
+        sites: { name: resolvedSiteName },
         audit_type: a.audit_type || 'Initial',
         stage: a.stage || 1,
         status: a.status || 'scheduled',
@@ -105,6 +112,10 @@ router.get('/', authenticateToken, async (req, res) => {
         nc_reports: combinedNc,
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
         completed_at: a.completed_at || (['audit_completed', 'completed', 'done', 'inspection_completed'].includes(a.status) ? a.updatedAt : null),
+        report_url: a.report_url || a.report_file_url || a.document_url,
+        notes: a.notes,
+        findings: a.findings,
+        client_unavailable: a.client_unavailable,
         createdAt: a.createdAt,
         updatedAt: a.updatedAt,
       };
