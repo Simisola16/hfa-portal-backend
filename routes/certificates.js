@@ -187,6 +187,30 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
+    // Mark previous active certificates for this site / application as outdated
+    const prevQuery = [];
+    if (site_id) prevQuery.push({ site_id });
+    if (application_id) prevQuery.push({ application_id });
+    if (client_id && prevQuery.length === 0) prevQuery.push({ client_id });
+
+    if (prevQuery.length > 0) {
+      await Certificate.updateMany(
+        {
+          _id: { $ne: data._id },
+          client_id,
+          $or: prevQuery,
+          status: 'active'
+        },
+        {
+          $set: {
+            status: 'outdated',
+            superseded_by: data._id,
+            updated_at: new Date()
+          }
+        }
+      );
+    }
+
     // Update application status to certificate_issued with statusHistory entry
     await Application.findByIdAndUpdate(application_id, {
       status: 'certificate_issued',
@@ -640,6 +664,24 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     });
 
     const savedCert = await certificate.save();
+
+    // Mark previous active certificates for this site / client as outdated
+    const prevSiteFilter = targetSiteId ? { site_id: targetSiteId } : { client_id: targetClientId };
+    await Certificate.updateMany(
+      {
+        _id: { $ne: savedCert._id },
+        client_id: targetClientId,
+        ...prevSiteFilter,
+        status: 'active'
+      },
+      {
+        $set: {
+          status: 'outdated',
+          superseded_by: savedCert._id,
+          updated_at: new Date()
+        }
+      }
+    );
 
     // 7. Save Created Products to Product collection linked to certificate
     const createdProductDocs = [];
