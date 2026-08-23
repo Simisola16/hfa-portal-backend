@@ -197,9 +197,9 @@ router.post('/', authenticateToken, upload.fields([
     }
     documents.supporting_docs = newSupportingDocs;
 
-    // If Renewal, inherit details and documents from the prior application for this site
+    // If Renewal or Surveillance, inherit details and documents from the prior application for this site
     let priorApp = null;
-    if (site_id && application_type === 'renewal') {
+    if (site_id && (application_type === 'renewal' || application_type === 'surveillance')) {
       priorApp = await Application.findOne({
         site_id: String(site_id),
         client_id: req.user._id
@@ -251,7 +251,9 @@ router.post('/', authenticateToken, upload.fields([
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: application_type === 'renewal' ? 'Renewal application submitted by client.' : 'Application submitted by client.',
+        note: application_type === 'surveillance' 
+          ? 'Surveillance application submitted by client.' 
+          : (application_type === 'renewal' ? 'Renewal application submitted by client.' : 'Application submitted by client.'),
       }],
     };
 

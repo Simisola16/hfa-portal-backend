@@ -397,7 +397,8 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';
-        const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
+        const isSurveillance = currentApp?.application_type === 'surveillance';
+        const targetStatus = (isRenewal || isSurveillance) ? 'ready_for_certificate' : 'application_successful';
 
         const newHistoryEntries = [
           {
@@ -408,7 +409,14 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           }
         ];
 
-        if (isRenewal) {
+        if (isSurveillance) {
+          newHistoryEntries.push({
+            status: 'ready_for_certificate',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Surveillance LogSheet signed & completed. Ready for Surveillance Letter Issuance.'
+          });
+        } else if (isRenewal) {
           newHistoryEntries.push({
             status: 'ready_for_certificate',
             changedAt: new Date(),
