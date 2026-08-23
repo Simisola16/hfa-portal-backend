@@ -222,6 +222,36 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     const data = await proposal.save();
 
+    // Automatically synchronize Application status
+    if (status && data.application_id) {
+      try {
+        const Application = (await import('../models/Application.js')).default;
+        const { emitApplicationUpdate } = await import('../lib/socket.js');
+        const targetStatus = status === 'accepted' ? 'proposal_approved' : status === 'rejected' ? 'proposal_rejected' : null;
+        if (targetStatus) {
+          const updatedApp = await Application.findByIdAndUpdate(
+            data.application_id,
+            {
+              status: targetStatus,
+              updated_at: new Date(),
+              $push: {
+                statusHistory: {
+                  status: targetStatus,
+                  changedAt: new Date(),
+                  changedBy: req.user._id,
+                  note: `Proposal ${status === 'accepted' ? 'accepted' : 'rejected'} by client.${client_comment ? ` Reason: "${client_comment}"` : ''}`
+                }
+              }
+            },
+            { new: true }
+          );
+          if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+        }
+      } catch (appErr) {
+        console.error('[Proposal] Error syncing application status:', appErr.message);
+      }
+    }
+
     // Trigger email if proposal updated
     try {
       const clientUser = await User.findById(data.client_id);
