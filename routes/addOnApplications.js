@@ -208,7 +208,10 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.user.role === 'client') {
       query.client_id = req.user._id;
     } else if (req.user.role === 'food_tech') {
-      query.assigned_food_techs = req.user._id;
+      query.$or = [
+        { assigned_food_techs: req.user._id },
+        { assigned_food_tech: req.user._id }
+      ];
     }
 
     const data = await AddOnApplication.find(query)

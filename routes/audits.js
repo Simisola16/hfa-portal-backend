@@ -39,6 +39,16 @@ router.get('/', authenticateToken, async (req, res) => {
     let query = {};
     if (req.user.role === 'client') {
       query.client_id = req.user._id.toString();
+    } else if (req.user.role === 'auditor' || req.user.role === 'inspector') {
+      const userObjId = req.user._id;
+      const userEmail = req.user.email?.toLowerCase();
+      const userName = req.user.full_name || req.user.username;
+      query.$or = [
+        { inspector_id: userObjId },
+        { 'auditors._id': userObjId },
+        { 'auditors.email': userEmail },
+        { 'auditors.name': userName }
+      ];
     }
     const audits = await Audit.find(query)
       .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
