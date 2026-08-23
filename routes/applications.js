@@ -8,7 +8,7 @@ import Certificate from '../models/Certificate.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -430,7 +430,49 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
       '/applications'
     );
 
-    res.json({ data, message: 'Application status set to Ready for Certificate' });
+// POST /api/applications/:id/issue-surveillance-letter (admin only — issue surveillance letter to client)
+router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, upload.single('letter_file'), async (req, res) => {
+  try {
+    const app = await Application.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    let letterUrl = app.documents?.surveillance_letter || '';
+    if (req.file) {
+      letterUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    }
+
+    const { letter_number, issue_date, next_due_date, notes } = req.body;
+    const histNote = `Official Surveillance Letter issued (${letter_number || 'HFA-SURV'}). UAE/GSO 3-Year Halal Certification confirmed active.`;
+    const histEntry = {
+      status: 'certificate_issued',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: histNote
+    };
+
+    const data = await Application.findByIdAndUpdate(
+      req.params.id,
+      {
+        status: 'certificate_issued',
+        certificate_url: letterUrl || app.certificate_url,
+        'documents.surveillance_letter': letterUrl,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      },
+      { new: true }
+    ).populate('profiles');
+
+    if (data) emitApplicationUpdate(data, 'certificate_issued');
+
+    await createNotification(
+      data.client_id,
+      'Surveillance Letter Issued 📜',
+      `Your annual UAE/GSO Halal Surveillance review is complete. Your official Surveillance Letter is now available in your portal.`,
+      'success',
+      `/applications/${data._id}/track`
+    );
+
+    res.json({ data, message: 'Surveillance Letter issued successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
