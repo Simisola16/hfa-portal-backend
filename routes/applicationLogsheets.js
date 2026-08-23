@@ -319,11 +319,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       const { approved_products } = req.body;
 
       // Handle add-on application logsheets separately
-      if (logsheet.source_type === 'addon_application' && logsheet.addon_application_id) {
+      const addonAppId = logsheet.addon_application_id || (logsheet.source_type === 'addon_application' ? logsheet.application_id : null);
+      if (addonAppId) {
         try {
           const { default: AddOnApplication } = await import('../models/AddOnApplication.js');
           const { default: Product } = await import('../models/Product.js');
-          const addonApp = await AddOnApplication.findById(logsheet.addon_application_id);
+          const addonApp = await AddOnApplication.findById(addonAppId);
           if (addonApp) {
             const approvedList = Array.isArray(approved_products) && approved_products.length > 0
               ? approved_products
@@ -392,7 +393,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       }
 
       // Update the linked main application to canonical milestone after logsheet sign-off
-      if (logsheet.source_type !== 'addon_application' && logsheet.application_id) {
+      if (!addonAppId && logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';
