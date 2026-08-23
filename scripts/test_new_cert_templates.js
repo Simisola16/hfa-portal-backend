@@ -7,32 +7,14 @@ import QRCode from 'qrcode';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * Generate a base64 encoded QR Code image from a URL.
- * @param {string} url - The verification URL
- * @returns {Promise<string>} base64 data URL
- */
 async function generateQRCode(url) {
-  try {
-    return await QRCode.toDataURL(url, {
-      margin: 0,
-      width: 250,
-      color: {
-        dark: '#112211',
-        light: '#ffffff'
-      }
-    });
-  } catch (err) {
-    console.error('Error generating QR Code:', err);
-    throw err;
-  }
+  return await QRCode.toDataURL(url, {
+    margin: 0,
+    width: 250,
+    color: { dark: '#112211', light: '#ffffff' }
+  });
 }
 
-/**
- * Formats a Date object or date string into DD/MM/YYYY.
- * @param {Date|string} dateVal
- * @returns {string} Formatted date
- */
 function formatDate(dateVal) {
   if (!dateVal) return '—';
   const date = new Date(dateVal);
@@ -43,9 +25,8 @@ function formatDate(dateVal) {
   return `${day}/${month}/${year}`;
 }
 
-export const CERTIFICATE_SCHEMES = {
+export const CERT_CONFIGS = {
   'HFA Scheme': {
-    name: 'HFA Scheme',
     templateType: 'hfa',
     bgFile: 'hfa_scheme_bg.png',
     docFooter: 'Doc: Halal Certificate (HFA Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
@@ -55,7 +36,6 @@ export const CERTIFICATE_SCHEMES = {
     tableTop: '48.6%'
   },
   'Cosmetics': {
-    name: 'Cosmetics',
     templateType: 'hfa',
     bgFile: 'cosmetics_bg.png',
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
@@ -65,7 +45,6 @@ export const CERTIFICATE_SCHEMES = {
     tableTop: '51.0%'
   },
   'Smiic': {
-    name: 'Smiic',
     templateType: 'hfa',
     bgFile: 'smiic_bg.png',
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
@@ -75,7 +54,6 @@ export const CERTIFICATE_SCHEMES = {
     tableTop: '50.2%'
   },
   'GSO meat': {
-    name: 'GSO meat',
     templateType: 'gso',
     bgFile: 'gso_meat_bg.png',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
@@ -85,7 +63,6 @@ export const CERTIFICATE_SCHEMES = {
     tableTop: '51.8%'
   },
   'GSO non-meat': {
-    name: 'GSO non-meat',
     templateType: 'gso',
     bgFile: 'gso_non_meat_bg.png',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
@@ -96,63 +73,30 @@ export const CERTIFICATE_SCHEMES = {
   }
 };
 
-/**
- * Normalize certificate type to one of the 5 official schemes
- */
-export function normalizeCertificateType(rawType) {
-  if (!rawType) return 'HFA Scheme';
-  const str = String(rawType).trim().toLowerCase();
-  
-  if (str === 'cosmetics' || str.includes('cosmetic')) return 'Cosmetics';
-  if (str === 'smiic' || str.includes('smiic')) return 'Smiic';
-  if (str === 'gso meat' || (str.includes('gso') && str.includes('meat') && !str.includes('non'))) return 'GSO meat';
-  if (str === 'gso non-meat' || str === 'gso non meat' || (str.includes('gso') && (str.includes('non') || str.includes('food') || str.includes('uae')))) return 'GSO non-meat';
-  if (str === 'hfa scheme' || str.includes('hfa') || str.includes('annual') || str.includes('standard')) return 'HFA Scheme';
-  
-  return CERTIFICATE_SCHEMES[rawType] ? rawType : 'HFA Scheme';
-}
-
-/**
- * Builds the complete, pixel-perfect HTML for any of the 5 certificate types.
- */
-export async function buildCertificateHtml(certData) {
+export async function renderCertificateHtml(certData) {
   const {
     certificateType = 'HFA Scheme',
     certificateNumber = 'HFA-UK-2026-00123',
-    businessName = 'Halal Certified Client',
-    companyName,
-    businessAddress = '—',
-    companyAddress,
-    manufacturerAddress,
-    manufacturingAddress,
-    scopeOfCertification,
-    scope,
+    companyName = 'Apex Global Foods Ltd',
+    companyAddress = 'Unit 4, Royal Industrial Estate, Manchester, M12 4HR, UK',
+    manufacturingAddress = 'Unit 4, Royal Industrial Estate, Manchester, M12 4HR, UK',
+    scope = 'Processing, Packaging and Distribution of Halal Certified Food Products',
     issueDate = new Date(),
     expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-    certificationStartDate,
-    currentCycleStartDate,
-    originalCycleStartDate,
-    productCategories = [],
+    certificationStartDate = new Date(),
+    currentCycleStartDate = new Date(),
+    originalCycleStartDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
     products = [],
     verificationUrl
   } = certData;
 
-  const resolvedName = companyName || businessName || 'Halal Certified Client';
-  const resolvedAddress = companyAddress || businessAddress || '—';
-  const resolvedMfgAddress = manufacturingAddress || manufacturerAddress || resolvedAddress || 'Same as above';
-  const resolvedScope = scope || scopeOfCertification || 'Halal Food and Consumer Products Certification';
-
-  const normalizedScheme = normalizeCertificateType(certificateType);
-  const config = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
-
+  const normalizedType = CERT_CONFIGS[certificateType] ? certificateType : 'HFA Scheme';
+  const config = CERT_CONFIGS[normalizedType];
   const bgPath = path.join(__dirname, '../assets/certificates', config.bgFile);
-  if (!fs.existsSync(bgPath)) {
-    throw new Error(`Certificate background image not found: ${bgPath}`);
-  }
   const bgBuffer = fs.readFileSync(bgPath);
   const bgBase64 = `data:image/png;base64,${bgBuffer.toString('base64')}`;
 
-  const qrUrl = verificationUrl || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificateNumber}`;
+  const qrUrl = verificationUrl || `https://hfa-uk-portal.com/verify/${certificateNumber}`;
   const qrBase64 = await generateQRCode(qrUrl);
 
   const formattedIssue = formatDate(issueDate);
@@ -161,7 +105,6 @@ export async function buildCertificateHtml(certData) {
   const formattedCurrentCycle = formatDate(currentCycleStartDate || issueDate);
   const formattedOrigCycle = formatDate(originalCycleStartDate || issueDate);
 
-  const rawProducts = (products && products.length > 0) ? products : productCategories;
   const isGso = config.templateType === 'gso';
 
   return `
@@ -427,19 +370,19 @@ export async function buildCertificateHtml(certData) {
       <div class="info-block">
         <div class="info-row">
           <div class="info-label">COMPANY NAME:</div>
-          <div class="info-val">${resolvedName}</div>
+          <div class="info-val">${companyName}</div>
         </div>
         <div class="info-row">
           <div class="info-label">COMPANY ADDRESS:</div>
-          <div class="info-val">${resolvedAddress}</div>
+          <div class="info-val">${companyAddress}</div>
         </div>
         <div class="info-row">
           <div class="info-label">MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):</div>
-          <div class="info-val">${resolvedMfgAddress}</div>
+          <div class="info-val">${manufacturingAddress || 'Same as above'}</div>
         </div>
         <div class="info-row">
           <div class="info-label">PRODUCT CATEGORY:</div>
-          <div class="info-val">${resolvedScope}</div>
+          <div class="info-val">${scope}</div>
         </div>
       </div>
 
@@ -455,11 +398,11 @@ export async function buildCertificateHtml(certData) {
             </thead>
             <tbody>
               ${
-                rawProducts && rawProducts.length > 0
-                  ? rawProducts.slice(0, 6).map((p, idx) => `
+                products && products.length > 0
+                  ? products.slice(0, 6).map((p, idx) => `
                     <tr>
                       <td style="text-align: center;">${idx + 1}</td>
-                      <td style="padding-left: 12px;">${p.name || p.title || p}</td>
+                      <td style="padding-left: 12px;">${p.name || p}</td>
                     </tr>
                   `).join('')
                   : `
@@ -490,12 +433,12 @@ export async function buildCertificateHtml(certData) {
             </thead>
             <tbody>
               ${
-                rawProducts && rawProducts.length > 0
-                  ? rawProducts.slice(0, 6).map((p, idx) => `
+                products && products.length > 0
+                  ? products.slice(0, 6).map((p, idx) => `
                     <tr>
                       <td style="text-align: center;">${idx + 1}</td>
                       <td style="text-align: center;">${p.code || `PRD-${String(idx + 1).padStart(2, '0')}`}</td>
-                      <td style="padding-left: 12px;">${p.name || p.description || p.title || p}</td>
+                      <td style="padding-left: 12px;">${p.name || p.description || p}</td>
                     </tr>
                   `).join('')
                   : `
@@ -538,37 +481,56 @@ export async function buildCertificateHtml(certData) {
   `;
 }
 
-/**
- * Generates a Halal certificate PDF buffer using Puppeteer.
- * @param {Object} certData - Certificate fields
- * @returns {Promise<Buffer>} PDF Buffer
- */
-export async function generateCertificate(certData) {
-  const htmlContent = await buildCertificateHtml(certData);
+async function testAll() {
+  const browser = await puppeteer.launch({ 
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
 
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+  const testTypes = ['HFA Scheme', 'Cosmetics', 'Smiic', 'GSO meat', 'GSO non-meat'];
+  const outDir = path.resolve(__dirname, '../scratch/test_cert_output');
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
+
+  for (const t of testTypes) {
+    const html = await renderCertificateHtml({
+      certificateType: t,
+      certificateNumber: `HFA-UK-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+      companyName: 'Al-Madina Food & Consumer Industries Ltd',
+      companyAddress: 'Unit 12, Park Royal Road, London, NW10 7JH, United Kingdom',
+      manufacturingAddress: 'Unit 12, Park Royal Road, London, NW10 7JH, United Kingdom',
+      scope: t === 'Cosmetics' ? 'Manufacture of Halal Cosmetics & Personal Care' : 'Slaughtering, Processing and Packaging of Halal Meat and Food Products',
+      issueDate: new Date('2026-03-01'),
+      expiryDate: new Date('2027-02-28'),
+      certificationStartDate: new Date('2026-03-01'),
+      currentCycleStartDate: new Date('2026-03-01'),
+      originalCycleStartDate: new Date('2024-03-01'),
+      products: [
+        { code: 'PRD-01', name: 'Premium Grade Organic Halal Product A' },
+        { code: 'PRD-02', name: 'Refined Quality Halal Batch Formulation B' },
+        { code: 'PRD-03', name: 'Standard Inspected Halal Certified C' }
+      ]
     });
 
     const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'load', timeout: 15000 });
-
-    const pdfBuffer = await page.pdf({
+    await page.setContent(html, { waitUntil: 'load', timeout: 15000 });
+    const pdfPath = path.join(outDir, `${t.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+    await page.pdf({
+      path: pdfPath,
       format: 'A4',
-      landscape: false,
       printBackground: true
     });
 
-    return pdfBuffer;
-  } catch (error) {
-    console.error('Puppeteer PDF Generation failed:', error);
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
+    const previewPngPath = path.join(outDir, `${t.replace(/[^a-zA-Z0-9]/g, '_')}.png`);
+    await page.screenshot({ path: previewPngPath, fullPage: true });
+
+    console.log(`Generated: ${t} -> ${pdfPath} and ${previewPngPath}`);
+    await page.close();
   }
+
+  await browser.close();
+  console.log('All 5 certificate test outputs generated successfully!');
 }
+
+testAll().catch(console.error);

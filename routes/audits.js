@@ -534,10 +534,24 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
         $push: { statusHistory: histEntry }
       },
       { new: true }
-    );
+    ).populate('client_id');
     if (app) emitApplicationUpdate(app, targetStatus);
 
-    const companyName = app?.establishment_name || app?.company_name || 'HFA Client Facility';
+    let siteName = app?.site_name || app?.establishment_name || '';
+    if (app?.site_id) {
+      try {
+        const Site = mongoose.model('Site');
+        if (mongoose.Types.ObjectId.isValid(app.site_id)) {
+          const s = await Site.findById(app.site_id).lean();
+          if (s && s.name) siteName = s.name;
+        }
+      } catch (sErr) {}
+    }
+    if (!siteName) {
+      siteName = app?.establishment_name || app?.establishment_address || 'Main Facility Site';
+    }
+
+    const companyName = app?.client_id?.company_name || app?.company_name || app?.establishment_name || 'HFA Client Facility';
     const appRef = app?.application_number || 'HFA Audit';
     const auditDate = audit.finalized_date 
       ? new Date(audit.finalized_date).toDateString() 
@@ -555,7 +569,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
         await resend.emails.send({
           from: emailFrom,
           to: auditor.email.trim(),
-          subject: `Audit Assignment Notification: ${companyName} (${appRef})`,
+          subject: `Audit Assignment Notification: ${companyName} - ${siteName} (${appRef})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
               <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -566,14 +580,18 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
                 <h3 style="color: #1e293b; margin-top: 0;">You have been assigned to conduct an audit</h3>
                 <p style="font-size: 14px; color: #475569; line-height: 1.6;">
                   Hello <strong>${auditor.name || 'Auditor'}</strong>,<br/><br/>
-                  You have been assigned to conduct the halal certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+                  You have been assigned to conduct the halal certification audit for <strong>${companyName}</strong> (Site: <strong>${siteName}</strong>, Application Ref: <strong>${appRef}</strong>).
                 </p>
                 <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
                   <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Audit Schedule Details</h4>
                   <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
                     <tr>
-                      <td style="padding: 4px 0; font-weight: 600; width: 120px;">Company:</td>
+                      <td style="padding: 4px 0; font-weight: 600; width: 130px;">Company:</td>
                       <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">${companyName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600;">Site Name:</td>
+                      <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">${siteName}</td>
                     </tr>
                     <tr>
                       <td style="padding: 4px 0; font-weight: 600;">Application Ref:</td>
@@ -613,7 +631,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     await createNotification(
       audit.client_id,
       'Auditors Assigned 👨‍💼',
-      'Auditors have been assigned for your upcoming audit. Please check the audit details.',
+      `Auditors have been assigned for your upcoming audit for ${companyName} (${siteName}). Please check the audit details.`,
       'info',
       '/applications'
     );
@@ -621,7 +639,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     const auditorNames = auditors.map(a => `${a.name || 'Auditor'}${a.role ? ` (${a.role.replace(/_/g, ' ')})` : ''}`).join(', ');
     await sendClientEmail(
       audit.client_id,
-      `Audit Team Assigned: ${companyName} (${appRef}) 👨‍💼`,
+      `Audit Team Assigned: ${companyName} - ${siteName} (${appRef}) 👨‍💼`,
       `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
           <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -631,10 +649,12 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
           <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
             <h3 style="color: #1e293b; margin-top: 0;">Auditors Assigned for Your Audit</h3>
             <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-              An audit team has been assigned to conduct your Halal Certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+              An audit team has been assigned to conduct your Halal Certification audit for <strong>${companyName}</strong> (Site: <strong>${siteName}</strong>, Application Ref: <strong>${appRef}</strong>).
             </p>
             <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
-              <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase;">Assigned Team</h4>
+              <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase;">Audit Schedule Details</h4>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Company:</strong> ${companyName}</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Site Name:</strong> ${siteName}</p>
               <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Auditors:</strong> ${auditorNames}</p>
               <p style="margin: 0; font-size: 14px; color: #15803d;"><strong>Audit Date:</strong> ${auditDate}</p>
             </div>

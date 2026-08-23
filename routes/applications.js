@@ -69,8 +69,56 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (data.status && (data.status.includes(' ') || data.status !== data.status.toLowerCase())) {
       const normalized = data.status.toLowerCase().replace(/ /g, '_');
       data.status = normalized;
+      finalData.status = normalized;
       await Application.findByIdAndUpdate(data._id, { status: normalized });
     }
+
+    // Auto-sync status if logsheet exists and application status is lagging behind
+    try {
+      const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
+      const logsheet = await ApplicationLogsheet.findOne({ application_id: data._id }).sort({ created_at: -1 }).lean();
+      if (logsheet) {
+        let sigCount = 0;
+        if (logsheet.mufti_signature) sigCount++;
+        if (logsheet.ceo_signature) sigCount++;
+        if (logsheet.manager_signature) sigCount++;
+        if (logsheet.mufti2_signature) sigCount++;
+
+        const isRenewal = data.application_type === 'renewal';
+        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 3;
+
+        if (isLogsheetFinalized) {
+          const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
+          if (['audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed', 'logsheet_created'].includes(data.status)) {
+            data.status = targetStatus;
+            finalData.status = targetStatus;
+            await Application.findByIdAndUpdate(data._id, {
+              status: targetStatus,
+              $addToSet: {
+                statusHistory: {
+                  status: targetStatus,
+                  changedAt: new Date(),
+                  note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+                }
+              }
+            });
+          }
+        } else if (['audit_successful', 'audit_completed', 'nc_closed'].includes(data.status)) {
+          data.status = 'logsheet_created';
+          finalData.status = 'logsheet_created';
+          await Application.findByIdAndUpdate(data._id, {
+            status: 'logsheet_created',
+            $addToSet: {
+              statusHistory: {
+                status: 'logsheet_created',
+                changedAt: logsheet.created_at || new Date(),
+                note: 'LogSheet created. Awaiting committee signatures.'
+              }
+            }
+          });
+        }
+      }
+    } catch (lErr) {}
 
     res.json({ data: finalData });
   } catch (err) {

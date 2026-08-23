@@ -173,7 +173,10 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       manufacturing_address,
       scope,
       issue_date, 
-      expiry_date, 
+      expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date, 
       products_covered, 
       product_details,
       certificate_number,
@@ -212,8 +215,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         parsedProductDetails = JSON.parse(product_details);
       } catch (e) {
         parsedProductDetails = parsedProducts.map((p, idx) => ({
-          name: typeof p === 'string' ? p : p.name,
-          code: `GEN-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title),
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          description: typeof p === 'object' && p.description ? p.description : '',
           category: 'Halal Certified',
           barcode: ''
         }));
@@ -223,6 +227,14 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let app = null;
     if (application_id) {
       app = await Application.findById(application_id);
+    }
+
+    let resolvedScheme = certificate_type;
+    if (!resolvedScheme) {
+      if (app?.category?.toLowerCase().includes('cosmetic')) resolvedScheme = 'Cosmetics';
+      else if (app?.category?.toLowerCase().includes('meat') && !app?.category?.toLowerCase().includes('non')) resolvedScheme = 'GSO meat';
+      else if (app?.category?.toLowerCase().includes('gso') || app?.category?.toLowerCase().includes('uae')) resolvedScheme = 'GSO non-meat';
+      else resolvedScheme = 'HFA Scheme';
     }
 
     let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || 'Halal Certified Client';
@@ -236,19 +248,25 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     } else {
       // Auto-generate initial PDF preview
       try {
-        const productCategories = parsedProducts.map((p, idx) => ({
-          code: `PROD-${String(idx + 1).padStart(2, '0')}`,
-          name: typeof p === 'string' ? p : (p.name || p.title)
+        const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p, idx) => ({
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+          description: typeof p === 'object' ? (p.description || p.name) : p
         }));
         const pdfBuffer = await generateCertificate({
+          certificateType: resolvedScheme,
           businessName: resolvedCompanyName,
           businessAddress: resolvedCompanyAddress,
           manufacturerAddress: resolvedManufacturingAddress,
           certificateNumber: certNo,
           scopeOfCertification: resolvedScope,
           productCategories,
+          products: productCategories,
           issueDate: issue_date || new Date(),
           expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          certificationStartDate: certification_start_date || issue_date || new Date(),
+          currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
+          originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
           verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNo}`
         });
         const filename = `${certNo}.pdf`;
@@ -265,13 +283,16 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       client_id,
       application_id,
       site_id,
-      certificate_type: certificate_type || (app?.category?.includes('UAE') ? 'UAE/GSO Halal Certification' : 'Halal Certification'),
+      certificate_type: resolvedScheme,
       company_name: resolvedCompanyName,
       company_address: resolvedCompanyAddress,
       manufacturing_address: resolvedManufacturingAddress,
       scope: resolvedScope,
       issue_date: issue_date || new Date(),
       expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      certification_start_date: certification_start_date || issue_date || new Date(),
+      current_cycle_start_date: current_cycle_start_date || issue_date || new Date(),
+      original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
       products_covered: parsedProducts,
       product_details: parsedProductDetails,
       certificate_url,
@@ -416,6 +437,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
       scope,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       products_covered,
       product_details,
       review_notes,
@@ -430,6 +454,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (certification_start_date) cert.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
     if (status) cert.status = status;
 
@@ -485,6 +512,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       scope,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       products_covered,
       product_details,
       certificate_type,
@@ -501,6 +531,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (certification_start_date) cert.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
 
     if (products_covered) {
@@ -516,21 +549,40 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       }
     }
 
+    if (product_details) {
+      if (Array.isArray(product_details)) {
+        cert.product_details = product_details;
+      } else if (typeof product_details === 'string') {
+        try {
+          cert.product_details = JSON.parse(product_details);
+        } catch (e) {}
+      }
+    }
+
     // Regenerate final PDF to ensure it is 100% up-to-date with reviewer edits
     try {
-      const productCategories = (cert.products_covered || []).map((p, idx) => ({
-        code: `PROD-${String(idx + 1).padStart(2, '0')}`,
-        name: typeof p === 'string' ? p : (p.name || p.title)
-      }));
+      const prods = (cert.product_details && cert.product_details.length > 0)
+        ? cert.product_details
+        : (cert.products_covered || []).map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+            description: typeof p === 'object' ? (p.description || p.name) : p
+          }));
+
       const pdfBuffer = await generateCertificate({
+        certificateType: cert.certificate_type || 'HFA Scheme',
         businessName: cert.company_name || 'Halal Certified Client',
         businessAddress: cert.company_address || '—',
         manufacturerAddress: cert.manufacturing_address || 'Same as above',
         certificateNumber: cert.certificate_number,
         scopeOfCertification: cert.scope || 'Halal Food Certification',
-        productCategories,
+        productCategories: prods,
+        products: prods,
         issueDate: cert.issue_date || new Date(),
         expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
+        currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
+        originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
         verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${cert.certificate_number}`
       });
       const filename = `${cert.certificate_number}.pdf`;
@@ -573,23 +625,37 @@ async function buildCertDataFromApplication(application) {
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
   const certNumber = generateHfaId(companyForId);
   
-  const productCategories = (application.products || []).map(p => ({
-    code: p.brand || 'GEN',
-    name: p.name
+  let scheme = 'HFA Scheme';
+  if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
+  else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'GSO meat';
+  else if (application?.category?.toLowerCase().includes('gso') || application?.category?.toLowerCase().includes('uae')) scheme = 'GSO non-meat';
+
+  const productCategories = (application.products || []).map((p, idx) => ({
+    code: p.brand || p.code || `PRD-${String(idx + 1).padStart(2, '0')}`,
+    name: p.name,
+    description: p.description || p.name
   }));
 
+  const issueDate = new Date();
+  const expiryDate = (scheme === 'GSO meat' || scheme === 'GSO non-meat')
+    ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
   return {
+    certificateType: scheme,
     businessName: client ? (client.company_name || client.full_name) : application.establishment_name,
     businessAddress: application.establishment_address || '—',
     manufacturerAddress: application.manufacturer_address || 'Same as above',
     certificateNumber: certNumber,
     scopeOfCertification: application.scope || 'Halal Food Certification',
     productCategories,
-    issueDate: new Date(),
-    expiryDate: application.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
-      ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
-      : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-    verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
+    products: productCategories,
+    issueDate,
+    expiryDate,
+    certificationStartDate: issueDate,
+    currentCycleStartDate: issueDate,
+    originalCycleStartDate: issueDate,
+    verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
   };
 }
 
@@ -715,15 +781,24 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       scope,
       issue_date,
       expiry_date,
-      products_covered
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
+      certificate_type,
+      products_covered,
+      product_details
     } = req.body || {};
 
+    if (certificate_type) certificate.certificate_type = certificate_type;
     if (company_name) certificate.company_name = company_name;
     if (company_address) certificate.company_address = company_address;
     if (manufacturing_address) certificate.manufacturing_address = manufacturing_address;
     if (scope) certificate.scope = scope;
     if (issue_date) certificate.issue_date = issue_date;
     if (expiry_date) certificate.expiry_date = expiry_date;
+    if (certification_start_date) certificate.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) certificate.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) certificate.original_cycle_start_date = original_cycle_start_date;
 
     let parsedProducts = certificate.products_covered || [];
     if (products_covered) {
@@ -741,26 +816,44 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       }
     }
 
+    if (product_details) {
+      if (Array.isArray(product_details)) {
+        certificate.product_details = product_details;
+      } else if (typeof product_details === 'string') {
+        try {
+          certificate.product_details = JSON.parse(product_details);
+        } catch (e) {}
+      }
+    }
+
     const resolvedBusinessName = certificate.company_name || client?.company_name || client?.full_name || application?.establishment_name || 'Halal Certified Client';
     const resolvedBusinessAddress = certificate.company_address || application?.establishment_address || client?.address || '—';
     const resolvedManufacturerAddress = certificate.manufacturing_address || application?.manufacturer_address || resolvedBusinessAddress;
     const resolvedScope = certificate.scope || application?.scope || 'Halal Food Certification';
 
-    const productCategories = (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
-      .map((p, idx) => ({
-        code: `GEN-${String(idx + 1).padStart(2, '0')}`,
-        name: typeof p === 'string' ? p : (p?.name || p?.title || String(p))
-      }));
+    const prods = (certificate.product_details && certificate.product_details.length > 0)
+      ? certificate.product_details
+      : (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
+          .map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p?.name || p?.title || p?.description || String(p)),
+            description: typeof p === 'object' ? (p?.description || p?.name) : p
+          }));
 
     const certData = {
+      certificateType: certificate.certificate_type || 'HFA Scheme',
       businessName: resolvedBusinessName,
       businessAddress: resolvedBusinessAddress,
       manufacturerAddress: resolvedManufacturerAddress,
       certificateNumber: certificate.certificate_number,
       scopeOfCertification: resolvedScope,
-      productCategories,
+      productCategories: prods,
+      products: prods,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
+      currentCycleStartDate: certificate.current_cycle_start_date || certificate.issue_date || new Date(),
+      originalCycleStartDate: certificate.original_cycle_start_date || certificate.issue_date || new Date(),
       verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificate.certificate_number}`
     };
 
@@ -840,6 +933,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       scope_of_certification,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       status,
       notes,
       
@@ -955,18 +1051,31 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     if (req.file) {
       certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
+      const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
+      const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
+      const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
+      const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
+
       const certData = {
+        certificateType: certificate_type || 'HFA Scheme',
         businessName: targetClient.company_name || targetClient.full_name || 'Valued Client',
         businessAddress: businessAddress,
         manufacturerAddress: manufacturerAddr,
         certificateNumber: certNumber,
         scopeOfCertification: scope_of_certification || 'Halal Food Certification',
         productCategories: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'GEN', name: p.name }))
-          : [{ code: 'GEN', name: 'Certified Halal Food Products' }],
-        issueDate: issue_date ? new Date(issue_date) : new Date(),
-        expiryDate: expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+        products: cleanProducts.length > 0
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+        issueDate: parsedIssueDate,
+        expiryDate: parsedExpiryDate,
+        certificationStartDate: parsedCertStartDate,
+        currentCycleStartDate: parsedCurrentCycle,
+        originalCycleStartDate: parsedOrigCycle,
+        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
       };
 
       try {
@@ -981,15 +1090,22 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     // 6. Save Certificate
     const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
     const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
+    const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
+    const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
 
     const certificate = new Certificate({
       certificate_number: certNumber,
       client_id: targetClientId,
       site_id: targetSiteId || undefined,
-      certificate_type: certificate_type || 'Annual Halal Certificate',
+      certificate_type: certificate_type || 'HFA Scheme',
       issue_date: parsedIssueDate,
       expiry_date: parsedExpiryDate,
+      certification_start_date: parsedCertStartDate,
+      current_cycle_start_date: parsedCurrentCycle,
+      original_cycle_start_date: parsedOrigCycle,
       products_covered: productsCoveredNames,
+      product_details: cleanProducts,
       certificate_url,
       status: status || 'active',
       is_direct_issuance: true,
