@@ -34,11 +34,16 @@ function getSignatoryEmails() {
  * Gracefully skips (logs warning) if no addresses are configured.
  * Returns { sent: number, failed: number }.
  */
-async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
-  const addresses = getSignatoryEmails();
+async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, customEmails, customMessage }) {
+  let addresses = [];
+  if (customEmails && customEmails.length > 0) {
+    addresses = customEmails;
+  } else {
+    addresses = getSignatoryEmails();
+  }
 
   if (addresses.length === 0) {
-    console.warn('[Logsheet] LOGSHEET_SIGNATORY_EMAILS not configured — skipping signatory email notifications.');
+    console.warn('[Logsheet] No signatory email addresses provided or configured.');
     return { sent: 0, failed: 0 };
   }
 
@@ -58,8 +63,14 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
       <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
         <h3 style="color: #1e293b; margin-top: 0;">Your Signature is Required</h3>
         <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-          A new Halal Certification LogSheet has been created and requires authorised signatures before the application can proceed.
+          A Halal Certification LogSheet has been sent for your review and signature before the application can proceed.
         </p>
+        ${customMessage ? `
+          <div style="background-color: #fefce8; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+            <strong style="color: #854d0e; font-size: 13px;">Message from Admin:</strong>
+            <p style="margin: 4px 0 0; color: #713f12; font-size: 13.5px; line-height: 1.4;">${customMessage}</p>
+          </div>
+        ` : ''}
         <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
           <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">LogSheet Details</h4>
           <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
@@ -553,22 +564,37 @@ router.post('/:id/resend-emails', authenticateToken, requireAdmin, async (req, r
     const applicationNumber = logsheet.application_id?.application_number;
     const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
 
+    let customEmails = [];
+    if (req.body.emails) {
+      if (Array.isArray(req.body.emails)) {
+        customEmails = req.body.emails.map(e => String(e).trim()).filter(Boolean);
+      } else if (typeof req.body.emails === 'string') {
+        customEmails = req.body.emails.split(/[,;\n]+/).map(e => e.trim()).filter(Boolean);
+      }
+    } else if (req.body.email) {
+      customEmails = [String(req.body.email).trim()].filter(Boolean);
+    }
+
     const emailResult = await sendSignatoryEmails({
       logsheet,
       applicationNumber,
       adminUrl,
+      customEmails: customEmails.length > 0 ? customEmails : undefined,
+      customMessage: req.body.message || req.body.custom_message
     });
 
     if (emailResult.sent === 0 && emailResult.failed === 0) {
       return res.status(400).json({
-        error: 'No signatory email addresses configured. Set LOGSHEET_SIGNATORY_EMAILS in your .env file.'
+        error: 'No recipient email addresses provided or configured.'
       });
     }
 
+    const recipientDesc = customEmails.length > 0 ? ` to ${customEmails.join(', ')}` : '';
     res.json({
-      message: `Emails sent: ${emailResult.sent}, failed: ${emailResult.failed}`,
+      message: `Emails sent successfully${recipientDesc} (${emailResult.sent} sent${emailResult.failed > 0 ? `, ${emailResult.failed} failed` : ''})`,
       sent: emailResult.sent,
       failed: emailResult.failed,
+      recipients: customEmails.length > 0 ? customEmails : undefined
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
