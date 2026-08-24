@@ -431,6 +431,12 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
       '/applications'
     );
 
+    res.json({ data, message: 'Application marked ready for certificate.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/applications/:id/issue-surveillance-letter (admin only — issue surveillance letter to client)
 router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, upload.single('letter_file'), async (req, res) => {
   try {
