@@ -6,6 +6,7 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
+import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
@@ -433,15 +434,59 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
 // POST /api/applications/:id/issue-surveillance-letter (admin only — issue surveillance letter to client)
 router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, upload.single('letter_file'), async (req, res) => {
   try {
-    const app = await Application.findById(req.params.id);
+    const app = await Application.findById(req.params.id).populate('profiles');
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
     let letterUrl = app.documents?.surveillance_letter || '';
+    const {
+      letter_number,
+      issue_date,
+      next_due_date,
+      letter_mode = 'compose',
+      recipient_name,
+      recipient_address,
+      recipient_attention,
+      letter_subject,
+      letter_salutation,
+      letter_body,
+      products_covered,
+      standards,
+      signatory_name,
+      signatory_title,
+      surveillance_cycle,
+      notes
+    } = req.body;
+
     if (req.file) {
       letterUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } else {
+      // Auto-generate official PDF letter with Puppeteer
+      const clientProfile = app.profiles || {};
+      const company = recipient_name || app.establishment_name || clientProfile.company_name || clientProfile.full_name || 'HFA Client';
+      const address = recipient_address || app.establishment_address || clientProfile.address || '—';
+
+      const pdfBuffer = await generateSurveillanceLetter({
+        letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+        issue_date: issue_date || new Date(),
+        next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        surveillance_cycle: surveillance_cycle || 'Annual Halal Surveillance Audit (UAE/GSO 3-Year Scheme)',
+        recipient_name: company,
+        recipient_address: address,
+        recipient_attention: recipient_attention || 'Quality Assurance & Regulatory Compliance Team',
+        letter_subject: letter_subject || 'CONFIRMATION OF CONTINUED HALAL CERTIFICATION COMPLIANCE — ANNUAL SURVEILLANCE',
+        letter_salutation: letter_salutation || 'Dear Sir / Madam,',
+        letter_body: letter_body || '',
+        products_covered: products_covered || app.scope || (Array.isArray(app.products) ? app.products.map(p => p.name).join(', ') : 'Halal Certified Products'),
+        standards: standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
+        signatory_name: signatory_name || 'HFA Halal Certification Committee',
+        signatory_title: signatory_title || 'Lead Halal Auditor & Certification Director',
+        verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+      });
+
+      const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
+      letterUrl = await uploadToGridFS(pdfBuffer, fileName, 'application/pdf');
     }
 
-    const { letter_number, issue_date, next_due_date, notes } = req.body;
     const histNote = `Official Surveillance Letter issued (${letter_number || 'HFA-SURV'}). UAE/GSO 3-Year Halal Certification confirmed active.`;
     const histEntry = {
       status: 'certificate_issued',
@@ -450,16 +495,37 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
       note: histNote
     };
 
+    const letterData = {
+      letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+      issue_date: issue_date || new Date(),
+      next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      letter_mode: req.file ? 'upload' : 'compose',
+      recipient_name: recipient_name || app.establishment_name,
+      recipient_address: recipient_address || app.establishment_address,
+      recipient_attention,
+      letter_subject,
+      letter_salutation,
+      letter_body,
+      products_covered,
+      standards,
+      signatory_name,
+      signatory_title,
+      surveillance_cycle,
+      pdf_url: letterUrl,
+      issued_at: new Date()
+    };
+
     const data = await Application.findByIdAndUpdate(
       req.params.id,
       {
         status: 'certificate_issued',
         certificate_url: letterUrl || app.certificate_url,
         'documents.surveillance_letter': letterUrl,
+        surveillance_letter_data: letterData,
         updated_at: new Date(),
         $push: { statusHistory: histEntry }
       },
-      { new: true }
+      { new: true, strict: false }
     ).populate('profiles');
 
     if (data) emitApplicationUpdate(data, 'certificate_issued');
@@ -473,6 +539,41 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
     );
 
     res.json({ data, message: 'Surveillance Letter issued successfully.' });
+  } catch (err) {
+    console.error('Error issuing surveillance letter:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/applications/:id/preview-surveillance-letter (admin only — generate HTML preview)
+router.post('/:id/preview-surveillance-letter', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const app = await Application.findById(req.params.id).populate('profiles');
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    const clientProfile = app.profiles || {};
+    const company = req.body.recipient_name || app.establishment_name || clientProfile.company_name || clientProfile.full_name || 'HFA Client';
+    const address = req.body.recipient_address || app.establishment_address || clientProfile.address || '—';
+
+    const html = await buildSurveillanceLetterHtml({
+      letter_number: req.body.letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+      issue_date: req.body.issue_date || new Date(),
+      next_due_date: req.body.next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      surveillance_cycle: req.body.surveillance_cycle || 'Annual Halal Surveillance Audit (UAE/GSO 3-Year Scheme)',
+      recipient_name: company,
+      recipient_address: address,
+      recipient_attention: req.body.recipient_attention || 'Quality Assurance & Regulatory Compliance Team',
+      letter_subject: req.body.letter_subject || 'CONFIRMATION OF CONTINUED HALAL CERTIFICATION COMPLIANCE — ANNUAL SURVEILLANCE',
+      letter_salutation: req.body.letter_salutation || 'Dear Sir / Madam,',
+      letter_body: req.body.letter_body || '',
+      products_covered: req.body.products_covered || app.scope || (Array.isArray(app.products) ? app.products.map(p => p.name).join(', ') : 'Halal Certified Products'),
+      standards: req.body.standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
+      signatory_name: req.body.signatory_name || 'HFA Halal Certification Committee',
+      signatory_title: req.body.signatory_title || 'Lead Halal Auditor & Certification Director',
+      verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+    });
+
+    res.json({ html });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -58,12 +58,15 @@ const applicationSchema = new mongoose.Schema({
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     note: { type: String, default: '' },
   }],
+  certificate_url: String,
+  surveillance_letter_data: { type: mongoose.Schema.Types.Mixed },
   renewed_certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', default: null },
   documents: {
     halal_policy: String,
     ingredient_list: String,
     floor_plan: String,
     haccp_plan: String,
+    surveillance_letter: String,
     supporting_docs: [String]
   },
   inspector_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Inspector' },
