@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   postcode: String,
   country: String,
   role: { type: String, enum: ['client', 'admin', 'inspector', 'audit_manager', 'food_tech_manager', 'food_tech', 'superadmin'], default: 'client' },
+  roles: [{ type: String }],
   parent_client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   client_role: { type: String, enum: ['admin', 'editor', 'viewer', 'owner'], default: 'viewer' },
   can_issue_direct_certificate: { type: Boolean, default: false },

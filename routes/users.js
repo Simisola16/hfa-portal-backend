@@ -112,14 +112,30 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
-  const isStaffRole = ['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
-  if (isStaffRole && !username?.trim()) {
-    return res.status(400).json({ error: 'Username is required for HFA Staff accounts.' });
+  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
+  
+  if (!email?.trim()) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+  if (!password?.trim()) {
+    return res.status(400).json({ error: 'Password is required.' });
   }
 
+  // Parse and normalize assigned roles
+  let assignedRoles = [];
+  if (Array.isArray(roles) && roles.length > 0) {
+    assignedRoles = roles.filter(Boolean);
+  } else if (role) {
+    assignedRoles = Array.isArray(role) ? role : [role];
+  } else {
+    assignedRoles = ['food_tech'];
+  }
+
+  const rolePriority = ['superadmin', 'admin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+  const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+
   try {
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
     if (existing) return res.status(400).json({ error: 'Email already exists' });
     if (username?.trim()) {
       const existingUser = await User.findOne({ username: username.trim() });
@@ -127,17 +143,18 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     const user = new User({
-      email,
+      email: email.trim().toLowerCase(),
       password,
-      full_name,
-      company_name: company_name || full_name,
+      full_name: full_name?.trim() || '',
+      company_name: company_name || full_name || '',
       phone,
       address,
       postcode,
       country,
-      role: role || 'client',
-      can_issue_direct_certificate: Boolean(can_issue_direct_certificate),
-      username: username || undefined,
+      role: primaryRole,
+      roles: assignedRoles,
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || assignedRoles.includes('superadmin')),
+      username: username?.trim() || undefined,
       is_verified: true,
       is_active: true
     });
@@ -158,13 +175,14 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await User.find().sort({ created_at: -1 });
     
-    // Enrich users with stats
+    // Enrich users with stats and normalized roles
     const enrichedUsers = await Promise.all(users.map(async (u) => {
       const appCount = await Application.countDocuments({ client_id: u._id });
       const approvedAppCount = await Application.countDocuments({ client_id: u._id, status: 'approved' });
       const certCount = await Certificate.countDocuments({ client_id: u._id, status: 'active' });
       const userObj = u.toJSON();
-      return { ...userObj, appCount, approvedAppCount, certCount };
+      const userRoles = (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : []);
+      return { ...userObj, roles: userRoles, appCount, approvedAppCount, certCount };
     }));
 
     res.json({ data: enrichedUsers });
@@ -175,8 +193,28 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role } = req.body;
-    const data = await User.findByIdAndUpdate(req.params.id, { role }, { new: true });
+    const { role, roles } = req.body;
+    let assignedRoles = [];
+    if (Array.isArray(roles) && roles.length > 0) {
+      assignedRoles = roles.filter(Boolean);
+    } else if (role) {
+      assignedRoles = Array.isArray(role) ? role : [role];
+    } else {
+      assignedRoles = ['food_tech'];
+    }
+
+    const rolePriority = ['superadmin', 'admin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+    const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+
+    const updateObj = {
+      role: primaryRole,
+      roles: assignedRoles
+    };
+    if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
+      updateObj.can_issue_direct_certificate = true;
+    }
+
+    const data = await User.findByIdAndUpdate(req.params.id, updateObj, { new: true });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
