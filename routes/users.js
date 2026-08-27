@@ -193,7 +193,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles } = req.body;
+    const { role, roles, can_issue_direct_certificate } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(Boolean);
@@ -212,6 +212,8 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     };
     if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
       updateObj.can_issue_direct_certificate = true;
+    } else if (can_issue_direct_certificate !== undefined) {
+      updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
     }
 
     const data = await User.findByIdAndUpdate(req.params.id, updateObj, { new: true });
