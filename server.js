@@ -30,6 +30,7 @@ import filesRoutes from './routes/files.js';
 import signatureRoutes from './routes/signatures.js';
 import addOnApplicationRoutes from './routes/addOnApplications.js';
 import surveillanceRoutes from './routes/surveillance.js';
+import initialProductRoutes from './routes/initialProducts.js';
 
 dotenv.config();
 
@@ -109,6 +110,7 @@ app.use('/api/files', filesRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/add-on-applications', addOnApplicationRoutes);
 app.use('/api/surveillance', surveillanceRoutes);
+app.use('/api/initial-products', initialProductRoutes);
 
 app.get('/', (req, res) => {
   res.send('HFA Portal API is running...');

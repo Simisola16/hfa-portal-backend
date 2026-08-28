@@ -403,8 +403,61 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         }
       }
 
+      // Handle initial product application logsheets
+      const initialProductAppId = logsheet.initial_product_application_id || (logsheet.source_type === 'initial_product_application' ? logsheet.application_id : null);
+      if (initialProductAppId) {
+        try {
+          const { default: InitialProductApplication } = await import('../models/InitialProductApplication.js');
+          const { default: Product } = await import('../models/Product.js');
+          const initialApp = await InitialProductApplication.findById(initialProductAppId);
+          if (initialApp) {
+            initialApp.status = 'initial_product_approved';
+            initialApp.statusHistory.push({
+              status: 'initial_product_approved',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: `Committee signatures verified (${sigCount}/4). Initial Product Approved.`
+            });
+            await initialApp.save();
+
+            const clientId = initialApp.client_id?._id || initialApp.client_id;
+            const siteId = initialApp.site_id?._id || initialApp.site_id;
+            const prodName = initialApp.product?.name;
+
+            if (prodName) {
+              await Product.findOneAndUpdate(
+                { client_id: clientId, name: prodName },
+                {
+                  client_id: clientId,
+                  name: prodName,
+                  code: initialApp.product?.code || '',
+                  barcode: initialApp.product?.code || '',
+                  site_id: siteId,
+                  status: 'approved',
+                  category: initialApp.product?.category || 'Initial Product',
+                  is_initial: true,
+                  updated_at: new Date()
+                },
+                { upsert: true, new: true }
+              );
+            }
+
+            try {
+              const { getIO } = await import('../lib/socket.js');
+              const io = getIO();
+              if (io) {
+                io.emit('initial_product_updated', { id: initialApp._id, status: 'initial_product_approved' });
+                io.emit('product_updated', { client_id: clientId });
+              }
+            } catch (sockErr) {}
+          }
+        } catch (initErr) {
+          console.error('[Logsheet] Failed to update initial product application after sign-off:', initErr.message);
+        }
+      }
+
       // Update the linked main application to canonical milestone after logsheet sign-off
-      if (!addonAppId && logsheet.application_id) {
+      if (!addonAppId && !initialProductAppId && logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';

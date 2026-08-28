@@ -1,12 +1,14 @@
 import mongoose from 'mongoose';
 
 const applicationLogsheetSchema = new mongoose.Schema({
-  // Source discriminator: 'application' (main cert flow) or 'addon_application'
-  source_type: { type: String, enum: ['application', 'addon_application'], default: 'application' },
+  // Source discriminator: 'application' (main cert flow), 'addon_application', or 'initial_product_application'
+  source_type: { type: String, enum: ['application', 'addon_application', 'initial_product_application'], default: 'application' },
   // For main certification flow logsheets
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   // For add-on application logsheets (source_type = 'addon_application')
   addon_application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'AddOnApplication' },
+  // For initial product application logsheets (source_type = 'initial_product_application')
+  initial_product_application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'InitialProductApplication' },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
   
