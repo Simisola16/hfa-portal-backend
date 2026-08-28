@@ -127,25 +127,40 @@ router.post('/', authenticateToken, async (req, res) => {
     // Invoice confirmation means app status is payment_received or later, or an invoice is paid
     const isAppStatusValid = [
       'payment_received',
+      'initial_payment_received',
+      'dates_proposed',
+      'dates_rejected',
+      'dates_accepted',
+      'date_finalized',
+      'audit_assigned',
       'audit_scheduled',
       'auditor_assigned',
       'audit_in_progress',
+      'audit_successful',
+      'audit_completed',
       'audit_report_submitted',
       'nc_raised',
       'nc_closed',
       'final_invoice_sent',
       'final_invoice_paid',
       'logsheet_created',
+      'logsheet_signed',
       'application_successful',
+      'agreement_sent',
       'agreement_signed',
+      'agreement_finalised',
       'ready_for_certificate',
       'certificate_issued',
       'approved'
     ].includes(app.status?.toLowerCase());
 
     const paidInvoice = await Invoice.findOne({
-      application_id: app._id,
-      status: { $in: ['paid', 'client_paid'] }
+      $or: [
+        { application_id: app._id },
+        { application_id: String(app._id) },
+        { client_id: String(req.user._id) }
+      ],
+      status: { $in: ['paid', 'client_paid', 'settled'] }
     });
 
     if (!isAppStatusValid && !paidInvoice) {
@@ -155,7 +170,12 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Check if an Initial Product has already been submitted for this application
-    const existing = await InitialProductApplication.findOne({ application_id: app._id });
+    const existing = await InitialProductApplication.findOne({
+      $or: [
+        { application_id: app._id },
+        { application_id: String(app._id) }
+      ]
+    });
     if (existing) {
       return res.status(400).json({
         error: 'An Initial Product has already been registered for this certification application.'
@@ -233,11 +253,12 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     const data = await InitialProductApplication.find(query)
-      .populate('client_id', 'company_name full_name email phone')
-      .populate('application_id', 'application_number establishment_name site_name scope status category')
-      .populate('site_id', 'name address city')
+      .populate('client_id', 'company_name full_name email phone address')
+      .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
+      .populate('site_id', 'name address city postal_code country')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
+      .populate('logsheet_id')
       .sort({ createdAt: -1 });
 
     res.json({ data });
@@ -255,35 +276,52 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Client ID required' });
     }
 
+    const clientQuery = mongoose.Types.ObjectId.isValid(clientId)
+      ? { $in: [new mongoose.Types.ObjectId(clientId), String(clientId)] }
+      : String(clientId);
+
     const apps = await Application.find({
-      client_id: clientId,
+      client_id: clientQuery,
       status: { $nin: ['rejected', 'on_hold'] }
     }).populate('site_id', 'name address city').lean();
 
     // Check which apps have confirmed initial invoices
     const appIds = apps.map(a => a._id);
+    const appIdsStrings = appIds.map(a => String(a));
+
     const paidInvoices = await Invoice.find({
-      application_id: { $in: appIds },
-      status: { $in: ['paid', 'client_paid'] }
+      $or: [
+        { application_id: { $in: [...appIds, ...appIdsStrings] } },
+        { client_id: { $in: [String(clientId), mongoose.Types.ObjectId.isValid(clientId) ? new mongoose.Types.ObjectId(clientId) : undefined].filter(Boolean) } }
+      ],
+      status: { $in: ['paid', 'client_paid', 'settled'] }
     }).lean();
 
-    const paidAppIds = new Set(paidInvoices.map(inv => String(inv.application_id)));
+    const paidAppIds = new Set(paidInvoices.map(inv => String(inv.application_id)).filter(Boolean));
 
     // Check which apps already have an InitialProductApplication
     const existingInitialProducts = await InitialProductApplication.find({
-      application_id: { $in: appIds }
+      $or: [
+        { application_id: { $in: [...appIds, ...appIdsStrings] } },
+        { client_id: clientQuery }
+      ]
     }).lean();
-    const existingAppIds = new Set(existingInitialProducts.map(ip => String(ip.application_id)));
+    const existingAppIds = new Set(existingInitialProducts.map(ip => String(ip.application_id)).filter(Boolean));
+
+    const VALID_PAID_STATUSES = [
+      'payment_received', 'initial_payment_received',
+      'dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized',
+      'audit_assigned', 'audit_scheduled', 'auditor_assigned', 'audit_in_progress',
+      'audit_successful', 'audit_completed', 'audit_report_submitted',
+      'nc_raised', 'nc_closed', 'final_invoice_sent', 'final_invoice_paid',
+      'logsheet_created', 'logsheet_signed', 'application_successful',
+      'agreement_sent', 'agreement_signed', 'agreement_finalised',
+      'ready_for_certificate', 'certificate_issued', 'approved'
+    ];
 
     const result = apps.map(app => {
-      const isStatusPaid = [
-        'payment_received', 'audit_scheduled', 'auditor_assigned', 'audit_in_progress',
-        'audit_report_submitted', 'nc_raised', 'nc_closed', 'final_invoice_sent',
-        'final_invoice_paid', 'logsheet_created', 'application_successful',
-        'agreement_signed', 'ready_for_certificate', 'certificate_issued', 'approved'
-      ].includes(app.status?.toLowerCase());
-
-      const isInvoiceConfirmed = isStatusPaid || paidAppIds.has(String(app._id));
+      const isStatusPaid = VALID_PAID_STATUSES.includes(app.status?.toLowerCase());
+      const isInvoiceConfirmed = isStatusPaid || paidAppIds.has(String(app._id)) || paidInvoices.length > 0;
       const hasInitialProduct = existingAppIds.has(String(app._id));
 
       return {
