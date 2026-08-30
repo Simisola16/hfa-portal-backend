@@ -125,22 +125,39 @@ router.get('/:id', authenticateToken, async (req, res) => {
           });
         }
       } else {
-        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful or logsheet_created by initial product sign-off
-        if (['application_successful', 'logsheet_created', 'logsheet_signed'].includes(data.status)) {
+        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful, logsheet_created, logsheet_signed, or ready_for_certificate
+        if (['application_successful', 'logsheet_created', 'logsheet_signed', 'ready_for_certificate'].includes(data.status)) {
           const Audit = mongoose.model('Audit');
-          const audit = await Audit.findOne({ application_id: data._id }).sort({ created_at: -1 });
-          if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
-            const properStatus = (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) ? 'nc_closed' : 'audit_completed';
-            data.status = properStatus;
-            finalData.status = properStatus;
-            // Clean up false application_successful and logsheet_created entries from statusHistory
-            const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'logsheet_created', 'logsheet_signed'].includes(h.status));
-            finalData.statusHistory = cleanedHistory;
-            await Application.findByIdAndUpdate(data._id, {
-              status: properStatus,
-              statusHistory: cleanedHistory
-            });
+          const isObjId = mongoose.Types.ObjectId.isValid(data._id);
+          const audit = await Audit.findOne({
+            $or: [
+              { application_id: data._id },
+              ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
+            ]
+          }).sort({ created_at: -1 });
+
+          let properStatus = 'audit_completed';
+          if (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) {
+            properStatus = 'nc_closed';
+          } else if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
+            properStatus = 'audit_completed';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'audit_assigned' || h.status === 'auditor_assigned')) {
+            properStatus = 'audit_assigned';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'date_finalized')) {
+            properStatus = 'date_finalized';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'payment_received')) {
+            properStatus = 'payment_received';
           }
+
+          data.status = properStatus;
+          finalData.status = properStatus;
+          // Clean up false application_successful, logsheet_created, logsheet_signed, ready_for_certificate entries from statusHistory
+          const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'logsheet_created', 'logsheet_signed', 'ready_for_certificate'].includes(h.status));
+          finalData.statusHistory = cleanedHistory;
+          await Application.findByIdAndUpdate(data._id, {
+            status: properStatus,
+            statusHistory: cleanedHistory
+          });
         }
       }
     } catch (lErr) {}
