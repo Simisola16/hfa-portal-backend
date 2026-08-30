@@ -604,6 +604,30 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── PUT /api/initial-products/:id/mark-form-received ────────────────────────
+// Admin / FT: Confirm / Mark Product Approval Form as Received
+router.put('/:id/mark-form-received', authenticateToken, requireStaff, async (req, res) => {
+  try {
+    const app = await InitialProductApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Initial product application not found' });
+
+    app.status = 'all_forms_received';
+    if (!app.product_approval_form) app.product_approval_form = {};
+    app.product_approval_form.submitted_at = new Date();
+    if (app.product_approval_form.product_response) {
+      app.product_approval_form.product_response.is_saved = true;
+    }
+    await pushHistory(app, 'all_forms_received', 'Product Approval Form responses confirmed and marked as received by HFA admin.', req.user._id);
+
+    const data = await app.save();
+    emitInitialProductUpdate(data, 'form_submitted');
+
+    res.json({ data, message: 'Product Approval Form marked as received successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── PUT /api/initial-products/:id/request-info ──────────────────────────────
 router.put('/:id/request-info', authenticateToken, requireStaff, upload.any(), async (req, res) => {
   try {
