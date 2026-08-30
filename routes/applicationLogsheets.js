@@ -416,7 +416,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
               status: 'initial_product_approved',
               changedAt: new Date(),
               changedBy: req.user._id,
-              note: `Committee signatures verified (${sigCount}/4). Initial Product Approved.`
+              note: `Committee signatures verified (${sigCount}/4). 1 product(s) approved.`
             });
             await initialApp.save();
 

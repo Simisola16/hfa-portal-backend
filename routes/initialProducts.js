@@ -413,7 +413,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
       customFtName ? `${customFtName}${customFtEmail ? ` (${customFtEmail})` : ''}` : null
     ].filter(Boolean);
 
-    await pushHistory(app, 'ft_assigned', `FT assigned directly: ${ftLabels.join(', ') || 'FT Staff'}`, req.user._id);
+    await pushHistory(app, 'ft_assigned', `FT assigned: ${ftLabels.join(', ') || 'FT Staff'}`, req.user._id);
 
     const data = await app.save();
     emitInitialProductUpdate(data, 'ft_assigned');
@@ -475,7 +475,7 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), as
     if (!isDraftBool) {
       app.status = 'product_approval_form_enabled';
       app.product_approval_form.sent_at = new Date();
-      await pushHistory(app, 'product_approval_form_enabled', 'Product Approval Form enabled by FT/Admin. Awaiting client submission.', req.user._id);
+      await pushHistory(app, 'product_approval_form_enabled', 'Request for Product Approval Form sent to client.', req.user._id);
     } else {
       await pushHistory(app, app.status, 'Product Approval Form draft saved by FT/Admin.', req.user._id);
     }
@@ -574,7 +574,7 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
 
     app.status = 'all_forms_received';
     app.product_approval_form.submitted_at = new Date();
-    await pushHistory(app, 'all_forms_received', `Client submitted Product Approval Form response for "${app.product?.name}". Awaiting review & logsheet.`, req.user._id);
+    await pushHistory(app, 'all_forms_received', 'Product Approval Form responses confirmed and marked as received by HFA admin.', req.user._id);
 
     const data = await app.save();
     emitInitialProductUpdate(data, 'form_submitted');
@@ -762,7 +762,7 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
     app.status = 'initial_product_approved';
-    await pushHistory(app, 'initial_product_approved', 'Initial Product Approved by HFA. Halal evaluation complete.', req.user._id);
+    await pushHistory(app, 'initial_product_approved', 'Committee signatures verified (4/4). 1 product(s) approved.', req.user._id);
 
     const data = await app.save();
 
