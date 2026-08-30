@@ -695,8 +695,20 @@ router.put('/:id/client-reply', authenticateToken, upload.any(), async (req, res
   }
 });
 
+// ─── GET /api/initial-products/:id/logsheet ─────────────────────────────────
+router.get('/:id/logsheet', authenticateToken, async (req, res) => {
+  try {
+    const logsheet = await ApplicationLogsheet.findOne({ initial_product_application_id: req.params.id })
+      .populate('client_id', 'full_name company_name email')
+      .populate('site_id', 'name address');
+    res.json({ data: logsheet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/initial-products/:id/create-logsheet ──────────────────────────
-// Admin / FT Manager: Create Logsheet for Initial Product
+// Admin / FT Manager: Create or Update Logsheet for Initial Product
 router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
     const app = await InitialProductApplication.findById(req.params.id)
@@ -704,25 +716,26 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
       .populate('application_id', 'application_number establishment_name site_name scope status');
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
-    const existing = await ApplicationLogsheet.findOne({ initial_product_application_id: app._id });
-    if (existing) {
-      return res.status(409).json({ error: 'A logsheet already exists for this initial product.', data: existing });
-    }
-
+    let logsheet = await ApplicationLogsheet.findOne({ initial_product_application_id: app._id });
     const { ...logsheetData } = req.body;
 
-    const logsheet = new ApplicationLogsheet({
-      source_type: 'initial_product_application',
-      initial_product_application_id: app._id,
-      application_id: app.application_id?._id || app.application_id,
-      client_id: app.client_id?._id || app.client_id,
-      site_id: app.site_id,
-      company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
-      contact_person: logsheetData.contact_person || app.contact_name,
-      contact_email: logsheetData.contact_email || app.contact_email,
-      ...logsheetData,
-      status: 'Waiting for Signature'
-    });
+    if (logsheet) {
+      Object.assign(logsheet, logsheetData);
+      if (!logsheet.status) logsheet.status = 'Waiting for Signature';
+    } else {
+      logsheet = new ApplicationLogsheet({
+        source_type: 'initial_product_application',
+        initial_product_application_id: app._id,
+        application_id: app.application_id?._id || app.application_id,
+        client_id: app.client_id?._id || app.client_id,
+        site_id: app.site_id,
+        company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
+        contact_person: logsheetData.contact_person || app.contact_name,
+        contact_email: logsheetData.contact_email || app.contact_email,
+        ...logsheetData,
+        status: 'Waiting for Signature'
+      });
+    }
 
     await logsheet.save();
 
