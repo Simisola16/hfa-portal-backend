@@ -238,6 +238,28 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── GET /api/initial-products/by-application/:appId ─────────────────────────
+router.get('/by-application/:appId', authenticateToken, async (req, res) => {
+  try {
+    const isObjId = mongoose.Types.ObjectId.isValid(req.params.appId);
+    const query = isObjId
+      ? { $or: [{ application_id: req.params.appId }, { application_id: new mongoose.Types.ObjectId(req.params.appId) }] }
+      : { application_id: req.params.appId };
+
+    const item = await InitialProductApplication.findOne(query)
+      .populate('client_id', 'company_name full_name email phone address')
+      .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
+      .populate('site_id', 'name address city postal_code country')
+      .populate('assigned_food_tech', 'full_name email phone')
+      .populate('assigned_food_techs', 'full_name email phone')
+      .populate('logsheet_id');
+
+    res.json({ data: item || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/initial-products ───────────────────────────────────────────────
 // Fetch list of initial products (scoped to role)
 router.get('/', authenticateToken, async (req, res) => {
@@ -250,6 +272,16 @@ router.get('/', authenticateToken, async (req, res) => {
         { assigned_food_techs: req.user._id },
         { assigned_food_tech: req.user._id }
       ];
+    }
+
+    if (req.query.application_id) {
+      const isObjId = mongoose.Types.ObjectId.isValid(req.query.application_id);
+      query.application_id = isObjId
+        ? { $in: [req.query.application_id, new mongoose.Types.ObjectId(req.query.application_id)] }
+        : req.query.application_id;
+    }
+    if (req.query.client_id) {
+      query.client_id = req.query.client_id;
     }
 
     const data = await InitialProductApplication.find(query)
