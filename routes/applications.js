@@ -637,6 +637,36 @@ router.post('/:id/preview-surveillance-letter', authenticateToken, requireAdmin,
   }
 });
 
+// PUT /api/applications/:id (general update)
+router.put('/:id', authenticateToken, async (req, res) => {
+  try {
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
+
+    const updateFields = { ...req.body, updated_at: new Date() };
+    delete updateFields._id;
+
+    const data = await Application.findOneAndUpdate(
+      query,
+      { $set: updateFields },
+      { new: true, runValidators: false }
+    )
+      .populate('client_id', 'company_name full_name email phone address country postcode city')
+      .populate('profiles')
+      .populate('inspectors');
+
+    if (!data) return res.status(404).json({ error: 'Application not found' });
+
+    if (updateFields.status) {
+      emitApplicationUpdate(data, updateFields.status);
+    }
+
+    res.json({ data, message: 'Application updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/applications/:id/status (admin only — generic, used by all phases)
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
