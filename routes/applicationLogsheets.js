@@ -134,25 +134,24 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     const appId = req.params.appId;
     const isObjId = mongoose.Types.ObjectId.isValid(appId);
 
-    // Strictly find the logsheet for the main application only (exclude initial products and addons)
-    const logsheet = await ApplicationLogsheet.findOne({
+    const logsheets = await ApplicationLogsheet.find({
       $or: [
         { application_id: appId },
         ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : [])
-      ],
-      source_type: { $nin: ['initial_product_application', 'addon_application'] },
-      initial_product_application_id: { $exists: false, $eq: null },
-      addon_application_id: { $exists: false, $eq: null },
-      audit_type: { $ne: 'Initial Product Evaluation' }
+      ]
     })
       .populate('client_id', 'full_name company_name email')
-      .populate('site_id', 'name address');
-    
-    if (!logsheet || logsheet.source_type === 'initial_product_application' || logsheet.initial_product_application_id || logsheet.audit_type === 'Initial Product Evaluation') {
-      return res.json({ data: null });
-    }
+      .populate('site_id', 'name address')
+      .sort({ createdAt: -1, created_at: -1 });
 
-    res.json({ data: logsheet });
+    const mainLogsheet = logsheets.find(l => {
+      if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+      if (l.initial_product_application_id || l.addon_application_id) return false;
+      if (l.audit_type === 'Initial Product Evaluation') return false;
+      return true;
+    }) || null;
+
+    res.json({ data: mainLogsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -162,45 +161,60 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { application_id, client_id, site_id, ...logsheetData } = req.body;
-    
-    // Upsert: update if exists, create if not
-    let logsheet = await ApplicationLogsheet.findOne({
-      application_id,
-      source_type: { $nin: ['initial_product_application', 'addon_application'] },
-      initial_product_application_id: { $exists: false },
-      addon_application_id: { $exists: false }
+    const isObjId = mongoose.Types.ObjectId.isValid(application_id);
+
+    const allLogsheets = await ApplicationLogsheet.find({
+      $or: [
+        { application_id },
+        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(application_id) }] : [])
+      ]
     });
-    let isNew = false;
+
+    let logsheet = allLogsheets.find(l => {
+      if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+      if (l.initial_product_application_id || l.addon_application_id) return false;
+      if (l.audit_type === 'Initial Product Evaluation') return false;
+      return true;
+    });
+
+    const clientIdVal = (client_id && typeof client_id === 'object') ? client_id._id : client_id;
+    const siteIdVal = (site_id && typeof site_id === 'object') ? site_id._id : site_id;
+
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
+      logsheet.source_type = 'application';
+      if (clientIdVal) logsheet.client_id = clientIdVal;
+      if (siteIdVal) logsheet.site_id = siteIdVal;
+      logsheet.updated_at = new Date();
     } else {
       logsheet = new ApplicationLogsheet({
         application_id,
-        client_id,
-        site_id,
+        client_id: clientIdVal,
+        site_id: siteIdVal,
         source_type: 'application',
         ...logsheetData
       });
-      isNew = true;
     }
     
     await logsheet.save();
 
-    // Clean up any other duplicate main application logsheets for this application
+    // Clean up any duplicate main application logsheets
     if (application_id) {
       await ApplicationLogsheet.deleteMany({
-        application_id,
-        source_type: { $nin: ['initial_product_application', 'addon_application'] },
-        initial_product_application_id: { $exists: false },
-        addon_application_id: { $exists: false },
+        $or: [
+          { application_id },
+          ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(application_id) }] : [])
+        ],
+        source_type: 'application',
         _id: { $ne: logsheet._id }
       });
     }
 
-    // Update application status to logsheet_created (fix: was incorrectly setting 'AGREEMENT SENT')
+    // Update application status to logsheet_created
     const app = await Application.findByIdAndUpdate(
       application_id,
       {
+        logsheet_id: logsheet._id,
         status: 'logsheet_created',
         updated_at: new Date(),
         $push: {
