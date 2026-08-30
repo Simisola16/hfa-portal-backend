@@ -132,17 +132,26 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     if (clientReject) return;
 
     const appId = req.params.appId;
+    const isObjId = mongoose.Types.ObjectId.isValid(appId);
+
     // Strictly find the logsheet for the main application only (exclude initial products and addons)
     const logsheet = await ApplicationLogsheet.findOne({
-      application_id: appId,
+      $or: [
+        { application_id: appId },
+        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : [])
+      ],
       source_type: { $nin: ['initial_product_application', 'addon_application'] },
-      initial_product_application_id: { $exists: false },
-      addon_application_id: { $exists: false }
+      initial_product_application_id: { $exists: false, $eq: null },
+      addon_application_id: { $exists: false, $eq: null },
+      audit_type: { $ne: 'Initial Product Evaluation' }
     })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address');
     
-    if (!logsheet) return res.json({ data: null });
+    if (!logsheet || logsheet.source_type === 'initial_product_application' || logsheet.initial_product_application_id || logsheet.audit_type === 'Initial Product Evaluation') {
+      return res.json({ data: null });
+    }
+
     res.json({ data: logsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });
