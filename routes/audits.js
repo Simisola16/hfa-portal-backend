@@ -971,74 +971,46 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     if (!appId && audit?.application_id) appId = audit.application_id;
     if (!appId) return res.status(400).json({ error: 'Application ID is required' });
 
-    if (audit && audit.nc_reports) {
-      if (report_id) {
-        const r = audit.nc_reports.id(report_id) || audit.nc_reports.find(item => String(item._id) === String(report_id));
-        if (r) r.status = 'closed';
-      } else {
-        audit.nc_reports.forEach(r => { r.status = 'closed'; });
+    if (audit) {
+      if (audit.nc_reports && audit.nc_reports.length > 0) {
+        if (report_id) {
+          const r = audit.nc_reports.id(report_id) || audit.nc_reports.find(item => String(item._id) === String(report_id));
+          if (r) r.status = 'closed';
+        } else {
+          audit.nc_reports.forEach(r => { r.status = 'closed'; });
+        }
       }
+      audit.status = 'audit_completed';
       await audit.save();
     }
 
     const currentApp = await Application.findById(appId);
     if (!currentApp) return res.status(404).json({ error: 'Application not found' });
 
-    const postNcStatuses = [
-      'logsheet_created',
-      'logsheet_signed',
-      'application_successful',
-      'agreement_sent',
-      'agreement_signed',
-      'agreement_finalised',
-      'final_invoice_sent',
-      'final_invoice_paid',
-      'ready_for_certificate',
-      'certificate_issued'
-    ];
+    currentApp.status = 'nc_closed';
+    currentApp.updated_at = new Date();
 
-    const shouldChangeStatus = !postNcStatuses.includes(currentApp.status);
-
-    const updateFields = {
-      updated_at: new Date()
-    };
-
-    if (shouldChangeStatus) {
-      updateFields.status = 'nc_closed';
-    }
-
-    const updatedApp = await Application.findByIdAndUpdate(
-      appId,
-      {
-        ...updateFields,
-        ...(shouldChangeStatus ? {
-          $push: {
-            statusHistory: {
-              status: 'nc_closed',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
-            }
-          }
-        } : {})
-      },
-      { new: true }
-    );
-
-    if (updatedApp) {
-      if (updatedApp.nc_reports) {
-        if (report_id) {
-          const r = updatedApp.nc_reports.id(report_id) || updatedApp.nc_reports.find(item => String(item._id) === String(report_id));
-          if (r) r.status = 'closed';
-        } else {
-          updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
-        }
-        await updatedApp.save();
+    if (currentApp.nc_reports && currentApp.nc_reports.length > 0) {
+      if (report_id) {
+        const r = currentApp.nc_reports.id(report_id) || currentApp.nc_reports.find(item => String(item._id) === String(report_id));
+        if (r) r.status = 'closed';
+      } else {
+        currentApp.nc_reports.forEach(r => { r.status = 'closed'; });
       }
-      emitApplicationUpdate(updatedApp, updatedApp.status);
     }
 
-    const clientId = updatedApp?.client_id || updatedApp?.user_id;
+    if (!currentApp.statusHistory) currentApp.statusHistory = [];
+    currentApp.statusHistory.push({
+      status: 'nc_closed',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
+    });
+
+    await currentApp.save();
+    emitApplicationUpdate(currentApp, 'nc_closed');
+
+    const clientId = currentApp.client_id || currentApp.user_id;
     if (clientId) {
       await createNotification(
         clientId,
@@ -1049,7 +1021,7 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
       );
     }
 
-    res.json({ data: updatedApp, message: 'NC Closed successfully' });
+    res.json({ data: currentApp, message: 'NC Closed successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
