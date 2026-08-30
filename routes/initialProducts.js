@@ -698,10 +698,21 @@ router.put('/:id/client-reply', authenticateToken, upload.any(), async (req, res
 // ─── GET /api/initial-products/:id/logsheet ─────────────────────────────────
 router.get('/:id/logsheet', authenticateToken, async (req, res) => {
   try {
-    const logsheet = await ApplicationLogsheet.findOne({ initial_product_application_id: req.params.id })
+    const id = req.params.id;
+    let query = { initial_product_application_id: id };
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      query = {
+        $or: [
+          { initial_product_application_id: id },
+          { _id: id }
+        ]
+      };
+    }
+
+    const logsheet = await ApplicationLogsheet.findOne(query)
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address');
-    res.json({ data: logsheet });
+    res.json({ data: logsheet || null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
