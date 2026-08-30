@@ -155,21 +155,35 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     const { application_id, client_id, site_id, ...logsheetData } = req.body;
     
     // Upsert: update if exists, create if not
-    let logsheet = await ApplicationLogsheet.findOne({ application_id });
+    let logsheet = await ApplicationLogsheet.findOne({
+      application_id,
+      source_type: { $nin: ['initial_product_application', 'addon_application'] },
+      initial_product_application_id: { $exists: false },
+      addon_application_id: { $exists: false }
+    });
     let isNew = false;
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
     } else {
-      logsheet = new ApplicationLogsheet({ application_id, client_id, site_id, ...logsheetData });
+      logsheet = new ApplicationLogsheet({
+        application_id,
+        client_id,
+        site_id,
+        source_type: 'application',
+        ...logsheetData
+      });
       isNew = true;
     }
     
     await logsheet.save();
 
-    // Clean up any other duplicate logsheets for this application
+    // Clean up any other duplicate main application logsheets for this application
     if (application_id) {
       await ApplicationLogsheet.deleteMany({
         application_id,
+        source_type: { $nin: ['initial_product_application', 'addon_application'] },
+        initial_product_application_id: { $exists: false },
+        addon_application_id: { $exists: false },
         _id: { $ne: logsheet._id }
       });
     }

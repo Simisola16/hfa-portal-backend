@@ -77,7 +77,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Auto-sync status if logsheet exists and application status is lagging behind
     try {
       const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
-      const logsheet = await ApplicationLogsheet.findOne({ application_id: data._id }).sort({ created_at: -1 }).lean();
+      const logsheet = await ApplicationLogsheet.findOne({
+        application_id: data._id,
+        source_type: { $nin: ['initial_product_application', 'addon_application'] },
+        initial_product_application_id: { $exists: false },
+        addon_application_id: { $exists: false }
+      }).sort({ created_at: -1 }).lean();
+
       if (logsheet) {
         let sigCount = 0;
         if (logsheet.mufti_signature) sigCount++;
@@ -117,6 +123,24 @@ router.get('/:id', authenticateToken, async (req, res) => {
               }
             }
           });
+        }
+      } else {
+        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful or logsheet_created by initial product sign-off
+        if (['application_successful', 'logsheet_created', 'logsheet_signed'].includes(data.status)) {
+          const Audit = mongoose.model('Audit');
+          const audit = await Audit.findOne({ application_id: data._id }).sort({ created_at: -1 });
+          if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
+            const properStatus = (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) ? 'nc_closed' : 'audit_completed';
+            data.status = properStatus;
+            finalData.status = properStatus;
+            // Clean up false application_successful and logsheet_created entries from statusHistory
+            const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'logsheet_created', 'logsheet_signed'].includes(h.status));
+            finalData.statusHistory = cleanedHistory;
+            await Application.findByIdAndUpdate(data._id, {
+              status: properStatus,
+              statusHistory: cleanedHistory
+            });
+          }
         }
       }
     } catch (lErr) {}
