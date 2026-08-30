@@ -217,7 +217,21 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 // GET /api/application-logsheets (Admin only)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const logsheets = await ApplicationLogsheet.find({})
+    const filter = {};
+    if (req.query.initial_product_application_id) {
+      filter.initial_product_application_id = req.query.initial_product_application_id;
+    }
+    if (req.query.application_id) {
+      filter.application_id = req.query.application_id;
+    }
+    if (req.query.addon_application_id) {
+      filter.addon_application_id = req.query.addon_application_id;
+    }
+    if (req.query.source_type) {
+      filter.source_type = req.query.source_type;
+    }
+
+    const logsheets = await ApplicationLogsheet.find(filter)
       .populate('application_id', 'application_number application_type status category')
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
