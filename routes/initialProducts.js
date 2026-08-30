@@ -831,6 +831,31 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
 
     emitInitialProductUpdate(data, 'initial_product_approved');
 
+    // Unlock main application audit stage
+    if (app.application_id) {
+      try {
+        const { default: Application } = await import('../models/Application.js');
+        const parentAppId = app.application_id._id || app.application_id;
+        const parentApp = await Application.findById(parentAppId);
+        if (parentApp) {
+          const auditEligibleStatuses = ['payment_received', 'dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_successful', 'audit_completed'];
+          if (!auditEligibleStatuses.includes(parentApp.status)) {
+            parentApp.status = 'payment_received';
+          }
+          parentApp.statusHistory.push({
+            status: parentApp.status,
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: `Initial Product "${prodName || 'Product'}" approved by Committee. Facility audit scheduling unlocked.`
+          });
+          await parentApp.save();
+          emitApplicationUpdate(parentApp, parentApp.status);
+        }
+      } catch (parentErr) {
+        console.error('[InitialProduct] Error updating parent application:', parentErr.message);
+      }
+    }
+
     // Notify client
     const client = await User.findById(clientId);
     if (client) {

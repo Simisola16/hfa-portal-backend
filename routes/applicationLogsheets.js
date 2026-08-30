@@ -132,12 +132,13 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     if (clientReject) return;
 
     const appId = req.params.appId;
-    let query = { $or: [{ application_id: appId }, { addon_application_id: appId }] };
-    if (mongoose.Types.ObjectId.isValid(appId)) {
-      query.$or.push({ _id: appId });
-    }
-
-    const logsheet = await ApplicationLogsheet.findOne(query)
+    // Strictly find the logsheet for the main application only (exclude initial products and addons)
+    const logsheet = await ApplicationLogsheet.findOne({
+      application_id: appId,
+      source_type: { $nin: ['initial_product_application', 'addon_application'] },
+      initial_product_application_id: { $exists: false },
+      addon_application_id: { $exists: false }
+    })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address');
     
@@ -454,6 +455,30 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                 },
                 { upsert: true, new: true }
               );
+            }
+
+            // Unlock main application audit stage
+            if (initialApp.application_id) {
+              try {
+                const parentAppId = initialApp.application_id._id || initialApp.application_id;
+                const parentApp = await Application.findById(parentAppId);
+                if (parentApp) {
+                  const auditEligibleStatuses = ['payment_received', 'dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_successful', 'audit_completed'];
+                  if (!auditEligibleStatuses.includes(parentApp.status)) {
+                    parentApp.status = 'payment_received';
+                  }
+                  parentApp.statusHistory.push({
+                    status: parentApp.status,
+                    changedAt: new Date(),
+                    changedBy: req.user._id,
+                    note: `Initial Product "${prodName || 'Product'}" approved. Facility audit scheduling unlocked.`
+                  });
+                  await parentApp.save();
+                  emitApplicationUpdate(parentApp, parentApp.status);
+                }
+              } catch (pErr) {
+                console.error('[Logsheet] Error updating parent application:', pErr.message);
+              }
             }
 
             try {
