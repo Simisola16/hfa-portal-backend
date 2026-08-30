@@ -77,12 +77,22 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Auto-sync status if logsheet exists and application status is lagging behind
     try {
       const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
-      const logsheet = await ApplicationLogsheet.findOne({
-        application_id: data._id,
-        source_type: { $nin: ['initial_product_application', 'addon_application'] },
-        initial_product_application_id: { $exists: false },
-        addon_application_id: { $exists: false }
-      }).sort({ created_at: -1 }).lean();
+      const isObjId = mongoose.Types.ObjectId.isValid(data._id);
+      const logsheets = await ApplicationLogsheet.find({
+        $or: [
+          { application_id: data._id },
+          { application_id: String(data._id) },
+          ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : []),
+          ...(data.logsheet_id ? [{ _id: data.logsheet_id }] : [])
+        ]
+      }).sort({ createdAt: -1, created_at: -1 }).lean();
+
+      const logsheet = logsheets.find(l => {
+        if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+        if (l.initial_product_application_id || l.addon_application_id) return false;
+        if (l.audit_type === 'Initial Product Evaluation') return false;
+        return true;
+      }) || null;
 
       if (logsheet) {
         let sigCount = 0;
@@ -92,43 +102,45 @@ router.get('/:id', authenticateToken, async (req, res) => {
         if (logsheet.mufti2_signature) sigCount++;
 
         const isRenewal = data.application_type === 'renewal';
-        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 3;
+        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 4;
 
         if (isLogsheetFinalized) {
           const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
-          if (['audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed', 'logsheet_created'].includes(data.status)) {
+          data.status = targetStatus;
+          finalData.status = targetStatus;
+          await Application.findByIdAndUpdate(data._id, {
+            status: targetStatus,
+            logsheet_id: logsheet._id,
+            $addToSet: {
+              statusHistory: {
+                status: targetStatus,
+                changedAt: new Date(),
+                note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+              }
+            }
+          });
+        } else {
+          const targetStatus = sigCount > 0 ? 'logsheet_signed' : 'logsheet_created';
+          if (['audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed'].includes(data.status) || data.status === 'logsheet_created') {
             data.status = targetStatus;
             finalData.status = targetStatus;
             await Application.findByIdAndUpdate(data._id, {
               status: targetStatus,
+              logsheet_id: logsheet._id,
               $addToSet: {
                 statusHistory: {
-                  status: targetStatus,
-                  changedAt: new Date(),
-                  note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+                  status: 'logsheet_created',
+                  changedAt: logsheet.created_at || logsheet.createdAt || new Date(),
+                  note: 'LogSheet created. Awaiting committee signatures.'
                 }
               }
             });
           }
-        } else if (['audit_successful', 'audit_completed', 'nc_closed'].includes(data.status)) {
-          data.status = 'logsheet_created';
-          finalData.status = 'logsheet_created';
-          await Application.findByIdAndUpdate(data._id, {
-            status: 'logsheet_created',
-            $addToSet: {
-              statusHistory: {
-                status: 'logsheet_created',
-                changedAt: logsheet.created_at || new Date(),
-                note: 'LogSheet created. Awaiting committee signatures.'
-              }
-            }
-          });
         }
       } else {
-        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful, logsheet_created, logsheet_signed, or ready_for_certificate
-        if (['application_successful', 'logsheet_created', 'logsheet_signed', 'ready_for_certificate'].includes(data.status)) {
+        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful or ready_for_certificate
+        if (['application_successful', 'ready_for_certificate'].includes(data.status)) {
           const Audit = mongoose.model('Audit');
-          const isObjId = mongoose.Types.ObjectId.isValid(data._id);
           const audit = await Audit.findOne({
             $or: [
               { application_id: data._id },
@@ -151,8 +163,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
           data.status = properStatus;
           finalData.status = properStatus;
-          // Clean up false application_successful, logsheet_created, logsheet_signed, ready_for_certificate entries from statusHistory
-          const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'logsheet_created', 'logsheet_signed', 'ready_for_certificate'].includes(h.status));
+          const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'ready_for_certificate'].includes(h.status));
           finalData.statusHistory = cleanedHistory;
           await Application.findByIdAndUpdate(data._id, {
             status: properStatus,
