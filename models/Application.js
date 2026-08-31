@@ -59,6 +59,7 @@ const applicationSchema = new mongoose.Schema({
     note: { type: String, default: '' },
   }],
   certificate_url: String,
+  logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet', default: null },
   surveillance_letter_data: { type: mongoose.Schema.Types.Mixed },
   renewed_certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', default: null },
   documents: {

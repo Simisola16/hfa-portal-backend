@@ -134,10 +134,13 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     const appId = req.params.appId;
     const isObjId = mongoose.Types.ObjectId.isValid(appId);
 
+    const app = await Application.findById(appId).lean();
+
     const logsheets = await ApplicationLogsheet.find({
       $or: [
         { application_id: appId },
-        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : [])
+        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : []),
+        ...(app?.logsheet_id ? [{ _id: app.logsheet_id }] : [])
       ]
     })
       .populate('client_id', 'full_name company_name email')
@@ -160,7 +163,17 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 // POST /api/application-logsheets
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { application_id, client_id, site_id, ...logsheetData } = req.body;
+    const {
+      application_id,
+      client_id,
+      site_id,
+      _id,
+      id,
+      initial_product_application_id,
+      addon_application_id,
+      source_type,
+      ...logsheetData
+    } = req.body;
     const isObjId = mongoose.Types.ObjectId.isValid(application_id);
 
     const allLogsheets = await ApplicationLogsheet.find({
@@ -183,6 +196,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
       logsheet.source_type = 'application';
+      logsheet.initial_product_application_id = undefined;
+      logsheet.addon_application_id = undefined;
       if (clientIdVal) logsheet.client_id = clientIdVal;
       if (siteIdVal) logsheet.site_id = siteIdVal;
       logsheet.updated_at = new Date();
@@ -194,6 +209,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         source_type: 'application',
         ...logsheetData
       });
+      logsheet.initial_product_application_id = undefined;
+      logsheet.addon_application_id = undefined;
     }
     
     await logsheet.save();
