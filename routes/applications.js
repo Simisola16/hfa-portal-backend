@@ -106,22 +106,26 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
         if (isLogsheetFinalized) {
           const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
-          data.status = targetStatus;
-          finalData.status = targetStatus;
-          await Application.findByIdAndUpdate(data._id, {
-            status: targetStatus,
-            logsheet_id: logsheet._id,
-            $addToSet: {
-              statusHistory: {
-                status: targetStatus,
-                changedAt: new Date(),
-                note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+          const preLogsheetStatuses = ['audit_completed', 'audit_successful', 'nc_flagged', 'nc_closed', 'logsheet_created', 'logsheet_signed'];
+          if (preLogsheetStatuses.includes(data.status)) {
+            data.status = targetStatus;
+            finalData.status = targetStatus;
+            await Application.findByIdAndUpdate(data._id, {
+              status: targetStatus,
+              logsheet_id: logsheet._id,
+              $addToSet: {
+                statusHistory: {
+                  status: targetStatus,
+                  changedAt: new Date(),
+                  note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+                }
               }
-            }
-          });
+            });
+          }
         } else {
           const targetStatus = sigCount > 0 ? 'logsheet_signed' : 'logsheet_created';
-          if (['audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed'].includes(data.status) || data.status === 'logsheet_created') {
+          const preLogsheetStatuses = ['audit_completed', 'audit_successful', 'nc_flagged', 'nc_closed'];
+          if (preLogsheetStatuses.includes(data.status)) {
             data.status = targetStatus;
             finalData.status = targetStatus;
             await Application.findByIdAndUpdate(data._id, {
