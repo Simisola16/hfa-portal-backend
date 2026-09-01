@@ -302,49 +302,6 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
         item.application_id = targetApp._id;
         await item.save();
       }
-
-      // 4. Auto-create if no initial product existed
-      if (!item && ((Array.isArray(targetApp.products) && targetApp.products.length > 0) || targetApp.scope)) {
-        const firstProd = (targetApp.products && targetApp.products[0]) || {
-          name: targetApp.scope?.slice(0, 60) || 'Initial Product',
-          code: '',
-          category: targetApp.category || '',
-          ingredients: '',
-          description: targetApp.scope || ''
-        };
-
-        const newInitialProd = new InitialProductApplication({
-          client_id: targetApp.client_id,
-          application_id: targetApp._id,
-          site_id: targetApp.site_id,
-          contact_name: (targetApp.primary_contact_name || targetApp.managing_director || 'Client').trim(),
-          contact_email: (targetApp.primary_email || targetApp.company_email || '').trim(),
-          contact_phone: (targetApp.primary_work_tel || targetApp.primary_mobile || '').trim(),
-          product: {
-            name: String(firstProd.name || targetApp.scope || 'Initial Product').trim(),
-            code: String(firstProd.code || '').trim(),
-            category: String(firstProd.category || targetApp.category || '').trim(),
-            ingredients: String(firstProd.ingredients || '').trim(),
-            description: String(firstProd.description || targetApp.scope || '').trim()
-          },
-          status: 'submitted',
-          statusHistory: [{
-            status: 'submitted',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: `Initial product auto-linked from application: "${String(firstProd.name || targetApp.scope || 'Initial Product').trim()}".`
-          }]
-        });
-
-        item = await newInitialProd.save();
-        item = await InitialProductApplication.findById(item._id)
-          .populate('client_id', 'company_name full_name email phone address')
-          .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
-          .populate('site_id', 'name address city postal_code country')
-          .populate('assigned_food_tech', 'full_name email phone')
-          .populate('assigned_food_techs', 'full_name email phone')
-          .populate('logsheet_id');
-      }
     } else {
       const query = isObjId
         ? { $or: [{ application_id: req.params.appId }, { application_id: new mongoose.Types.ObjectId(req.params.appId) }] }
