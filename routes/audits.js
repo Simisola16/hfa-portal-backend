@@ -52,24 +52,55 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const audits = await Audit.find(query)
       .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
-      .populate('inspector_id', 'full_name email')
+      .populate('inspector_id', 'full_name email phone')
       .sort({ createdAt: -1 });
 
-    // Fetch clients safely
+    // Fetch clients and staff users safely
     const clientIds = audits
       .map(a => a.client_id)
       .filter(id => id && mongoose.Types.ObjectId.isValid(id.toString()));
       
-    const clients = await User.find({ _id: { $in: clientIds } }, 'company_name full_name');
+    const [clients, allStaffUsers] = await Promise.all([
+      User.find({ _id: { $in: clientIds } }, 'company_name full_name'),
+      User.find({ role: { $in: ['auditor', 'inspector', 'admin', 'superadmin', 'food_tech'] } }, 'full_name username email phone')
+    ]);
     const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
 
     const formatted = audits.map(a => {
       const clientIdStr = a.client_id ? a.client_id.toString() : '';
       const client = clientMap[clientIdStr];
       
-      const inspectorName = a.auditors && a.auditors.length > 0
-        ? a.auditors.map(aud => aud.name).join(', ')
+      const resolvedAuditors = (a.auditors || []).map(aud => {
+        let audEmail = (aud.email || '').trim();
+        let audContact = (aud.contact_number || '').trim();
+        if (!audEmail && aud.name) {
+          const matchUser = allStaffUsers.find(u => 
+            (u.full_name && u.full_name.toLowerCase().trim() === aud.name.toLowerCase().trim()) ||
+            (u.username && u.username.toLowerCase().trim() === aud.name.toLowerCase().trim()) ||
+            (u.full_name && u.full_name.toLowerCase().includes(aud.name.toLowerCase().trim()))
+          );
+          if (matchUser) {
+            audEmail = matchUser.email || '';
+            audContact = audContact || matchUser.phone || '';
+          }
+        }
+        return {
+          _id: aud._id,
+          name: aud.name,
+          email: audEmail,
+          contact_number: audContact,
+          purpose: aud.purpose,
+          role: aud.role || 'lead_auditor'
+        };
+      });
+
+      const inspectorName = resolvedAuditors.length > 0
+        ? resolvedAuditors.map(aud => aud.name).join(', ')
         : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
+
+      const inspectorEmail = resolvedAuditors.length > 0
+        ? resolvedAuditors.map(aud => aud.email).filter(Boolean).join(', ')
+        : (a.inspector_id ? a.inspector_id.email : '');
 
       const resolvedSiteName = a.application_id?.site_name || a.application_id?.establishment_name || 'Manufacturing Site';
 
@@ -109,7 +140,7 @@ router.get('/', authenticateToken, async (req, res) => {
         profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
         company_name: client?.company_name || client?.full_name || 'Unknown Client',
         inspector_id: a.inspector_id,
-        inspectors: { full_name: inspectorName },
+        inspectors: { full_name: inspectorName, email: inspectorEmail },
         site_name: resolvedSiteName,
         sites: { name: resolvedSiteName },
         audit_type: a.audit_type || 'Initial',
@@ -118,7 +149,7 @@ router.get('/', authenticateToken, async (req, res) => {
         proposed_dates: a.proposed_dates || [],
         selected_dates: a.selected_dates || [],
         finalized_date: a.finalized_date,
-        auditors: a.auditors || [],
+        auditors: resolvedAuditors,
         nc_reports: combinedNc,
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
         completed_at: a.completed_at || (['audit_completed', 'completed', 'done', 'inspection_completed'].includes(a.status) ? a.updatedAt : null),
