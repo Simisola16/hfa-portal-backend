@@ -366,12 +366,6 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
-    res.json({ data: item || null });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ─── GET /api/initial-products ───────────────────────────────────────────────
 // Fetch list of initial products (scoped to role)
 router.get('/', authenticateToken, async (req, res) => {
