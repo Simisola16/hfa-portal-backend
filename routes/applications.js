@@ -338,6 +338,69 @@ router.post('/', authenticateToken, upload.fields([
 
     const data = await application.save();
 
+    // Auto-register Initial Product for standard new certification applications
+    if (application_type !== 'renewal' && application_type !== 'surveillance') {
+      try {
+        let initialProdData = null;
+        if (req.body.initial_product) {
+          try {
+            initialProdData = typeof req.body.initial_product === 'string' ? JSON.parse(req.body.initial_product) : req.body.initial_product;
+          } catch (e) {}
+        }
+        if (!initialProdData && Array.isArray(products) && products.length > 0) {
+          initialProdData = products[0];
+        }
+        if (!initialProdData && req.body.initial_product_name) {
+          initialProdData = {
+            name: req.body.initial_product_name,
+            code: req.body.initial_product_code || '',
+            category: req.body.initial_product_category || req.body.category || '',
+            ingredients: req.body.initial_product_ingredients || '',
+            description: req.body.initial_product_description || req.body.scope || ''
+          };
+        }
+        if (!initialProdData && req.body.scope) {
+          initialProdData = {
+            name: req.body.brand_name ? `${req.body.brand_name} - ${req.body.scope.slice(0, 50)}` : req.body.scope.slice(0, 50),
+            code: '',
+            category: req.body.category || '',
+            ingredients: '',
+            description: req.body.scope
+          };
+        }
+
+        if (initialProdData && initialProdData.name) {
+          const InitialProductApplication = (await import('../models/InitialProductApplication.js')).default;
+          const newInitProd = new InitialProductApplication({
+            client_id: req.user._id,
+            application_id: data._id,
+            site_id: data.site_id,
+            contact_name: (req.body.primary_contact_name || req.body.managing_director || req.user.full_name || '').trim(),
+            contact_email: (req.body.primary_email || req.body.company_email || req.user.email || '').trim(),
+            contact_phone: (req.body.primary_work_tel || req.body.primary_mobile || req.user.phone || '').trim(),
+            message: (req.body.notes || '').trim(),
+            product: {
+              name: String(initialProdData.name).trim(),
+              code: String(initialProdData.code || '').trim(),
+              category: String(initialProdData.category || data.category || '').trim(),
+              ingredients: String(initialProdData.ingredients || '').trim(),
+              description: String(initialProdData.description || '').trim()
+            },
+            status: 'submitted',
+            statusHistory: [{
+              status: 'submitted',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: `Initial Product registered with application submission: "${String(initialProdData.name).trim()}".`
+            }]
+          });
+          await newInitProd.save();
+        }
+      } catch (initErr) {
+        console.error('Auto Initial Product Registration error:', initErr.message);
+      }
+    }
+
     // Emit real-time application update
     emitApplicationUpdate(data, 'created');
 
