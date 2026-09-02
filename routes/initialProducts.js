@@ -250,11 +250,8 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
     let item = null;
 
     if (targetApp) {
-      const appIds = [targetApp._id, String(targetApp._id)];
-      if (targetApp.application_number) appIds.push(targetApp.application_number);
-
       item = await InitialProductApplication.findOne({
-        application_id: { $in: appIds }
+        application_id: targetApp._id
       })
         .sort({ updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
@@ -263,12 +260,8 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
         .populate('assigned_food_tech', 'full_name email phone')
         .populate('assigned_food_techs', 'full_name email phone')
         .populate('logsheet_id');
-    } else {
-      const query = isObjId
-        ? { $or: [{ application_id: req.params.appId }, { application_id: new mongoose.Types.ObjectId(req.params.appId) }, { application_id: String(req.params.appId) }] }
-        : { application_id: req.params.appId };
-
-      item = await InitialProductApplication.findOne(query)
+    } else if (isObjId) {
+      item = await InitialProductApplication.findOne({ application_id: req.params.appId })
         .sort({ updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
