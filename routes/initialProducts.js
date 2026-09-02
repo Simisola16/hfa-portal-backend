@@ -250,17 +250,12 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
     let item = null;
 
     if (targetApp) {
-      // 1. First priority: Check for ANY approved Initial Product for this application, site, or client
-      const approvedQuery = {
-        $or: [
-          { application_id: targetApp._id },
-          ...(targetApp.site_id ? [{ site_id: targetApp.site_id }] : []),
-          { client_id: targetApp.client_id }
-        ],
-        status: { $in: ['initial_product_approved', 'approved', 'ready_for_certificate', 'certificate_issued'] }
-      };
+      const appIds = [targetApp._id, String(targetApp._id)];
+      if (targetApp.application_number) appIds.push(targetApp.application_number);
 
-      item = await InitialProductApplication.findOne(approvedQuery)
+      item = await InitialProductApplication.findOne({
+        application_id: { $in: appIds }
+      })
         .sort({ updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
@@ -268,43 +263,9 @@ router.get('/by-application/:appId', authenticateToken, async (req, res) => {
         .populate('assigned_food_tech', 'full_name email phone')
         .populate('assigned_food_techs', 'full_name email phone')
         .populate('logsheet_id');
-
-      // 2. Second priority: If no approved item, check if an initial product is specifically linked to this application_id
-      if (!item) {
-        item = await InitialProductApplication.findOne({ application_id: targetApp._id })
-          .sort({ updatedAt: -1, createdAt: -1 })
-          .populate('client_id', 'company_name full_name email phone address')
-          .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
-          .populate('site_id', 'name address city postal_code country')
-          .populate('assigned_food_tech', 'full_name email phone')
-          .populate('assigned_food_techs', 'full_name email phone')
-          .populate('logsheet_id');
-      }
-
-      // 3. Third priority: Check for any initial product for this site or client
-      if (!item) {
-        const fallbackQuery = targetApp.site_id
-          ? { client_id: targetApp.client_id, site_id: targetApp.site_id }
-          : { client_id: targetApp.client_id };
-
-        item = await InitialProductApplication.findOne(fallbackQuery)
-          .sort({ updatedAt: -1, createdAt: -1 })
-          .populate('client_id', 'company_name full_name email phone address')
-          .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
-          .populate('site_id', 'name address city postal_code country')
-          .populate('assigned_food_tech', 'full_name email phone')
-          .populate('assigned_food_techs', 'full_name email phone')
-          .populate('logsheet_id');
-      }
-
-      // If an item was found, ensure application_id is linked to this application
-      if (item && !item.application_id) {
-        item.application_id = targetApp._id;
-        await item.save();
-      }
     } else {
       const query = isObjId
-        ? { $or: [{ application_id: req.params.appId }, { application_id: new mongoose.Types.ObjectId(req.params.appId) }] }
+        ? { $or: [{ application_id: req.params.appId }, { application_id: new mongoose.Types.ObjectId(req.params.appId) }, { application_id: String(req.params.appId) }] }
         : { application_id: req.params.appId };
 
       item = await InitialProductApplication.findOne(query)
