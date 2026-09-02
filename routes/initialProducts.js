@@ -346,23 +346,17 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
     const appIdsStrings = appIds.map(a => String(a));
 
     const paidInvoices = await Invoice.find({
-      $or: [
-        { application_id: { $in: [...appIds, ...appIdsStrings] } },
-        { client_id: { $in: [String(clientId), mongoose.Types.ObjectId.isValid(clientId) ? new mongoose.Types.ObjectId(clientId) : undefined].filter(Boolean) } }
-      ],
+      application_id: { $in: [...appIds, ...appIdsStrings] },
       status: { $in: ['paid', 'client_paid', 'settled'] }
     }).lean();
 
-    const paidAppIds = new Set(paidInvoices.map(inv => String(inv.application_id)).filter(Boolean));
+    const paidAppIds = new Set(paidInvoices.map(inv => String(inv.application_id?._id || inv.application_id)).filter(Boolean));
 
     // Check which apps already have an InitialProductApplication
     const existingInitialProducts = await InitialProductApplication.find({
-      $or: [
-        { application_id: { $in: [...appIds, ...appIdsStrings] } },
-        { client_id: clientQuery }
-      ]
+      application_id: { $in: [...appIds, ...appIdsStrings] }
     }).lean();
-    const existingAppIds = new Set(existingInitialProducts.map(ip => String(ip.application_id)).filter(Boolean));
+    const existingAppIds = new Set(existingInitialProducts.map(ip => String(ip.application_id?._id || ip.application_id)).filter(Boolean));
 
     const VALID_PAID_STATUSES = [
       'payment_received', 'initial_payment_received',
@@ -377,7 +371,7 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
 
     const result = apps.map(app => {
       const isStatusPaid = VALID_PAID_STATUSES.includes(app.status?.toLowerCase());
-      const isInvoiceConfirmed = isStatusPaid || paidAppIds.has(String(app._id)) || paidInvoices.length > 0;
+      const isInvoiceConfirmed = isStatusPaid || paidAppIds.has(String(app._id));
       const hasInitialProduct = existingAppIds.has(String(app._id));
 
       return {
