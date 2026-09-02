@@ -23,6 +23,8 @@ const applicationLogsheetSchema = new mongoose.Schema({
   expiry_date: Date,
   nature_of_business: String,
   product_category: String,
+  product_name: String,
+  product_code: String,
   current_cycle_start: Date,
   original_cycle_start: Date,
   document_url: String, // from File upload

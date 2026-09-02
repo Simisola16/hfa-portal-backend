@@ -546,6 +546,20 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), as
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
+    // GATING: Ensure FT is assigned before enabling form
+    const hasFt = Boolean(
+      (Array.isArray(app.assigned_food_techs) && app.assigned_food_techs.length > 0) ||
+      app.assigned_food_tech ||
+      app.assigned_ft_custom?.name ||
+      app.assigned_ft_details ||
+      app.status !== 'submitted'
+    );
+    if (!hasFt) {
+      return res.status(400).json({
+        error: 'A Food Technologist (FT) must be assigned before enabling the Product Approval Form.'
+      });
+    }
+
     const { form_text, is_draft } = req.body;
     const isDraftBool = is_draft === 'true' || is_draft === true;
     let form_file_url = app.product_approval_form?.form_file_url || null;
@@ -667,29 +681,40 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied.' });
     }
 
-    app.status = 'all_forms_received';
+    const hasResponse = Boolean(app.product_approval_form?.product_response?.is_saved) ||
+      Boolean(app.product_approval_form?.product_response?.response_url) ||
+      (app.product_approval_form?.product_response?.form_data && Object.keys(app.product_approval_form?.product_response?.form_data).length > 0);
+
+    if (!hasResponse) {
+      return res.status(400).json({ error: 'Please save your Product Approval Form details before submitting.' });
+    }
+
+    if (!app.product_approval_form) app.product_approval_form = {};
     app.product_approval_form.submitted_at = new Date();
-    await pushHistory(app, 'all_forms_received', 'Product Approval Form responses confirmed and marked as received by HFA admin.', req.user._id);
+    if (app.product_approval_form.product_response) {
+      app.product_approval_form.product_response.is_saved = true;
+    }
+    await pushHistory(app, app.status, 'Client submitted Product Approval Form responses. Awaiting HFA admin review and receipt confirmation.', req.user._id);
 
     const data = await app.save();
     emitInitialProductUpdate(data, 'form_submitted');
 
     // Notify admins
     await notifyAdmins(
-      'Initial Product Form Received 📋',
-      `Product Approval Form received for Initial Product "${app.product?.name}" (${app.contact_name}).`
+      'Initial Product Form Submitted 📋',
+      `Product Approval Form submitted by client for Initial Product "${app.product?.name}" (${app.contact_name}). Awaiting receipt confirmation.`
     );
 
     // Confirm to contact person
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: '✅ HFA: Initial Product Approval Form Received',
+      subject: '✅ HFA: Initial Product Approval Form Submitted',
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          Your Product Approval Form for Initial Product (<strong>${app.product?.name}</strong>) has been successfully received by HFA.
+          Your Product Approval Form for Initial Product (<strong>${app.product?.name}</strong>) has been successfully submitted to HFA.
         </p>
-        <p style="font-size:14px;color:#334155;line-height:1.6">Our technical team and Shari'a committee will review your submission.</p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">Our technical team will review your submission and confirm receipt shortly.</p>
       `
     });
 
@@ -706,16 +731,27 @@ router.put('/:id/mark-form-received', authenticateToken, requireStaff, async (re
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
+    const hasResponse = Boolean(app.product_approval_form?.submitted_at) ||
+      Boolean(app.product_approval_form?.product_response?.is_saved) ||
+      Boolean(app.product_approval_form?.product_response?.response_url) ||
+      (app.product_approval_form?.product_response?.form_data && Object.keys(app.product_approval_form?.product_response?.form_data).length > 0);
+
+    if (!hasResponse) {
+      return res.status(400).json({ error: 'Cannot mark form as received: Client has not submitted the Product Approval Form yet.' });
+    }
+
     app.status = 'all_forms_received';
     if (!app.product_approval_form) app.product_approval_form = {};
-    app.product_approval_form.submitted_at = new Date();
+    if (!app.product_approval_form.submitted_at) {
+      app.product_approval_form.submitted_at = new Date();
+    }
     if (app.product_approval_form.product_response) {
       app.product_approval_form.product_response.is_saved = true;
     }
     await pushHistory(app, 'all_forms_received', 'Product Approval Form responses confirmed and marked as received by HFA admin.', req.user._id);
 
     const data = await app.save();
-    emitInitialProductUpdate(data, 'form_submitted');
+    emitInitialProductUpdate(data, 'form_received');
 
     res.json({ data, message: 'Product Approval Form marked as received successfully.' });
   } catch (err) {
@@ -813,6 +849,47 @@ router.get('/:id/logsheet', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── PUT /api/initial-products/:id/product-info ──────────────────────────────
+// Admin / Staff: Directly edit Initial Product details (Name and Code)
+router.put('/:id/product-info', authenticateToken, requireStaff, async (req, res) => {
+  try {
+    const app = await InitialProductApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Initial product application not found' });
+
+    const { name, code, category, ingredients, description } = req.body;
+    if (name !== undefined && !name.trim()) {
+      return res.status(400).json({ error: 'Product Name is required.' });
+    }
+
+    if (!app.product) app.product = {};
+    const oldName = app.product.name;
+    const oldCode = app.product.code;
+
+    if (name !== undefined) app.product.name = name.trim();
+    if (code !== undefined) app.product.code = code.trim();
+    if (category !== undefined) app.product.category = category.trim();
+    if (ingredients !== undefined) app.product.ingredients = ingredients.trim();
+    if (description !== undefined) app.product.description = description.trim();
+
+    await pushHistory(app, app.status, `Initial Product details updated: "${oldName}" (${oldCode || 'No Code'}) → "${app.product.name}" (${app.product.code || 'No Code'})`, req.user._id);
+
+    const data = await app.save();
+
+    // If logsheet already exists, keep logsheet synchronized too
+    if (app.logsheet_id) {
+      await ApplicationLogsheet.findByIdAndUpdate(app.logsheet_id, {
+        product_name: app.product.name,
+        product_code: app.product.code
+      });
+    }
+
+    emitInitialProductUpdate(data, 'product_info_updated');
+    res.json({ data, message: 'Initial Product details updated successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/initial-products/:id/create-logsheet ──────────────────────────
 // Admin / FT Manager: Create or Update Logsheet for Initial Product
 router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
@@ -823,10 +900,24 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
     let logsheet = await ApplicationLogsheet.findOne({ initial_product_application_id: app._id });
-    const { ...logsheetData } = req.body;
+    const { product_name, product_code, product: incomingProduct, ...logsheetData } = req.body;
+
+    // Update product name and code on InitialProductApplication if edited during logsheet creation
+    const newName = (product_name !== undefined ? product_name : incomingProduct?.name)?.trim();
+    const newCode = (product_code !== undefined ? product_code : incomingProduct?.code)?.trim();
+    if (newName) {
+      if (!app.product) app.product = {};
+      app.product.name = newName;
+    }
+    if (newCode !== undefined) {
+      if (!app.product) app.product = {};
+      app.product.code = newCode;
+    }
 
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
+      if (newName) logsheet.product_name = newName;
+      if (newCode !== undefined) logsheet.product_code = newCode;
       if (!logsheet.status) logsheet.status = 'Waiting for Signature';
     } else {
       logsheet = new ApplicationLogsheet({
@@ -838,6 +929,8 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
         company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
         contact_person: logsheetData.contact_person || app.contact_name,
         contact_email: logsheetData.contact_email || app.contact_email,
+        product_name: newName || app.product?.name,
+        product_code: newCode !== undefined ? newCode : app.product?.code,
         ...logsheetData,
         status: 'Waiting for Signature'
       });
