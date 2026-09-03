@@ -68,7 +68,7 @@ export const requireSuperAdmin = async (req, res, next) => {
 export const requireDirectCertificatePermission = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const hasPermission = req.user.role === 'superadmin' || req.user.roles?.includes('superadmin') || req.user.can_issue_direct_certificate === true;
+  const hasPermission = userHasRole(req.user, 'superadmin', 'certificate_officer') || req.user.can_issue_direct_certificate === true;
   if (!hasPermission) {
     return res.status(403).json({ error: 'Direct certificate issuance privilege required. Contact Superadmin for access.' });
   }
@@ -78,8 +78,32 @@ export const requireDirectCertificatePermission = async (req, res, next) => {
 export const requireAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  if (!userHasRole(req.user, 'admin', 'superadmin')) {
+  if (!userHasRole(req.user, 'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager')) {
     return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+export const requireSchemeManager = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!userHasRole(req.user, 'scheme_manager', 'admin', 'superadmin')) {
+    return res.status(403).json({ error: 'Scheme Manager or Admin access required' });
+  }
+  next();
+};
+
+export const requireCertificateOfficer = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!userHasRole(req.user, 'certificate_officer', 'admin', 'superadmin') && !req.user.can_issue_direct_certificate) {
+    return res.status(403).json({ error: 'Certificate Officer or Admin access required' });
+  }
+  next();
+};
+
+export const requireAccountant = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!userHasRole(req.user, 'accountant', 'admin', 'superadmin')) {
+    return res.status(403).json({ error: 'Accountant or Admin access required' });
   }
   next();
 };
@@ -101,7 +125,7 @@ export const requireFoodTechManager = async (req, res, next) => {
 
 export const requireFoodTechManagerOrAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (!userHasRole(req.user, 'food_tech_manager', 'admin', 'superadmin', 'food_tech')) {
+  if (!userHasRole(req.user, 'food_tech_manager', 'admin', 'superadmin', 'food_tech', 'scheme_manager')) {
     return res.status(403).json({ error: 'Access denied. Food Tech Manager or Admin role required.' });
   }
   next();
@@ -125,7 +149,18 @@ export const requireAuditManager = async (req, res, next) => {
 
 export const requireStaff = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  const isStaff = userHasRole(req.user, 'admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector');
+  const isStaff = userHasRole(
+    req.user,
+    'admin',
+    'superadmin',
+    'scheme_manager',
+    'certificate_officer',
+    'accountant',
+    'audit_manager',
+    'food_tech_manager',
+    'food_tech',
+    'inspector'
+  );
   if (!isStaff) {
     return res.status(403).json({ error: 'Staff access required' });
   }

@@ -131,7 +131,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     assignedRoles = ['food_tech'];
   }
 
-  const rolePriority = ['superadmin', 'admin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+  const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
   const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
 
   try {
@@ -153,7 +153,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       country,
       role: primaryRole,
       roles: assignedRoles,
-      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || assignedRoles.includes('superadmin')),
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || primaryRole === 'certificate_officer' || assignedRoles.includes('superadmin') || assignedRoles.includes('certificate_officer')),
       username: username?.trim() || undefined,
       is_verified: true,
       is_active: true
@@ -203,7 +203,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       assignedRoles = ['food_tech'];
     }
 
-    const rolePriority = ['superadmin', 'admin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+    const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
     const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
 
     const updateObj = {
