@@ -32,11 +32,19 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
-    // Renewal applications do not require a Final Invoice — only Initial Invoice payment and ready_for_certificate status!
+    // Renewal applications require Renewal Invoice payment before certificate issuance
     if (app.application_type === 'renewal') {
-      if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+      const renewalInvoice = await Invoice.findOne({ application_id });
+      if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
-          error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+          error: 'The Renewal Invoice must be paid before a Certificate can be issued.',
+          code: 'RENEWAL_INVOICE_NOT_PAID',
+          invoice_status: renewalInvoice.status
+        });
+      }
+      if (!['ready_for_certificate', 'certificate_issued', 'payment_received', 'application_successful'].includes(app.status)) {
+        return res.status(403).json({
+          error: 'Application must be marked "Application Successful" or "Ready for Certificate" before issuing a certificate.',
           code: 'READY_FOR_CERTIFICATE_REQUIRED',
           application_status: app.status
         });

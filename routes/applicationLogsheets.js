@@ -350,12 +350,12 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
 
         if (isRenewal) {
           newHistory.push({
-            status: 'ready_for_certificate',
+            status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet completed and verified. Waiting for Certificate Issuance.'
+            note: 'Renewal LogSheet completed and verified. Application Successful — ready for Renewal Invoice.'
           });
-          app.status = 'ready_for_certificate';
+          app.status = 'application_successful';
         } else {
           newHistory.push({
             status: 'application_successful',
@@ -555,7 +555,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';
         const isSurveillance = currentApp?.application_type === 'surveillance';
-        const targetStatus = (isRenewal || isSurveillance) ? 'ready_for_certificate' : 'application_successful';
+        const targetStatus = isSurveillance ? 'ready_for_certificate' : 'application_successful';
 
         const newHistoryEntries = [
           {
@@ -575,10 +575,10 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           });
         } else if (isRenewal) {
           newHistoryEntries.push({
-            status: 'ready_for_certificate',
+            status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet signed & completed. Ready for Certificate Issuance.'
+            note: 'Renewal LogSheet signed & completed. Application Successful — ready for Renewal Invoice.'
           });
         } else {
           newHistoryEntries.push({

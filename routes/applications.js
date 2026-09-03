@@ -105,7 +105,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 4;
 
         if (isLogsheetFinalized) {
-          const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
+          const targetStatus = 'application_successful';
           const preLogsheetStatuses = ['audit_completed', 'audit_successful', 'nc_flagged', 'nc_closed', 'logsheet_created', 'logsheet_signed'];
           if (preLogsheetStatuses.includes(data.status)) {
             data.status = targetStatus;
@@ -117,7 +117,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
                 statusHistory: {
                   status: targetStatus,
                   changedAt: new Date(),
-                  note: isRenewal ? 'Renewal LogSheet completed.' : 'Application Successful — committee sign-off complete.'
+                  note: isRenewal ? 'Renewal LogSheet completed. Application Successful — ready for Renewal Invoice.' : 'Application Successful — committee sign-off complete.'
                 }
               }
             });
