@@ -9,7 +9,7 @@ import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
-import { getIO } from '../lib/socket.js';
+import { getIO, emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import dotenv from 'dotenv';
