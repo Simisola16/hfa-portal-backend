@@ -239,7 +239,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_created',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'LogSheet created by admin. Awaiting signatory signatures.'
+            note: 'Application submitted for Committee Review. Awaiting committee endorsement.'
           }
         }
       },
@@ -297,6 +297,67 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/application-logsheets/:id (Admin only)
+router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const logsheet = await ApplicationLogsheet.findById(req.params.id)
+      .populate('application_id')
+      .populate('client_id', 'full_name company_name email')
+      .populate('site_id', 'name address');
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+    res.json({ data: logsheet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id/documents (Admin only)
+router.put('/:id/documents', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { document_urls, audit_reports, document_url } = req.body;
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (Array.isArray(document_urls)) {
+      logsheet.document_urls = document_urls;
+    }
+    if (Array.isArray(audit_reports)) {
+      logsheet.audit_reports = audit_reports;
+    } else if (Array.isArray(document_urls)) {
+      logsheet.audit_reports = document_urls;
+    }
+    if (document_url !== undefined) {
+      logsheet.document_url = document_url;
+    } else if (Array.isArray(document_urls) && document_urls.length > 0) {
+      logsheet.document_url = document_urls[0].url;
+    }
+
+    logsheet.updated_at = new Date();
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Documents updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id (Admin only)
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    const { _id, id, ...updates } = req.body;
+    Object.assign(logsheet, updates);
+    logsheet.updated_at = new Date();
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Logsheet updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const countLogsheetSignatures = (logsheet) => {
   let count = 0;
   if (logsheet.mufti_signature) count++;
@@ -338,14 +399,14 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_created',
             changedAt: new Date(Date.now() - 2000),
             changedBy: req.user._id,
-            note: 'LogSheet generated for technical & shariah review.'
+            note: 'Submitted for technical & shariah committee review.'
           });
         }
         newHistory.push({
           status: 'logsheet_signed',
           changedAt: new Date(Date.now() - 1000),
           changedBy: req.user._id,
-          note: `LogSheet marked as done and verified with ${sigCount}/4 signatures.`
+          note: `Committee review completed and endorsed with ${sigCount}/4 signatures.`
         });
 
         if (isRenewal) {
@@ -353,7 +414,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet completed and verified. Application Successful — ready for Renewal Invoice.'
+            note: 'Renewal review completed and verified. Application Successful — ready for Renewal Invoice.'
           });
           app.status = 'application_successful';
         } else {
@@ -361,7 +422,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Application Successful — logsheet completed. Proceeding to Certification Agreement.'
+            note: 'Application Successful — committee review completed. Proceeding to Certification Agreement.'
           });
           app.status = 'application_successful';
         }
@@ -562,7 +623,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_signed',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: `LogSheet marked as done with ${sigCount}/4 committee signatures. Products approved.`
+            note: `Committee review completed and endorsed with ${sigCount}/4 signatures. Products approved.`
           }
         ];
 
@@ -571,21 +632,21 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
             status: 'ready_for_certificate',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Surveillance LogSheet signed & completed. Ready for Surveillance Letter Issuance.'
+            note: 'Surveillance review endorsed & completed. Ready for Surveillance Letter Issuance.'
           });
         } else if (isRenewal) {
           newHistoryEntries.push({
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet signed & completed. Application Successful — ready for Renewal Invoice.'
+            note: 'Renewal review endorsed & completed. Application Successful — ready for Renewal Invoice.'
           });
         } else {
           newHistoryEntries.push({
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Application Successful — proceeding to certification agreement.'
+            note: 'Application Successful — committee review endorsed. Proceeding to certification agreement.'
           });
         }
 

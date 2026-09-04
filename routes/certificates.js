@@ -680,13 +680,16 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    // Check if an active certificate already exists for this application
-    let existingCert = await Certificate.findOne({ application_id: applicationId, status: 'active' });
+    // Check if an active or pending review certificate already exists for this application
+    let existingCert = await Certificate.findOne({ application_id: applicationId, status: { $in: ['active', 'under_review'] } });
     if (existingCert) {
       return res.status(400).json({ 
-        error: 'An active certificate already exists for this application. Use the regenerate endpoint to recreate it.',
+        error: existingCert.status === 'under_review'
+          ? 'A certificate draft for this application is already in Pending Review. Please inspect and approve it on the review page.'
+          : 'An active certificate already exists for this application. Use the regenerate endpoint to recreate it.',
         certificateNumber: existingCert.certificate_number,
-        certificateUrl: existingCert.certificate_url
+        certificateUrl: existingCert.certificate_url,
+        reviewUrl: `/certificates/${existingCert._id}/review`
       });
     }
 
@@ -697,7 +700,7 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
     const filename = `${certData.certificateNumber}.pdf`;
     const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
 
-    // Save certificate record
+    // Save certificate record strictly in under_review (Pending Review)
     const certificate = new Certificate({
       certificate_number: certData.certificateNumber,
       client_id: application.client_id.toString(),
@@ -710,58 +713,23 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
         ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
         : ['Certified Halal Food Products'],
       certificate_url,
-      status: 'active'
+      status: 'under_review'
     });
 
     const data = await certificate.save();
 
-    // Update application status to CERTIFICATE ISSUED (case matches the status list in frontend/routes)
+    // Ensure application status is set to ready_for_certificate awaiting QA review
     await Application.findByIdAndUpdate(applicationId, {
-      status: 'certificate_issued',
+      status: 'ready_for_certificate',
       updated_at: new Date()
     });
 
-    // Notify client
-    await createNotification(
-      application.client_id,
-      '🏅 Certificate Issued',
-      `Your Halal Certification certificate (${certData.certificateNumber}) has been issued. Please log in to download it.`,
-      'success',
-      '/certificates'
-    );
-
-    // Send email to client
-    const client = await User.findById(application.client_id);
-    if (client) {
-      try {
-        await resend.emails.send({
-          from: emailFrom,
-          to: client.email,
-          subject: `🏅 Your Halal Certificate is Ready – ${certData.certificateNumber}`,
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
-              <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
-                <h1 style="color:white;margin:0">🏅 Certificate Issued</h1>
-                <p style="color:#bbf7d0;margin:8px 0 0">Halal Food Authority</p>
-              </div>
-              <div style="background:white;border-radius:12px;padding:32px">
-                <h2 style="color:#166534;margin:0 0 16px">Congratulations, ${client.full_name}!</h2>
-                <p style="color:#374151">Your Halal Certificate has been issued for <strong>${client.company_name}</strong>.</p>
-                <p style="color:#374151">Certificate Number: <strong>${certData.certificateNumber}</strong></p>
-                <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/certificates" style="display:inline-block;background:linear-gradient(135deg,#15803d,#166534);color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">View My Certificate</a>
-              </div>
-            </div>
-          `,
-        });
-      } catch (emailErr) {
-        console.error('Resend Email Error:', emailErr);
-      }
-    }
-
     res.status(201).json({ 
       success: true, 
+      message: 'Certificate created and sent to Pending Review for QA inspection.',
       certificateUrl: certificate_url, 
       certificateNumber: certData.certificateNumber,
+      reviewUrl: `/certificates/${data._id}/review`,
       data 
     });
   } catch (err) {

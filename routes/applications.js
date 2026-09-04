@@ -702,9 +702,10 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     const client = await User.findById(data.client_id);
     
     // Auto-generate certificate if application status is updated to 'approved'
+    // Certificate MUST start in 'under_review' (Pending Review) and be reviewed on the review page before sending to client
     if (status === 'approved' && data) {
       try {
-        const existingCert = await Certificate.findOne({ application_id: data._id, status: 'active' });
+        const existingCert = await Certificate.findOne({ application_id: data._id, status: { $in: ['active', 'under_review'] } });
         if (!existingCert) {
           const companyForId = client ? (client.company_name || client.full_name) : data.establishment_name;
           const certNumber = generateHfaId(companyForId);
@@ -744,23 +745,14 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
                ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
                : ['Certified Halal Food Products'],
             certificate_url,
-            status: 'active'
+            status: 'under_review' // Strictly starts in Pending Review
           });
 
           await certificate.save();
 
-          // Change local data status to certificate_issued so the notification/email matches
-          data.status = 'certificate_issued';
+          // Set application status to ready_for_certificate awaiting QA review
+          data.status = 'ready_for_certificate';
           await data.save();
-
-          // Notify client about the certificate specifically
-          await createNotification(
-            data.client_id,
-            '🏅 Certificate Issued',
-            `Your Halal Certification certificate (${certNumber}) has been issued. Please log in to download it.`,
-            'success',
-            '/certificates'
-          );
         }
       } catch (genErr) {
         console.error('Auto certificate generation failed on application approval:', genErr);
