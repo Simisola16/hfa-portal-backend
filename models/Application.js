@@ -42,7 +42,7 @@ const applicationSchema = new mongoose.Schema({
     enum: [
       'submitted', 'under_review', 'rejected', 'approved',
       'proposal_sent', 'proposal_rejected', 'proposal_approved',
-      'invoice_sent', 'payment_received', 'dates_proposed',
+      'invoice_sent', 'payment_received', 'initial_product_approved', 'dates_proposed',
       'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_report_submitted',
       'on_hold', 'audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed',
       'logsheet_created', 'logsheet_signed', 'application_successful',

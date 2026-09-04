@@ -52,26 +52,20 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return next();
     }
 
-    const finalInvoice = await Invoice.findOne({ application_id, invoice_type: 'final' });
+    const invoices = await Invoice.find({ application_id });
+    const finalInvoice = invoices.find(inv => inv.invoice_type === 'final') || (invoices.length > 0 ? invoices[invoices.length - 1] : null);
 
-    if (!finalInvoice) {
+    if (finalInvoice && !['paid', 'client_paid'].includes(finalInvoice.status)) {
       return res.status(403).json({
-        error: 'A Final Invoice must be sent and paid before a Certificate can be issued.',
-        code: 'FINAL_INVOICE_REQUIRED'
-      });
-    }
-
-    if (!['paid', 'client_paid'].includes(finalInvoice.status)) {
-      return res.status(403).json({
-        error: 'The Final Invoice must be paid before a Certificate can be issued.',
+        error: 'The Invoice must be paid before a Certificate can be issued.',
         code: 'FINAL_INVOICE_NOT_PAID',
         invoice_status: finalInvoice.status
       });
     }
 
-    if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+    if (!['ready_for_certificate', 'certificate_issued', 'application_successful', 'payment_received', 'initial_product_approved'].includes(app.status)) {
       return res.status(403).json({
-        error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+        error: 'Application must be marked "Ready for Certificate" or "Application Successful" before issuing a certificate.',
         code: 'READY_FOR_CERTIFICATE_REQUIRED',
         application_status: app.status
       });
@@ -386,6 +380,43 @@ async function performCertificateIssuance({ certificate, application_id, client_
         }
       }
     });
+  }
+
+  // Sync products covered to Product collection
+  try {
+    const prodsToSync = (certificate.product_details && certificate.product_details.length > 0)
+      ? certificate.product_details
+      : (certificate.products_covered || []).map(p => (typeof p === 'string' ? { name: p } : p));
+
+    for (const prod of prodsToSync) {
+      const prodName = typeof prod === 'string' ? prod.trim() : (prod.name || prod.product_name || prod.title || '').trim();
+      if (!prodName) continue;
+      const prodCode = typeof prod === 'object' ? (prod.code || prod.barcode || '') : '';
+      const prodDesc = typeof prod === 'object' ? (prod.description || '') : '';
+      const prodCategory = typeof prod === 'object' ? (prod.category || 'Halal Certified') : 'Halal Certified';
+      const prodType = typeof prod === 'object' ? (prod.product_type || 'Processed') : 'Processed';
+
+      await Product.findOneAndUpdate(
+        { client_id, name: prodName },
+        {
+          $set: {
+            client_id,
+            site_id: site_id || undefined,
+            certificate_id: certificate._id.toString(),
+            name: prodName,
+            code: prodCode,
+            category: prodCategory,
+            product_type: prodType,
+            description: prodDesc,
+            status: 'active',
+            updated_at: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+    }
+  } catch (syncErr) {
+    console.warn('[Certificate] Product sync warning during issuance:', syncErr.message);
   }
 
   // Notify client

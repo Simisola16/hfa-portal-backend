@@ -12,6 +12,7 @@ import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -1035,8 +1036,8 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'ready_for_certificate') {
-      return res.status(400).json({ error: 'Application must be in "Ready for Certificate" status before completing.' });
+    if (!['ready_for_certificate', 'product_form_approved'].includes(app.status)) {
+      return res.status(400).json({ error: 'Application must be in "Ready for Certificate" or "Product Form Approved" status before completing.' });
     }
 
     let cert = null;
@@ -1060,7 +1061,24 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     }
 
     if (!cert) {
-      return res.status(404).json({ error: 'Linked certificate not found. Please ensure the client has an active certificate in the system.' });
+      // Auto-create an active Certificate for this client
+      const clientUser = await User.findById(app.client_id);
+      const companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
+      const certNumber = generateHfaId(companyForId);
+      cert = new Certificate({
+        certificate_number: certNumber,
+        client_id: app.client_id,
+        site_id: app.site_id,
+        application_id: app.application_id,
+        company_name: clientUser?.company_name || clientUser?.full_name || 'Halal Certified Client',
+        company_address: clientUser?.address || '—',
+        scope: 'Halal Food & Products Certification',
+        issue_date: new Date(),
+        expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        products_covered: [],
+        status: 'active'
+      });
+      await cert.save();
     }
 
     // Ensure app is linked to the resolved certificate

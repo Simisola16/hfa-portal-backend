@@ -26,19 +26,42 @@ function getBackgroundBuffer(bgFile) {
 }
 
 /**
+ * Sanitizes strings for pdf-lib standard Helvetica (WinAnsi) encoding.
+ * Converts bullets, dashes, smart quotes, checkmarks, etc. to valid Latin-1 characters
+ * and strips any characters that WinAnsi cannot encode.
+ */
+function sanitizeForPdf(text) {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2022\u25CF\u25CB]/g, '*')
+    .replace(/[\u2713\u2714]/g, 'v')
+    .replace(/[\u00A0]/g, ' ')
+    .replace(/[^\x00-\xFF]/g, '') // strip characters outside ISO-8859-1 / WinAnsi
+    .trim();
+}
+
+/**
  * Truncates text to fit within a maximum point width in pdf-lib.
  */
 function truncateToWidth(text, maxWidth, font, size) {
   if (!text) return '';
-  const str = String(text);
-  if (font.widthOfTextAtSize(str, size) <= maxWidth) return str;
-  let len = str.length;
-  while (len > 0) {
-    const sub = str.slice(0, len) + '...';
-    if (font.widthOfTextAtSize(sub, size) <= maxWidth) return sub;
-    len--;
+  const str = sanitizeForPdf(text);
+  if (!str) return '';
+  try {
+    if (font.widthOfTextAtSize(str, size) <= maxWidth) return str;
+    let len = str.length;
+    while (len > 0) {
+      const sub = str.slice(0, len) + '...';
+      if (font.widthOfTextAtSize(sub, size) <= maxWidth) return sub;
+      len--;
+    }
+    return str.slice(0, 1);
+  } catch (e) {
+    return str.replace(/[^\x20-\x7E]/g, '');
   }
-  return str.slice(0, 1);
 }
 
 /**
@@ -46,18 +69,24 @@ function truncateToWidth(text, maxWidth, font, size) {
  */
 function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
   if (!text) return ['—'];
-  const words = String(text).split(/\s+/);
+  const sanitized = sanitizeForPdf(text);
+  if (!sanitized) return ['—'];
+  const words = sanitized.split(/\s+/);
   const lines = [];
   let currentLine = '';
 
   for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (font.widthOfTextAtSize(testLine, size) <= maxWidth) {
-      currentLine = testLine;
-    } else {
-      if (currentLine) lines.push(currentLine);
+    try {
+      if (font.widthOfTextAtSize(testLine, size) <= maxWidth) {
+        currentLine = testLine;
+      } else {
+        if (currentLine) lines.push(currentLine);
+        currentLine = word;
+        if (lines.length === maxLines - 1) break;
+      }
+    } catch (e) {
       currentLine = word;
-      if (lines.length === maxLines - 1) break;
     }
   }
   if (currentLine) lines.push(currentLine);
@@ -650,10 +679,11 @@ export async function generateCertificate(certData) {
     verificationUrl
   } = certData;
 
-  const resolvedName = (companyName || businessName || 'Halal Certified Client').toUpperCase();
-  const resolvedAddress = (companyAddress || businessAddress || '—').toUpperCase();
-  const resolvedMfgAddress = (manufacturingAddress || manufacturerAddress || resolvedAddress || 'SAME AS ABOVE').toUpperCase();
-  const resolvedScope = (scope || scopeOfCertification || 'Halal Food and Consumer Products Certification').toUpperCase();
+  const sanitizedCertNo = sanitizeForPdf(certificateNumber || 'HFA-UK-2026-00123');
+  const resolvedName = sanitizeForPdf((companyName || businessName || 'Halal Certified Client').toUpperCase());
+  const resolvedAddress = sanitizeForPdf((companyAddress || businessAddress || '—').toUpperCase());
+  const resolvedMfgAddress = sanitizeForPdf((manufacturingAddress || manufacturerAddress || resolvedAddress || 'SAME AS ABOVE').toUpperCase());
+  const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || 'Halal Food and Consumer Products Certification').toUpperCase());
 
   const normalizedScheme = normalizeCertificateType(certificateType);
   const config = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
@@ -713,7 +743,7 @@ export async function generateCertificate(certData) {
   // 2. Certificate Number
   const certNoY = PAGE_HEIGHT * (1 - config.certNoTopPct);
   const lblText = 'Certificate No.: ';
-  const valText = certificateNumber;
+  const valText = sanitizedCertNo;
   const lblW = fontBold.widthOfTextAtSize(lblText, 9.5);
   const valW = fontBold.widthOfTextAtSize(valText, 9.8);
   const certStartX = (PAGE_WIDTH - (lblW + valW)) / 2;
@@ -910,7 +940,7 @@ export async function generateCertificate(certData) {
         color: cDark
       });
 
-      const rawName = p.name || p.product_name || p.title || p.description || (typeof p === 'string' ? p : 'Certified Halal Product');
+      const rawName = sanitizeForPdf(p.name || p.product_name || p.title || p.description || (typeof p === 'string' ? p : 'Certified Halal Product'));
       const nameStr = truncateToWidth(rawName, col2W - 18, fontBold, 7.5);
       page.drawText(nameStr, {
         x: tableLeftX + col1W + 10,
@@ -1021,7 +1051,7 @@ export async function generateCertificate(certData) {
         color: cDark
       });
 
-      const rawCode = p.code || p.product_code || `PRD-${String(idx + 1).padStart(2, '0')}`;
+      const rawCode = sanitizeForPdf(p.code || p.product_code || `PRD-${String(idx + 1).padStart(2, '0')}`);
       const codeStr = truncateToWidth(rawCode, col2W - 10, fontBold, 7.5);
       page.drawText(codeStr, {
         x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(codeStr, 7.5)) / 2,
@@ -1031,7 +1061,7 @@ export async function generateCertificate(certData) {
         color: cDark
       });
 
-      const rawDesc = p.name || p.description || p.product_name || p.title || (typeof p === 'string' ? p : 'Certified Halal Product');
+      const rawDesc = sanitizeForPdf(p.name || p.description || p.product_name || p.title || (typeof p === 'string' ? p : 'Certified Halal Product'));
       const descStr = truncateToWidth(rawDesc, col3W - 16, fontBold, 7.5);
       page.drawText(descStr, {
         x: tableLeftX + col1W + col2W + 10,

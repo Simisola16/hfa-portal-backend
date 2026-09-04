@@ -985,18 +985,78 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
         const parentAppId = app.application_id._id || app.application_id;
         const parentApp = await Application.findById(parentAppId);
         if (parentApp) {
-          const auditEligibleStatuses = ['payment_received', 'dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_successful', 'audit_completed'];
+          const auditEligibleStatuses = ['dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_successful', 'audit_completed'];
           if (!auditEligibleStatuses.includes(parentApp.status)) {
-            parentApp.status = 'payment_received';
+            parentApp.status = 'initial_product_approved';
           }
           parentApp.statusHistory.push({
             status: parentApp.status,
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: `Initial Product "${prodName || 'Product'}" approved by Committee. Facility audit scheduling unlocked.`
+            note: `Initial Product "${prodName || 'Product'}" approved by Committee. Facility audit scheduling is now ready.`
           });
           await parentApp.save();
           emitApplicationUpdate(parentApp, parentApp.status);
+
+          // Email notification to Audit Managers
+          try {
+            const auditManagers = await User.find({ role: 'audit_manager' });
+            const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
+            const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
+            for (const mgr of recipients) {
+              if (mgr.email) {
+                await resend.emails.send({
+                  from: emailFrom,
+                  to: mgr.email.trim(),
+                  subject: `📋 Ready for Audit: Application ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Client Site'})`,
+                  html: `
+                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
+                      <div style="background:linear-gradient(135deg,#059669,#047857);border-radius:8px 8px 0 0;padding:24px;color:white">
+                        <h2 style="margin:0;font-size:20px;font-weight:800">Halal Food Authority</h2>
+                        <p style="margin:6px 0 0;font-size:13px;opacity:0.9">Audit Department &bull; Action Required</p>
+                      </div>
+                      <div style="padding:28px 24px;background:white;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
+                        <p style="margin-top:0;font-size:14px;color:#334155">Dear ${mgr.full_name || 'Audit Manager'},</p>
+                        <p style="font-size:14px;color:#334155;line-height:1.6">
+                          The Initial Product (<strong>${prodName || 'Initial Product'}</strong>) for application <strong>${parentApp.application_number}</strong> has been officially approved by the Committee.
+                        </p>
+                        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:16px 18px;margin:20px 0">
+                          <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#166534;margin-bottom:8px">Application Summary</div>
+                          <div style="font-size:13px;color:#1e293b;line-height:1.7">
+                            <strong>Reference:</strong> ${parentApp.application_number}<br/>
+                            <strong>Company:</strong> ${parentApp.establishment_name || client?.company_name || 'Client'}<br/>
+                            <strong>Site:</strong> ${parentApp.site_name || parentApp.establishment_address || 'Main Site'}<br/>
+                            <strong>Scheme / Category:</strong> ${parentApp.category || 'Halal Certification'}<br/>
+                            <strong>Status:</strong> Initial Product Approved &bull; Ready for Facility Audit
+                          </div>
+                        </div>
+                        <p style="font-size:14px;color:#334155;line-height:1.6">
+                          This application is now ready for audit date proposals, audit scheduling, and auditor assignment.
+                        </p>
+                        <div style="margin:24px 0;text-align:center">
+                          <a href="${adminBaseUrl}/applications/${parentApp._id}/processing" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;display:inline-block">
+                            Schedule Facility Audit &rarr;
+                          </a>
+                        </div>
+                        <p style="font-size:12px;color:#94a3b8;margin-top:24px;border-top:1px solid #f1f5f9;padding-top:16px">
+                          This is an automated notification from HFA Compliance Management.
+                        </p>
+                      </div>
+                    </div>
+                  `
+                });
+              }
+              await createNotification(
+                mgr._id,
+                'Application Ready for Audit 📋',
+                `Initial Product approved for ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Site'}). Ready for audit scheduling.`,
+                'info',
+                `/applications/${parentApp._id}/processing`
+              );
+            }
+          } catch (mgrErr) {
+            console.error('[InitialProduct] Failed to notify audit managers:', mgrErr.message);
+          }
         }
       } catch (parentErr) {
         console.error('[InitialProduct] Error updating parent application:', parentErr.message);
