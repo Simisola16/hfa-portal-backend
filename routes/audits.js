@@ -1,6 +1,7 @@
 import express from 'express';
 import Audit from '../models/Audit.js';
 import Application from '../models/Application.js';
+import InitialProductApplication from '../models/InitialProductApplication.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -38,7 +39,13 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
-      query.client_id = req.user._id.toString();
+      const userApps = await Application.find({ client_id: req.user._id }, '_id');
+      const appIds = userApps.map(a => a._id);
+      query.$or = [
+        { client_id: req.user._id.toString() },
+        { client_id: req.user._id },
+        { application_id: { $in: appIds } }
+      ];
     } else if (req.user.role === 'auditor' || req.user.role === 'inspector') {
       const userObjId = req.user._id;
       const userEmail = req.user.email?.toLowerCase();
@@ -304,11 +311,44 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
       return res.status(400).json({ error: 'Please provide 3 distinct dates. Duplicate dates are not allowed.' });
     }
 
+    let targetApp = null;
+    let resolvedClientId = client_id;
+    if (application_id) {
+      targetApp = await Application.findById(application_id);
+      if (targetApp && targetApp.client_id) {
+        resolvedClientId = targetApp.client_id.toString();
+      }
+    }
+
+    // Enforce: Admin must not be able to propose audit date if initial product is not approved for GSO application
+    if (targetApp) {
+      const cat = String(targetApp.category || '').toLowerCase();
+      const type = String(targetApp.application_type || '').toLowerCase();
+      const scheme = String(targetApp.scheme || '').toLowerCase();
+      const isGso = cat.includes('gso') || cat.includes('uae') || type.includes('gso') || scheme.includes('gso');
+      const isRenewalOrSurveillance = type === 'renewal' || type === 'surveillance';
+
+      if (isGso && !isRenewalOrSurveillance) {
+        const ip = await InitialProductApplication.findOne({ application_id: targetApp._id });
+        const isApproved = Boolean(
+          (ip && ip.status === 'initial_product_approved') ||
+          targetApp.status === 'initial_product_approved' ||
+          targetApp.is_initial_product_approved
+        );
+        if (!isApproved) {
+          return res.status(400).json({
+            error: 'Audit dates cannot be proposed for this UAE/GSO application because the Initial Product has not been approved yet. Initial Product must be approved first.'
+          });
+        }
+      }
+    }
+
     let audit = await Audit.findOne({ application_id, stage: stage || 1 });
     if (!audit) {
-      audit = new Audit({ application_id, client_id, stage: stage || 1 });
+      audit = new Audit({ application_id, client_id: resolvedClientId, stage: stage || 1 });
     }
     
+    audit.client_id = resolvedClientId;
     audit.proposed_dates = dates;
     audit.client_unavailable = false;
     audit.selected_dates = [];
@@ -326,12 +366,7 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     }
 
     if (application_id) {
-      const isStage2 = (stage === 2);
-      // Only change app status for stage 1. Stage 2 operates concurrently with 'audit_report_submitted' logic?
-      // Wait, if we are in Stage 2, should we update Application status?
-      // For now, let's just leave the Application status alone if it's Stage 2, or set it back.
-      // We can just add a history note for Stage 2.
-      const statusToSet = isStage2 ? 'audit_assigned' : 'dates_proposed'; // We don't rollback app status for stage 2, it's just 'audit_assigned' for the whole audit process until both stages finish.
+      const statusToSet = 'dates_proposed';
       
       const updatedApp = await Application.findByIdAndUpdate(application_id, {
         status: statusToSet,
@@ -349,9 +384,9 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     }
 
     await createNotification(
-      client_id,
+      resolvedClientId,
       'Audit Dates Proposed 🗓️',
-      'The admin has proposed 3 dates for your upcoming audit. Please select 2 dates or mark as unavailable.',
+      `The admin has proposed 3 dates for your ${stage === 2 ? 'Stage 2 ' : ''}audit. Please select 2 dates or mark as unavailable.`,
       'info',
       '/applications'
     );
