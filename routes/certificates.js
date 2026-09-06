@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
+import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Site from '../models/Site.js';
@@ -380,6 +381,16 @@ async function performCertificateIssuance({ certificate, application_id, client_
         }
       }
     });
+
+    // Mark associated application logsheets as Completed so they leave Waiting for Certificate
+    try {
+      await ApplicationLogsheet.updateMany(
+        { application_id },
+        { $set: { status: 'Completed', updated_at: new Date() } }
+      );
+    } catch (e) {
+      console.error('Error updating logsheets to Completed on certificate issuance:', e);
+    }
   }
 
   // Sync products covered to Product collection

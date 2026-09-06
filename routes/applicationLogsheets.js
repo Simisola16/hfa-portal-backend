@@ -290,9 +290,28 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
     const logsheets = await ApplicationLogsheet.find(filter)
       .populate('application_id', 'application_number application_type status category')
+      .populate('addon_application_id', 'status')
+      .populate('initial_product_application_id', 'status')
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
       .sort({ created_at: -1 });
+
+    // Auto-sync logsheets where certificate has already been issued
+    const certIssuedLogs = logsheets.filter(l => l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
+    if (certIssuedLogs.length > 0) {
+      const idsToComplete = certIssuedLogs.map(l => l._id);
+      ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      certIssuedLogs.forEach(l => { l.status = 'Completed'; });
+    }
+
+    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate
+    const ipLogsToComplete = logsheets.filter(l => (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
+    if (ipLogsToComplete.length > 0) {
+      const ipIdsToComplete = ipLogsToComplete.map(l => l._id);
+      ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      ipLogsToComplete.forEach(l => { l.status = 'Completed'; });
+    }
+
     res.json({ data: logsheets });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -456,7 +475,8 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         return res.status(400).json({ error: `Cannot finalize logsheet without at least 3 committee signatures (currently ${sigCount}/4 signed).` });
       }
 
-      logsheet.status = 'Waiting For Certificate';
+      const isInitialProductLogsheet = logsheet.source_type === 'initial_product_application' || Boolean(logsheet.initial_product_application_id) || logsheet.audit_type === 'Initial Product Evaluation';
+      logsheet.status = isInitialProductLogsheet ? 'Completed' : 'Waiting For Certificate';
       await logsheet.save();
 
       const { approved_products } = req.body;

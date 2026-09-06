@@ -123,6 +123,15 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied to this application.' });
     }
 
+    // Only new certification applications are eligible for initial products
+    const appType = (app.application_type || 'new').toLowerCase();
+    if (appType === 'renewal' || appType === 'surveillance') {
+      return res.status(400).json({ error: 'Initial Products are only permitted for New certification applications.' });
+    }
+    if (app.status === 'certificate_issued') {
+      return res.status(400).json({ error: 'Certificate has already been issued for this application. Please submit an Add-on product application instead.' });
+    }
+
     // GATING CHECK: Verify Initial Certification Invoice is confirmed
     // Invoice confirmation means app status is payment_received or later, or an invoice is paid
     const isAppStatusValid = [
@@ -149,9 +158,7 @@ router.post('/', authenticateToken, async (req, res) => {
       'agreement_sent',
       'agreement_signed',
       'agreement_finalised',
-      'ready_for_certificate',
-      'certificate_issued',
-      'approved'
+      'ready_for_certificate'
     ].includes(app.status?.toLowerCase());
 
     const paidInvoice = await Invoice.findOne({
@@ -331,7 +338,8 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
 
     const apps = await Application.find({
       client_id: clientQuery,
-      status: { $nin: ['rejected', 'on_hold'] }
+      application_type: { $nin: ['renewal', 'surveillance'] },
+      status: { $nin: ['rejected', 'on_hold', 'certificate_issued'] }
     }).populate('site_id', 'name address city').lean();
 
     // Check which apps have confirmed initial invoices
@@ -359,7 +367,7 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
       'nc_raised', 'nc_closed', 'final_invoice_sent', 'final_invoice_paid',
       'logsheet_created', 'logsheet_signed', 'application_successful',
       'agreement_sent', 'agreement_signed', 'agreement_finalised',
-      'ready_for_certificate', 'certificate_issued', 'approved'
+      'ready_for_certificate'
     ];
 
     const result = apps.map(app => {
