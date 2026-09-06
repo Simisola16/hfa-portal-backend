@@ -615,7 +615,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
                   // Email notification to Audit Managers
                   try {
-                    const auditManagers = await User.find({ role: 'audit_manager' });
+                    const auditManagers = await User.find({
+                      $or: [
+                        { role: 'audit_manager' },
+                        { roles: 'audit_manager' }
+                      ]
+                    });
                     const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
                     const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
                     for (const mgr of recipients) {

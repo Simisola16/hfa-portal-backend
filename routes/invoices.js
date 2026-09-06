@@ -70,6 +70,19 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     const invoiceType = isFinal ? 'final' : 'initial';
     invoiceData.invoice_type = invoiceType;
 
+    if (isFinal && !req.file && !invoiceData.invoice_url) {
+      let existingFinal = null;
+      if (invoiceData.application_id) {
+        existingFinal = await Invoice.findOne({
+          application_id: invoiceData.application_id,
+          $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
+        });
+      }
+      if (!existingFinal || !existingFinal.invoice_url) {
+        return res.status(400).json({ error: 'Please upload the final invoice PDF document.' });
+      }
+    }
+
     let companyForId = 'HFA';
     if (invoiceData.client_id) {
       const clientUser = await User.findById(invoiceData.client_id);

@@ -960,6 +960,7 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
 
     // Activate/Sync Initial Product to Product collection
     const clientId = app.client_id?._id || app.client_id;
+    const client = clientId ? await User.findById(clientId) : null;
     const siteId = app.site_id?._id || app.site_id;
     const prodName = app.product?.name;
 
@@ -1008,7 +1009,12 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
 
           // Email notification to Audit Managers
           try {
-            const auditManagers = await User.find({ role: 'audit_manager' });
+            const auditManagers = await User.find({
+              $or: [
+                { role: 'audit_manager' },
+                { roles: 'audit_manager' }
+              ]
+            });
             const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
             const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
             for (const mgr of recipients) {
@@ -1072,7 +1078,6 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
     }
 
     // Notify client
-    const client = await User.findById(clientId);
     if (client) {
       await createNotification(
         client._id,
