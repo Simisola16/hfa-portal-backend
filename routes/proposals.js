@@ -41,14 +41,15 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
   try {
     const { application_id, client_id, title, estimated_cost, admin_comment, details } = req.body;
 
-    let proposal_url = '';
-    if (req.file) {
-      proposal_url = await uploadToGridFS(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+    if (!req.file) {
+      return res.status(400).json({ error: 'Proposal PDF document is required.' });
     }
+
+    const proposal_url = await uploadToGridFS(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
 
     // Check if proposal already exists
     let proposal = await Proposal.findOne({ application_id });

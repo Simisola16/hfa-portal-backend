@@ -279,7 +279,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
-    const initialStatus = reqStatus || 'under_review';
+    // Certificates must always go to Review Certification page first
+    const initialStatus = 'under_review';
 
     const certificate = new Certificate({
       certificate_number: certNo,
@@ -306,14 +307,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     const data = await certificate.save();
 
-    // If directly created as active, perform issuance routines
-    if (initialStatus === 'active') {
-      await performCertificateIssuance({ certificate: data, application_id, client_id, site_id, certNo, user: req.user });
-    }
-
     res.status(201).json({ 
       success: true, 
-      message: initialStatus === 'under_review' ? 'Certificate created and ready for review' : 'Certificate issued successfully',
+      message: 'Certificate created and ready for review',
       data 
     });
   } catch (err) {
