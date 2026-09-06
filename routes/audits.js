@@ -90,7 +90,7 @@ router.get('/', authenticateToken, async (req, res) => {
           email: audEmail,
           contact_number: audContact,
           purpose: aud.purpose,
-          role: aud.role || 'lead_auditor'
+          role: aud.role || ''
         };
       });
 
