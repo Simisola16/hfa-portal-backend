@@ -112,7 +112,46 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    res.json({ data });
+    // Attach has_ongoing_renewal flag to each certificate
+    let finalData = data;
+    try {
+      const clientIds = [...new Set(data.map(c => c.client_id ? String(c.client_id._id || c.client_id) : null).filter(Boolean))];
+      if (clientIds.length > 0) {
+        const ongoingRenewals = await Application.find({
+          client_id: { $in: clientIds },
+          application_type: 'renewal',
+          status: { $nin: ['rejected', 'certificate_issued'] }
+        }).select('_id application_number site_id renewed_certificate_id status');
+
+        finalData = data.map(c => {
+          const cObj = c.toObject ? c.toObject() : { ...c };
+          const cIdStr = String(c._id);
+          const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
+
+          const matchingApp = ongoingRenewals.find(app => {
+            const renCertStr = app.renewed_certificate_id ? String(app.renewed_certificate_id) : '';
+            if (renCertStr && renCertStr === cIdStr) return true;
+            const appSiteStr = app.site_id ? String(app.site_id) : '';
+            if (appSiteStr && cSiteStr && appSiteStr === cSiteStr) return true;
+            return false;
+          });
+
+          if (matchingApp) {
+            cObj.has_ongoing_renewal = true;
+            cObj.ongoing_renewal_id = matchingApp._id;
+            cObj.ongoing_renewal_number = matchingApp.application_number;
+            cObj.ongoing_renewal_status = matchingApp.status;
+          } else {
+            cObj.has_ongoing_renewal = false;
+          }
+          return cObj;
+        });
+      }
+    } catch (renewalErr) {
+      console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
+    }
+
+    res.json({ data: finalData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
