@@ -321,28 +321,55 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     // Certificates must always go to Review Certification page first
     const initialStatus = 'under_review';
 
-    const certificate = new Certificate({
-      certificate_number: certNo,
-      client_id,
-      application_id,
-      site_id,
-      certificate_type: resolvedScheme,
-      company_name: resolvedCompanyName,
-      company_address: resolvedCompanyAddress,
-      manufacturing_address: resolvedManufacturingAddress,
-      scope: resolvedScope,
-      issue_date: issue_date || new Date(),
-      expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      certification_start_date: certification_start_date || issue_date || new Date(),
-      current_cycle_start_date: current_cycle_start_date || issue_date || new Date(),
-      original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
-      products_covered: parsedProducts,
-      product_details: parsedProductDetails,
-      certificate_url,
-      status: initialStatus,
-      created_by: req.user._id,
-      review_notes: review_notes || ''
-    });
+    let certificate = null;
+    if (application_id) {
+      certificate = await Certificate.findOne({ application_id, status: { $in: ['under_review', 'draft'] } });
+    }
+
+    if (certificate) {
+      certificate.certificate_number = certNo;
+      certificate.client_id = client_id || certificate.client_id;
+      certificate.site_id = site_id || certificate.site_id;
+      certificate.certificate_type = resolvedScheme;
+      certificate.company_name = resolvedCompanyName;
+      certificate.company_address = resolvedCompanyAddress;
+      certificate.manufacturing_address = resolvedManufacturingAddress;
+      certificate.scope = resolvedScope;
+      certificate.issue_date = issue_date || certificate.issue_date;
+      certificate.expiry_date = expiry_date || certificate.expiry_date;
+      certificate.certification_start_date = certification_start_date || certificate.certification_start_date;
+      certificate.current_cycle_start_date = current_cycle_start_date || certificate.current_cycle_start_date;
+      certificate.original_cycle_start_date = original_cycle_start_date || certificate.original_cycle_start_date;
+      certificate.products_covered = parsedProducts;
+      certificate.product_details = parsedProductDetails;
+      if (certificate_url) certificate.certificate_url = certificate_url;
+      certificate.status = initialStatus;
+      certificate.review_notes = review_notes || certificate.review_notes;
+      certificate.updated_at = new Date();
+    } else {
+      certificate = new Certificate({
+        certificate_number: certNo,
+        client_id,
+        application_id,
+        site_id,
+        certificate_type: resolvedScheme,
+        company_name: resolvedCompanyName,
+        company_address: resolvedCompanyAddress,
+        manufacturing_address: resolvedManufacturingAddress,
+        scope: resolvedScope,
+        issue_date: issue_date || new Date(),
+        expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        certification_start_date: certification_start_date || issue_date || new Date(),
+        current_cycle_start_date: current_cycle_start_date || issue_date || new Date(),
+        original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
+        products_covered: parsedProducts,
+        product_details: parsedProductDetails,
+        certificate_url,
+        status: initialStatus,
+        created_by: req.user._id,
+        review_notes: review_notes || ''
+      });
+    }
 
     const data = await certificate.save();
 
