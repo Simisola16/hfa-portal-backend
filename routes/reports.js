@@ -50,21 +50,29 @@ const getDateFilter = (timeframe, startDate, endDate) => {
 // GET /api/reports/stats - Comprehensive system metrics
 router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { timeframe = 'month', startDate, endDate } = req.query;
+    const { timeframe = 'all', startDate, endDate } = req.query;
     const dateFilter = getDateFilter(timeframe, startDate, endDate);
-    const createdMatch = dateFilter ? { created_at: dateFilter } : {};
 
     // 1. Applications Statistics
     const totalApps = await Application.countDocuments();
-    const filteredAppsCount = await Application.countDocuments(createdMatch);
     
     const appsByStatus = await Application.aggregate([
-      ...(dateFilter ? [{ $match: { created_at: dateFilter } }] : []),
+      {
+        $addFields: {
+          effectiveDate: { $ifNull: ["$createdAt", "$created_at"] }
+        }
+      },
+      ...(dateFilter ? [{ $match: { effectiveDate: dateFilter } }] : []),
       { $group: { _id: "$status", count: { $sum: 1 } } }
     ]);
 
     const appsByScheme = await Application.aggregate([
-      ...(dateFilter ? [{ $match: { created_at: dateFilter } }] : []),
+      {
+        $addFields: {
+          effectiveDate: { $ifNull: ["$createdAt", "$created_at"] }
+        }
+      },
+      ...(dateFilter ? [{ $match: { effectiveDate: dateFilter } }] : []),
       { $group: { _id: { $ifNull: ["$scheme", { $ifNull: ["$application_scheme", "Standard HFA"] }] }, count: { $sum: 1 } } }
     ]);
 
@@ -75,12 +83,17 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     sixMonthsAgo.setHours(0, 0, 0, 0);
 
     const monthlyApps = await Application.aggregate([
-      { $match: { created_at: { $gte: sixMonthsAgo } } },
+      {
+        $addFields: {
+          effectiveDate: { $ifNull: ["$createdAt", "$created_at"] }
+        }
+      },
+      { $match: { effectiveDate: { $gte: sixMonthsAgo } } },
       {
         $group: {
           _id: {
-            year: { $year: "$created_at" },
-            month: { $month: "$created_at" }
+            year: { $year: "$effectiveDate" },
+            month: { $month: "$effectiveDate" }
           },
           count: { $sum: 1 }
         }
@@ -132,20 +145,26 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     .limit(10)
     .select('certificate_number company_name expiry_date certificate_type status');
 
-    // 3. Financial & Invoices Statistics
+    // 3. Financial & Invoices Statistics (Supporting both createdAt and created_at)
     const totalInvoices = await Invoice.countDocuments();
     
     const invoiceTotals = await Invoice.aggregate([
-      ...(dateFilter ? [{ $match: { created_at: dateFilter } }] : []),
+      {
+        $addFields: {
+          effectiveDate: { $ifNull: ["$createdAt", "$created_at"] },
+          numAmount: { $toDouble: { $ifNull: ["$amount", 0] } }
+        }
+      },
+      ...(dateFilter ? [{ $match: { effectiveDate: dateFilter } }] : []),
       {
         $group: {
           _id: null,
-          totalInvoiced: { $sum: "$amount" },
+          totalInvoiced: { $sum: "$numAmount" },
           paidAmount: {
-            $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] }
+            $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$numAmount", 0] }
           },
           unpaidAmount: {
-            $sum: { $cond: [{ $in: ["$status", ["unpaid", "overdue", "client_paid"]] }, "$amount", 0] }
+            $sum: { $cond: [{ $in: ["$status", ["unpaid", "overdue", "client_paid"]] }, "$numAmount", 0] }
           }
         }
       }
@@ -155,15 +174,21 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
 
     // Monthly Revenue Trend
     const monthlyRevenueRaw = await Invoice.aggregate([
-      { $match: { created_at: { $gte: sixMonthsAgo } } },
+      {
+        $addFields: {
+          effectiveDate: { $ifNull: ["$createdAt", "$created_at"] },
+          numAmount: { $toDouble: { $ifNull: ["$amount", 0] } }
+        }
+      },
+      { $match: { effectiveDate: { $gte: sixMonthsAgo } } },
       {
         $group: {
           _id: {
-            year: { $year: "$created_at" },
-            month: { $month: "$created_at" }
+            year: { $year: "$effectiveDate" },
+            month: { $month: "$effectiveDate" }
           },
-          invoiced: { $sum: "$amount" },
-          paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } }
+          invoiced: { $sum: "$numAmount" },
+          paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$numAmount", 0] } }
         }
       },
       { $sort: { "_id.year": 1, "_id.month": 1 } }
@@ -232,7 +257,10 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     startOfCurrentMonth.setHours(0, 0, 0, 0);
     const newClientsThisMonth = await User.countDocuments({
       role: 'client',
-      created_at: { $gte: startOfCurrentMonth }
+      $or: [
+        { created_at: { $gte: startOfCurrentMonth } },
+        { createdAt: { $gte: startOfCurrentMonth } }
+      ]
     });
 
     // Clients registered in previous month
@@ -240,7 +268,10 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     startOfPrevMonth.setMonth(startOfPrevMonth.getMonth() - 1);
     const newClientsPrevMonth = await User.countDocuments({
       role: 'client',
-      created_at: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth }
+      $or: [
+        { created_at: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } },
+        { createdAt: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } }
+      ]
     });
 
     const clientGrowth = newClientsPrevMonth > 0 
@@ -252,24 +283,19 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     const approvalRate = totalApps > 0 ? Math.round((certifiedApps / totalApps) * 100) : 0;
     const ticketResolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 100;
     const auditComplianceRate = totalNCs > 0 ? Math.round((resolvedNCs / totalNCs) * 100) : 100;
+    const collectionRate = financialStats.totalInvoiced > 0 
+      ? Math.round((financialStats.paidAmount / financialStats.totalInvoiced) * 100) 
+      : (financialStats.paidAmount > 0 ? 100 : 0);
 
     // Return complete structured payload
     res.json({
       timeframe,
       applications: {
         total: totalApps,
-        filteredCount: filteredAppsCount,
-        statusDistribution: appsByStatus.map(s => ({
-          name: (s._id || 'Pending').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-          value: s.count,
-          rawStatus: s._id
-        })),
-        schemeDistribution: appsByScheme.map(s => ({
-          name: (s._id || 'HFA General').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-          value: s.count
-        })),
+        approvalRate,
         trend: applicationTrend,
-        approvalRate
+        statusDistribution: appsByStatus.map(s => ({ name: s._id || 'other', value: s.count })),
+        schemeDistribution: appsByScheme.map(s => ({ name: s._id || 'Standard HFA', value: s.count }))
       },
       certificates: {
         total: totalCerts,
@@ -281,13 +307,10 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
         expiringWatchlist
       },
       financials: {
-        totalInvoices,
-        totalInvoiced: financialStats.totalInvoiced,
-        paidAmount: financialStats.paidAmount,
-        unpaidAmount: financialStats.unpaidAmount,
-        collectionRate: financialStats.totalInvoiced > 0 
-          ? Math.round((financialStats.paidAmount / financialStats.totalInvoiced) * 100) 
-          : 0,
+        totalInvoiced: Math.round(financialStats.totalInvoiced || 0),
+        paidAmount: Math.round(financialStats.paidAmount || 0),
+        unpaidAmount: Math.round(financialStats.unpaidAmount || 0),
+        collectionRate,
         trend: revenueTrend
       },
       audits: {
@@ -295,9 +318,8 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
         completed: completedAudits,
         scheduled: scheduledAudits,
         pending: pendingAudits,
-        totalNCs,
-        resolvedNCs,
         activeNCs,
+        resolvedNCs,
         complianceRate: auditComplianceRate
       },
       tickets: {
@@ -307,7 +329,7 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
         resolved: resolvedTickets,
         resolutionRate: ticketResolutionRate,
         byDepartment: ticketsByDept.map(d => ({ name: d._id || 'General', count: d.count })),
-        byPriority: ticketsByPriority.map(p => ({ name: p._id || 'medium', count: p.count }))
+        byPriority: ticketsByPriority.map(p => ({ name: p._id || 'Medium', count: p.count }))
       },
       clients: {
         total: totalClients,
@@ -318,111 +340,77 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error generating report stats:', err);
+    console.error('Error computing report stats:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/reports/export - Export reports as CSV
+// GET /api/reports/export - Generates CSV reports
 router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { type = 'applications' } = req.query;
-    let csv = '';
-    let filename = `hfa_${type}_report_${Date.now()}.csv`;
 
     if (type === 'applications') {
       const apps = await Application.find()
-        .populate('client_id', 'full_name company_name email phone')
-        .sort({ created_at: -1 });
+        .populate('client_id', 'company_name full_name email phone')
+        .sort({ createdAt: -1 })
+        .lean();
 
-      csv = 'Application Number,Company Name,Scheme,Status,Contact Name,Email,Created Date,Updated Date\n';
-      apps.forEach(app => {
-        const company = (app.company_name || app.client_id?.company_name || 'N/A').replace(/"/g, '""');
-        const scheme = (app.scheme || app.application_scheme || 'Standard HFA').replace(/"/g, '""');
-        const contact = (app.client_id?.full_name || 'N/A').replace(/"/g, '""');
-        const email = app.client_id?.email || 'N/A';
-        const created = app.created_at ? new Date(app.created_at).toISOString().split('T')[0] : 'N/A';
-        const updated = app.updated_at ? new Date(app.updated_at).toISOString().split('T')[0] : 'N/A';
-        csv += `"${app.application_number || app._id}","${company}","${scheme}","${app.status || 'pending'}","${contact}","${email}","${created}","${updated}"\n`;
+      let csv = 'Application Number,Company Name,Contact Name,Email,Scheme,Status,Created Date\n';
+      apps.forEach(a => {
+        const client = a.client_id || {};
+        const date = a.createdAt || a.created_at ? new Date(a.createdAt || a.created_at).toISOString().split('T')[0] : '';
+        csv += `"${a.application_number || ''}","${client.company_name || a.establishment_name || ''}","${client.full_name || ''}","${client.email || ''}","${a.scheme || 'Standard'}","${a.status || ''}","${date}"\n`;
       });
-    } else if (type === 'certificates') {
-      const certs = await Certificate.find().sort({ expiry_date: 1 });
 
-      csv = 'Certificate Number,Company Name,Type,Status,Issue Date,Expiry Date,Products Covered Count\n';
-      certs.forEach(cert => {
-        const company = (cert.company_name || 'N/A').replace(/"/g, '""');
-        const certType = (cert.certificate_type || 'Halal Certificate').replace(/"/g, '""');
-        const issue = cert.issue_date ? new Date(cert.issue_date).toISOString().split('T')[0] : 'N/A';
-        const expiry = cert.expiry_date ? new Date(cert.expiry_date).toISOString().split('T')[0] : 'N/A';
-        const prodCount = cert.products_covered?.length || cert.product_details?.length || 0;
-        csv += `"${cert.certificate_number}","${company}","${certType}","${cert.status}","${issue}","${expiry}",${prodCount}\n`;
-      });
-    } else if (type === 'invoices') {
-      const invoices = await Invoice.find()
-        .populate('client_id', 'full_name company_name email')
-        .sort({ created_at: -1 });
-
-      csv = 'Invoice Number,Company Name,Title,Type,Amount (GBP),Status,Due Date,Paid Date,Created Date\n';
-      invoices.forEach(inv => {
-        const company = (inv.client_id?.company_name || 'N/A').replace(/"/g, '""');
-        const title = (inv.title || 'Certification Invoice').replace(/"/g, '""');
-        const due = inv.due_date ? new Date(inv.due_date).toISOString().split('T')[0] : 'N/A';
-        const paid = inv.paid_at ? new Date(inv.paid_at).toISOString().split('T')[0] : 'N/A';
-        const created = inv.created_at ? new Date(inv.created_at).toISOString().split('T')[0] : 'N/A';
-        csv += `"${inv.invoice_number}","${company}","${title}","${inv.invoice_type || 'initial'}",${inv.amount || 0},"${inv.status}","${due}","${paid}","${created}"\n`;
-      });
-    } else if (type === 'tickets') {
-      const tickets = await Ticket.find()
-        .populate('user', 'full_name company_name email')
-        .sort({ created_at: -1 });
-
-      csv = 'Ticket Number,Company Name,User Name,Subject,Department,Priority,Status,Responses Count,Created Date\n';
-      tickets.forEach(t => {
-        const company = (t.user?.company_name || 'N/A').replace(/"/g, '""');
-        const user = (t.user?.full_name || 'N/A').replace(/"/g, '""');
-        const subject = (t.subject || 'No Subject').replace(/"/g, '""');
-        const responsesCount = t.responses?.length || 0;
-        const created = t.created_at ? new Date(t.created_at).toISOString().split('T')[0] : 'N/A';
-        csv += `"${t.ticket_number}","${company}","${user}","${subject}","${t.department}","${t.priority}","${t.status}",${responsesCount},"${created}"\n`;
-      });
-    } else {
-      // Executive Summary CSV
-      const totalApps = await Application.countDocuments();
-      const totalCerts = await Certificate.countDocuments({ status: 'active' });
-      const totalClients = await User.countDocuments({ role: 'client' });
-      const totalTickets = await Ticket.countDocuments();
-      
-      csv = 'Metric,Value\n';
-      csv += `"Total Applications",${totalApps}\n`;
-      csv += `"Active Certificates",${totalCerts}\n`;
-      csv += `"Registered Clients",${totalClients}\n`;
-      csv += `"Total Support Tickets",${totalTickets}\n`;
-      csv += `"Report Generated At","${new Date().toISOString()}"\n`;
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`hfa_applications_${new Date().toISOString().split('T')[0]}.csv`);
+      return res.send(csv);
     }
 
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.status(200).send(csv);
+    if (type === 'certificates') {
+      const certs = await Certificate.find()
+        .populate('client_id', 'company_name email')
+        .sort({ expiry_date: 1 })
+        .lean();
 
+      let csv = 'Certificate Number,Company Name,Type,Status,Issue Date,Expiry Date\n';
+      certs.forEach(c => {
+        const client = c.client_id || {};
+        const issue = c.issue_date ? new Date(c.issue_date).toISOString().split('T')[0] : '';
+        const expiry = c.expiry_date ? new Date(c.expiry_date).toISOString().split('T')[0] : '';
+        csv += `"${c.certificate_number || ''}","${client.company_name || c.company_name || ''}","${c.certificate_type || ''}","${c.status || ''}","${issue}","${expiry}"\n`;
+      });
+
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`hfa_certificates_${new Date().toISOString().split('T')[0]}.csv`);
+      return res.send(csv);
+    }
+
+    if (type === 'invoices') {
+      const invoices = await Invoice.find()
+        .populate('client_id', 'company_name full_name email')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      let csv = 'Invoice Number,Company,Amount,Currency,Status,Due Date,Paid Date\n';
+      invoices.forEach(i => {
+        const client = i.client_id || {};
+        const dueDate = i.due_date ? new Date(i.due_date).toISOString().split('T')[0] : '';
+        const paidDate = i.paid_at ? new Date(i.paid_at).toISOString().split('T')[0] : '';
+        csv += `"${i.invoice_number || ''}","${client.company_name || ''}",${i.amount || 0},"${i.currency || 'GBP'}","${i.status || ''}","${dueDate}","${paidDate}"\n`;
+      });
+
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`hfa_invoices_${new Date().toISOString().split('T')[0]}.csv`);
+      return res.send(csv);
+    }
+
+    res.status(400).json({ error: 'Invalid export type requested' });
   } catch (err) {
-    console.error('Error exporting report:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/reports/dashboard - Legacy support
-router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const applications = await Application.find().sort({ created_at: -1 }).limit(50);
-    const certificates = await Certificate.find().sort({ created_at: -1 }).limit(50);
-    const users = await User.find({ role: 'client' }).sort({ created_at: -1 }).limit(50);
-    const audits = await Audit.find().sort({ created_at: -1 }).limit(50);
-
-    res.json({ applications, certificates, users, audits });
-  } catch (err) {
+    console.error('Error generating report export:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 export default router;
-
