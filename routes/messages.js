@@ -1,9 +1,11 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
-import { emitToUser, emitToAdmins, getIO } from '../lib/socket.js';
+import { emitToUser, emitToAdmins } from '../lib/socket.js';
 
 const router = express.Router();
 
@@ -17,12 +19,84 @@ const isStaffUser = (user) => {
   return false;
 };
 
-// Helper to populate message sender and recipient details
-const populateMessage = (query) => {
-  return query
-    .populate('sender', 'full_name company_name email role avatar_url')
-    .populate('recipient', 'full_name company_name email role avatar_url')
-    .populate('application_id', 'company_name scheme status');
+// Safe enrichment helper to populate sender, recipient, and application without Mongoose CastError
+const populateMessagesSafely = async (messages) => {
+  if (!messages) return null;
+  const isArray = Array.isArray(messages);
+  const msgList = isArray ? messages : [messages];
+  if (msgList.length === 0 || !msgList[0]) return messages;
+
+  const userIds = new Set();
+  const appIds = new Set();
+
+  msgList.forEach(m => {
+    if (m.sender_id && mongoose.Types.ObjectId.isValid(m.sender_id)) {
+      userIds.add(m.sender_id.toString());
+    }
+    if (m.recipient_id && mongoose.Types.ObjectId.isValid(m.recipient_id)) {
+      userIds.add(m.recipient_id.toString());
+    }
+    if (m.application_id && mongoose.Types.ObjectId.isValid(m.application_id)) {
+      appIds.add(m.application_id.toString());
+    }
+  });
+
+  const [users, apps] = await Promise.all([
+    userIds.size > 0 ? User.find({ _id: { $in: Array.from(userIds) } }).select('full_name company_name email role avatar_url').lean() : [],
+    appIds.size > 0 ? Application.find({ _id: { $in: Array.from(appIds) } }).select('company_name scheme status').lean() : []
+  ]);
+
+  const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  const appMap = new Map(apps.map(a => [a._id.toString(), a]));
+
+  const enriched = msgList.map(m => {
+    const doc = m.toObject ? m.toObject({ virtuals: true }) : { ...m };
+
+    // Sender resolution
+    if (doc.sender_id && userMap.has(doc.sender_id.toString())) {
+      doc.sender = userMap.get(doc.sender_id.toString());
+    } else if (doc.sender_id === 'admin' || doc.sender_id === 'support') {
+      doc.sender = {
+        _id: 'admin',
+        full_name: 'HFA Support & Compliance Team',
+        company_name: 'Halal Food Authority',
+        role: 'admin'
+      };
+    } else {
+      doc.sender = {
+        _id: doc.sender_id || 'system',
+        full_name: 'User',
+        role: 'client'
+      };
+    }
+
+    // Recipient resolution
+    if (doc.recipient_id && userMap.has(doc.recipient_id.toString())) {
+      doc.recipient = userMap.get(doc.recipient_id.toString());
+    } else if (doc.recipient_id === 'admin' || doc.recipient_id === 'support' || doc.recipient_id === 'all_clients') {
+      doc.recipient = {
+        _id: doc.recipient_id,
+        full_name: 'HFA Support & Compliance Team',
+        company_name: 'Halal Food Authority',
+        role: 'admin'
+      };
+    } else {
+      doc.recipient = {
+        _id: doc.recipient_id || 'system',
+        full_name: 'User',
+        role: 'client'
+      };
+    }
+
+    // Application resolution
+    if (doc.application_id && appMap.has(doc.application_id.toString())) {
+      doc.application_id = appMap.get(doc.application_id.toString());
+    }
+
+    return doc;
+  });
+
+  return isArray ? enriched : enriched[0];
 };
 
 // GET /api/messages/inbox
@@ -48,11 +122,10 @@ router.get('/inbox', authenticateToken, async (req, res) => {
       queryFilter = { recipient_id: userId };
     }
 
-    const data = await populateMessage(
-      Message.find(queryFilter).sort({ created_at: -1 })
-    );
+    const raw = await Message.find(queryFilter).sort({ created_at: -1 }).lean();
+    const data = await populateMessagesSafely(raw);
 
-    res.json({ data });
+    res.json({ data: data || [] });
   } catch (err) {
     console.error('Error fetching inbox:', err);
     res.status(500).json({ error: err.message });
@@ -63,10 +136,9 @@ router.get('/inbox', authenticateToken, async (req, res) => {
 router.get('/outbox', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id.toString();
-    const data = await populateMessage(
-      Message.find({ sender_id: userId }).sort({ created_at: -1 })
-    );
-    res.json({ data });
+    const raw = await Message.find({ sender_id: userId }).sort({ created_at: -1 }).lean();
+    const data = await populateMessagesSafely(raw);
+    res.json({ data: data || [] });
   } catch (err) {
     console.error('Error fetching outbox:', err);
     res.status(500).json({ error: err.message });
@@ -108,11 +180,10 @@ router.get('/conversation/:targetId', authenticateToken, async (req, res) => {
       }
     }
 
-    const data = await populateMessage(
-      Message.find(filter).sort({ created_at: 1 })
-    );
+    const raw = await Message.find(filter).sort({ created_at: 1 }).lean();
+    const data = await populateMessagesSafely(raw);
 
-    res.json({ data });
+    res.json({ data: data || [] });
   } catch (err) {
     console.error('Error fetching conversation:', err);
     res.status(500).json({ error: err.message });
@@ -135,20 +206,20 @@ router.post('/', authenticateToken, async (req, res) => {
       recipient_id,
       subject: subject || 'No Subject',
       body,
-      application_id: application_id || null,
+      application_id: (application_id && mongoose.Types.ObjectId.isValid(application_id)) ? application_id : null,
       attachments: Array.isArray(attachments) ? attachments : [],
-      reply_to: reply_to || null,
+      reply_to: (reply_to && mongoose.Types.ObjectId.isValid(reply_to)) ? reply_to : null,
       is_read: false,
       created_at: new Date()
     });
 
     const saved = await message.save();
-    const populated = await populateMessage(Message.findById(saved._id));
+    const populated = await populateMessagesSafely(saved);
 
     const senderName = req.user.full_name || req.user.company_name || 'User';
 
     // Notifications & Socket Emits
-    if (recipient_id === 'admin' || isStaffUser({ role: recipient_id })) {
+    if (recipient_id === 'admin' || recipient_id === 'support' || isStaffUser({ role: recipient_id })) {
       // Message to admin team
       emitToAdmins('new_message', populated);
 
@@ -167,13 +238,15 @@ router.post('/', authenticateToken, async (req, res) => {
       // Message to specific user
       emitToUser(recipient_id, 'new_message', populated);
       
-      await createNotification(
-        recipient_id,
-        'New Message ✉️',
-        `${senderName}: ${subject || 'Sent a new message'}`,
-        'info',
-        '/messages'
-      );
+      if (mongoose.Types.ObjectId.isValid(recipient_id)) {
+        await createNotification(
+          recipient_id,
+          'New Message ✉️',
+          `${senderName}: ${subject || 'Sent a new message'}`,
+          'info',
+          '/messages'
+        );
+      }
     }
 
     // Also emit to sender so other tabs/devices update immediately
@@ -290,4 +363,3 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
 });
 
 export default router;
-

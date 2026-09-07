@@ -39,19 +39,4 @@ const ticketSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-ticketSchema.virtual('user', {
-  ref: 'User',
-  localField: 'user_id',
-  foreignField: '_id',
-  justOne: true
-});
-
-ticketSchema.virtual('assigned_staff', {
-  ref: 'User',
-  localField: 'assigned_to',
-  foreignField: '_id',
-  justOne: true
-});
-
 export default mongoose.model('Ticket', ticketSchema);
-

@@ -1,6 +1,8 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Ticket from '../models/Ticket.js';
 import User from '../models/User.js';
+import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitToUser, emitToAdmins } from '../lib/socket.js';
@@ -16,11 +18,70 @@ const isStaffUser = (user) => {
   return false;
 };
 
-const populateTicket = (query) => {
-  return query
-    .populate('user', 'full_name company_name email phone avatar_url')
-    .populate('application_id', 'company_name scheme status')
-    .populate('assigned_staff', 'full_name role email');
+// Safe enrichment helper to populate user, assigned staff, and application without Mongoose CastError
+const populateTicketsSafely = async (tickets) => {
+  if (!tickets) return null;
+  const isArray = Array.isArray(tickets);
+  const ticketList = isArray ? tickets : [tickets];
+  if (ticketList.length === 0 || !ticketList[0]) return tickets;
+
+  const userIds = new Set();
+  const staffIds = new Set();
+  const appIds = new Set();
+
+  ticketList.forEach(t => {
+    if (t.user_id && mongoose.Types.ObjectId.isValid(t.user_id)) {
+      userIds.add(t.user_id.toString());
+    }
+    if (t.assigned_to && mongoose.Types.ObjectId.isValid(t.assigned_to)) {
+      staffIds.add(t.assigned_to.toString());
+    }
+    if (t.application_id && mongoose.Types.ObjectId.isValid(t.application_id)) {
+      appIds.add(t.application_id.toString());
+    }
+  });
+
+  const allUserIds = Array.from(new Set([...userIds, ...staffIds]));
+
+  const [users, apps] = await Promise.all([
+    allUserIds.length > 0 ? User.find({ _id: { $in: allUserIds } }).select('full_name company_name email phone role avatar_url').lean() : [],
+    appIds.size > 0 ? Application.find({ _id: { $in: Array.from(appIds) } }).select('company_name scheme status').lean() : []
+  ]);
+
+  const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  const appMap = new Map(apps.map(a => [a._id.toString(), a]));
+
+  const enriched = ticketList.map(t => {
+    const doc = t.toObject ? t.toObject({ virtuals: true }) : { ...t };
+
+    // User resolution
+    if (doc.user_id && userMap.has(doc.user_id.toString())) {
+      doc.user = userMap.get(doc.user_id.toString());
+    } else {
+      doc.user = {
+        _id: doc.user_id,
+        full_name: 'Client User',
+        company_name: 'Client Company',
+        role: 'client'
+      };
+    }
+
+    // Assigned staff resolution
+    if (doc.assigned_to && userMap.has(doc.assigned_to.toString())) {
+      doc.assigned_staff = userMap.get(doc.assigned_to.toString());
+    } else {
+      doc.assigned_staff = null;
+    }
+
+    // Application resolution
+    if (doc.application_id && appMap.has(doc.application_id.toString())) {
+      doc.application_id = appMap.get(doc.application_id.toString());
+    }
+
+    return doc;
+  });
+
+  return isArray ? enriched : enriched[0];
 };
 
 // GET /api/tickets - List tickets
@@ -29,11 +90,10 @@ router.get('/', authenticateToken, async (req, res) => {
     const isStaff = isStaffUser(req.user);
     const filter = isStaff ? {} : { user_id: req.user.id || req.user._id.toString() };
     
-    const tickets = await populateTicket(
-      Ticket.find(filter).sort({ updated_at: -1, created_at: -1 })
-    );
+    const raw = await Ticket.find(filter).sort({ updated_at: -1, created_at: -1 }).lean();
+    const tickets = await populateTicketsSafely(raw);
 
-    res.json({ data: tickets });
+    res.json({ data: tickets || [] });
   } catch (err) {
     console.error('Error fetching tickets:', err);
     res.status(500).json({ error: err.message });
@@ -43,16 +103,17 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/tickets/:id - Get single ticket details
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const ticket = await populateTicket(Ticket.findById(req.params.id));
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const raw = await Ticket.findById(req.params.id).lean();
+    if (!raw) return res.status(404).json({ error: 'Ticket not found' });
 
     const isStaff = isStaffUser(req.user);
     const userId = req.user.id || req.user._id.toString();
 
-    if (!isStaff && ticket.user_id !== userId) {
+    if (!isStaff && raw.user_id !== userId) {
       return res.status(403).json({ error: 'Unauthorized to view this ticket' });
     }
 
+    const ticket = await populateTicketsSafely(raw);
     res.json({ data: ticket });
   } catch (err) {
     console.error('Error fetching ticket:', err);
@@ -78,7 +139,7 @@ router.post('/', authenticateToken, async (req, res) => {
       department: department || 'General',
       priority: priority || 'medium',
       status: 'open',
-      application_id: application_id || null,
+      application_id: (application_id && mongoose.Types.ObjectId.isValid(application_id)) ? application_id : null,
       attachments: Array.isArray(attachments) ? attachments : [],
       responses: [],
       created_at: new Date(),
@@ -86,7 +147,7 @@ router.post('/', authenticateToken, async (req, res) => {
     });
 
     const saved = await ticket.save();
-    const populated = await populateTicket(Ticket.findById(saved._id));
+    const populated = await populateTicketsSafely(saved);
 
     // Notify admins if created by client
     if (!isStaffUser(req.user)) {
@@ -155,17 +216,19 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
     }
 
     await ticket.save();
-    const populated = await populateTicket(Ticket.findById(ticket._id));
+    const populated = await populateTicketsSafely(ticket);
 
     // Send notification to the other party
     if (isStaff) {
-      await createNotification(
-        ticket.user_id,
-        'Support Ticket Reply 💬',
-        `HFA Support replied to your ticket ${ticket.ticket_number}.`,
-        'info',
-        '/tickets'
-      );
+      if (mongoose.Types.ObjectId.isValid(ticket.user_id)) {
+        await createNotification(
+          ticket.user_id,
+          'Support Ticket Reply 💬',
+          `HFA Support replied to your ticket ${ticket.ticket_number}.`,
+          'info',
+          '/tickets'
+        );
+      }
     } else {
       const admins = await User.find({ role: { $in: STAFF_ROLES } });
       const clientName = req.user.company_name || req.user.full_name || 'Client';
@@ -210,16 +273,18 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     if (isStaff) {
       if (priority) ticket.priority = priority;
       if (department) ticket.department = department;
-      if (assigned_to !== undefined) ticket.assigned_to = assigned_to || null;
+      if (assigned_to !== undefined) {
+        ticket.assigned_to = (assigned_to && mongoose.Types.ObjectId.isValid(assigned_to)) ? assigned_to : null;
+      }
     }
 
     ticket.updated_at = new Date();
     await ticket.save();
 
-    const populated = await populateTicket(Ticket.findById(ticket._id));
+    const populated = await populateTicketsSafely(ticket);
 
     // Notify client if status changed
-    if (status) {
+    if (status && mongoose.Types.ObjectId.isValid(ticket.user_id)) {
       const statusLabel = status.replace('_', ' ').toUpperCase();
       await createNotification(
         ticket.user_id,
@@ -242,4 +307,3 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
 });
 
 export default router;
-
