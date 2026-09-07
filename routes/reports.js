@@ -47,8 +47,8 @@ const getDateFilter = (timeframe, startDate, endDate) => {
   return { $gte: start, $lte: now };
 };
 
-// GET /api/reports/stats - Comprehensive system metrics
-router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
+// GET /api/reports/stats and /api/reports/dashboard - Comprehensive system metrics
+const getReportStats = async (req, res) => {
   try {
     const { timeframe = 'all', startDate, endDate } = req.query;
     const dateFilter = getDateFilter(timeframe, startDate, endDate);
@@ -343,7 +343,10 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error computing report stats:', err);
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+router.get('/stats', authenticateToken, requireAdmin, getReportStats);
+router.get('/dashboard', authenticateToken, requireAdmin, getReportStats);
 
 // GET /api/reports/export - Generates CSV reports
 router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
