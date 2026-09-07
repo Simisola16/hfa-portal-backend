@@ -278,9 +278,14 @@ const getReportStats = async (req, res) => {
       ? Math.round(((newClientsThisMonth - newClientsPrevMonth) / newClientsPrevMonth) * 100) 
       : (newClientsThisMonth > 0 ? 100 : 0);
 
+    // 7. Products Statistics
+    const totalProducts = await Product.countDocuments();
+
     // Rates
-    const certifiedApps = appsByStatus.find(s => s._id === 'certified')?.count || 0;
-    const approvalRate = totalApps > 0 ? Math.round((certifiedApps / totalApps) * 100) : 0;
+    const acceptedApps = appsByStatus
+      .filter(s => ['certificate_issued', 'application_successful', 'ready_for_certificate', 'approved', 'accepted', 'certified'].includes(s._id))
+      .reduce((sum, s) => sum + s.count, 0);
+    const approvalRate = totalApps > 0 ? Math.round((acceptedApps / totalApps) * 100) : 0;
     const ticketResolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 100;
     const auditComplianceRate = totalNCs > 0 ? Math.round((resolvedNCs / totalNCs) * 100) : 100;
     const collectionRate = financialStats.totalInvoiced > 0 
@@ -293,9 +298,13 @@ const getReportStats = async (req, res) => {
       applications: {
         total: totalApps,
         approvalRate,
+        acceptedCount: acceptedApps,
         trend: applicationTrend,
         statusDistribution: appsByStatus.map(s => ({ name: s._id || 'other', value: s.count })),
         schemeDistribution: appsByScheme.map(s => ({ name: s._id || 'Standard HFA', value: s.count }))
+      },
+      products: {
+        total: totalProducts
       },
       certificates: {
         total: totalCerts,
