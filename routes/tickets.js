@@ -125,17 +125,33 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id.toString();
+    const { subject, message, department, priority, application_id, attachments } = req.body;
+
+    // Deduplication guard for new ticket
+    const twoSecondsAgo = new Date(Date.now() - 2500);
+    const recentDuplicate = await Ticket.findOne({
+      user_id: userId,
+      subject: subject?.trim(),
+      message: message?.trim(),
+      $or: [
+        { created_at: { $gte: twoSecondsAgo } },
+        { createdAt: { $gte: twoSecondsAgo } }
+      ]
+    });
+    if (recentDuplicate) {
+      const populated = await populateTicketsSafely(recentDuplicate);
+      return res.status(200).json({ data: populated });
+    }
+
     const ticketCount = await Ticket.countDocuments();
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const ticket_number = `TKT-${String(ticketCount + 1).padStart(4, '0')}${randomSuffix}`;
 
-    const { subject, message, department, priority, application_id, attachments } = req.body;
-
     const ticket = new Ticket({
       ticket_number,
       user_id: userId,
-      subject,
-      message,
+      subject: subject?.trim(),
+      message: message?.trim(),
       department: department || 'General',
       priority: priority || 'medium',
       status: 'open',
@@ -183,6 +199,21 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
 
     const isStaff = isStaffUser(req.user);
     const userId = req.user.id || req.user._id.toString();
+
+    // Deduplication guard for reply within last 2.5s
+    const lastResponse = ticket.responses && ticket.responses[ticket.responses.length - 1];
+    const lastTime = lastResponse ? (lastResponse.created_at || lastResponse.createdAt) : null;
+    if (
+      lastResponse &&
+      lastResponse.user_id === userId &&
+      lastResponse.message === req.body.message?.trim() &&
+      lastTime &&
+      (Date.now() - new Date(lastTime).getTime()) < 2500
+    ) {
+      const populated = await populateTicketsSafely(ticket);
+      return res.json({ data: populated });
+    }
+
     const userRole = isStaff ? (req.user.role === 'superadmin' ? 'Superadmin' : 'HFA Staff') : 'Client';
     const userName = req.user.full_name || (isStaff ? 'HFA Support' : 'Client');
 
@@ -190,7 +221,7 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
       user_id: userId,
       user_name: userName,
       user_role: userRole,
-      message: req.body.message,
+      message: req.body.message?.trim(),
       attachments: Array.isArray(req.body.attachments) ? req.body.attachments : [],
       created_at: new Date()
     };

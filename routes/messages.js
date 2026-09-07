@@ -201,11 +201,28 @@ router.post('/', authenticateToken, async (req, res) => {
       recipient_id = isStaffUser(req.user) ? 'all_clients' : 'admin';
     }
 
+    // Deduplication guard: Check if identical message was already saved within the last 2.5 seconds
+    const twoSecondsAgo = new Date(Date.now() - 2500);
+    const existingRecent = await Message.findOne({
+      sender_id: senderId,
+      recipient_id,
+      body: body?.trim(),
+      $or: [
+        { created_at: { $gte: twoSecondsAgo } },
+        { createdAt: { $gte: twoSecondsAgo } }
+      ]
+    });
+
+    if (existingRecent) {
+      const populated = await populateMessagesSafely(existingRecent);
+      return res.status(200).json({ data: populated });
+    }
+
     const message = new Message({
       sender_id: senderId,
       recipient_id,
       subject: subject || 'No Subject',
-      body,
+      body: body?.trim(),
       application_id: (application_id && mongoose.Types.ObjectId.isValid(application_id)) ? application_id : null,
       attachments: Array.isArray(attachments) ? attachments : [],
       reply_to: (reply_to && mongoose.Types.ObjectId.isValid(reply_to)) ? reply_to : null,
