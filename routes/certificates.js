@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
@@ -167,6 +168,44 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       .populate('reviewed_by', 'full_name email role');
     res.json({ data });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/certificates/direct-history (Superadmin & Authorized Staff - MUST be before /:id)
+router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
+  try {
+    const certs = await Certificate.find({ is_direct_issuance: true })
+      .populate('site_id')
+      .populate('issued_by', 'full_name email username')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
+    const validUserIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const users = await User.find({ _id: { $in: validUserIds } }, 'company_name full_name email phone address country').lean();
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = u; });
+
+    const enriched = await Promise.all(certs.map(async (c) => {
+      const client = userMap[c.client_id] || null;
+      const products = await Product.find({ 
+        $or: [
+          { certificate_id: c._id.toString() },
+          { certificate_id: c.certificate_number }
+        ]
+      }).lean();
+      return {
+        ...c,
+        id: c._id.toString(),
+        client,
+        products
+      };
+    }));
+
+    res.json({ data: enriched });
+  } catch (err) {
+    console.error('Direct history error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1261,7 +1300,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
                 <p style="color:#374151">Your official Halal Certificate has been issued for <strong>${targetClient.company_name || targetClient.full_name}</strong>.</p>
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:20px 0">
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Number:</strong> ${certNumber}</p>
-                  <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Type:</strong> ${certificate_type || 'Annual Halal Certificate'}</p>
+                  <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Type:</strong> ${certificate_type || 'HFA SCHEME'}</p>
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certified Products:</strong> ${createdProductDocs.length} product(s) registered</p>
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Expiry Date:</strong> ${parsedExpiryDate.toLocaleDateString('en-GB')}</p>
                 </div>
@@ -1289,36 +1328,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
   }
 });
 
-// GET /api/certificates/direct-history (Superadmin & Authorized Staff)
-router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
-  try {
-    const certs = await Certificate.find({ is_direct_issuance: true })
-      .populate('site_id')
-      .populate('issued_by', 'full_name email username')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
-    const users = await User.find({ _id: { $in: userIds } }, 'company_name full_name email phone address country').lean();
-    const userMap = {};
-    users.forEach(u => { userMap[u._id.toString()] = u; });
-
-    const enriched = await Promise.all(certs.map(async (c) => {
-      const client = userMap[c.client_id] || null;
-      const products = await Product.find({ certificate_id: c._id.toString() }).lean();
-      return {
-        ...c,
-        id: c._id.toString(),
-        client,
-        products
-      };
-    }));
-
-    res.json({ data: enriched });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // PUT revoke
 router.put('/:id/revoke', authenticateToken, requireAdmin, async (req, res) => {

@@ -7,6 +7,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -126,6 +127,234 @@ function rejectClients(req, res) {
   }
   return null;
 }
+
+// GET /api/application-logsheets/direct-history (Admin only)
+router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const filter = { source_type: 'direct' };
+    if (req.query.type && req.query.type !== 'all') {
+      filter.logsheet_type = req.query.type;
+    }
+    const logsheets = await ApplicationLogsheet.find(filter)
+      .populate('client_id', 'full_name company_name email phone address')
+      .populate('site_id', 'name address')
+      .populate('created_by', 'full_name email role')
+      .sort({ created_at: -1, createdAt: -1 });
+    res.json({ data: logsheets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/application-logsheets/direct (Admin only - creates direct logsheet without application)
+router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      logsheet_type = 'application',
+      existing_certificate_number,
+      extension_duration_type,
+      extension_days,
+      extension_reason,
+      extended_expiry_date,
+      addon_type,
+      raw_materials_approved,
+      cross_contamination_risk,
+      formulation_checked,
+      lab_test_required,
+      initial_approval_stage,
+      decision_type,
+      client_id,
+      new_client,
+      site_id,
+      site_name,
+      company_name,
+      company_address,
+      manufacturing_address,
+      contact_person,
+      contact_email,
+      certificate_standard,
+      scope,
+      nature_of_business,
+      product_category,
+      product_name,
+      product_code,
+      products_list,
+      issue_date,
+      expiry_date,
+      current_cycle_start,
+      original_cycle_start,
+      audit_type,
+      audit_date,
+      auditors,
+      ncs_close,
+      docs_satisfactory,
+      pork_free_statement,
+      reviewed_by,
+      reviewer_name,
+      review_date,
+      annual_certificate,
+      batch_certificate,
+      new_products_only,
+      new_site_line,
+      is_new_client,
+      agreement_signed,
+      status_date,
+      comment,
+      document_urls,
+      audit_reports,
+      nc_reports_files,
+      role,
+      signature_url,
+      signature_name,
+      send_signatory_notifications = true
+    } = req.body;
+
+    let resolvedClientId = client_id;
+
+    // Quick-create client if requested
+    if (new_client && !client_id) {
+      const { full_name, email, phone, address, postcode, country, company_name: newCompName } = new_client;
+      if (!email?.trim()) {
+        return res.status(400).json({ error: 'Client email is required for new client creation.' });
+      }
+      let existingUser = await User.findOne({ email: email.trim().toLowerCase() });
+      if (!existingUser) {
+        const autoPass = `HFA${Math.random().toString(36).slice(-8)}!`;
+        existingUser = new User({
+          full_name: full_name?.trim() || newCompName?.trim() || 'Client',
+          email: email.trim().toLowerCase(),
+          company_name: newCompName?.trim() || full_name?.trim() || '',
+          phone,
+          address,
+          postcode,
+          country: country || 'United Kingdom',
+          password: autoPass,
+          role: 'client',
+          is_verified: true,
+          is_active: true
+        });
+        await existingUser.save();
+      }
+      resolvedClientId = existingUser._id;
+    }
+
+    const directRef = generateHfaId(company_name || 'DL');
+
+    const logsheet = new ApplicationLogsheet({
+      source_type: 'direct',
+      logsheet_type: logsheet_type || 'application',
+      direct_ref: directRef,
+      certificate_standard: certificate_standard || 'GSO MEAT',
+      scope: scope || 'Halal Certification Operations',
+      client_id: resolvedClientId || undefined,
+      site_id: site_id || undefined,
+      created_by: req.user._id,
+
+      existing_certificate_number: existing_certificate_number || '',
+      extension_duration_type: extension_duration_type || '30_days',
+      extension_days: extension_days || 30,
+      extension_reason: extension_reason || '',
+      extended_expiry_date: extended_expiry_date || undefined,
+
+      addon_type: addon_type || 'New Products',
+      raw_materials_approved: raw_materials_approved || 'Yes',
+      cross_contamination_risk: cross_contamination_risk || 'None',
+
+      formulation_checked: formulation_checked || 'Yes',
+      lab_test_required: lab_test_required || 'No',
+      initial_approval_stage: initial_approval_stage || 'Stage 1 - Desk Review',
+      decision_type: decision_type || 'Approved',
+
+      site_name: site_name || 'Main Manufacturing Site',
+      company_name: company_name || 'Company',
+      company_address: company_address || '',
+      manufacturing_address: manufacturing_address || company_address || '',
+      contact_person: contact_person || '',
+      contact_email: contact_email || '',
+      issue_date: issue_date || new Date(),
+      expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      nature_of_business: nature_of_business || 'Halal Food Production',
+      product_category: product_category || 'Halal Certified',
+      product_name: product_name || (Array.isArray(products_list) && products_list.length > 0 ? products_list.map(p => p.name).filter(Boolean).join(', ') : ''),
+      product_code: product_code || '',
+      products_list: Array.isArray(products_list) ? products_list : [],
+      current_cycle_start: current_cycle_start || issue_date || new Date(),
+      original_cycle_start: original_cycle_start || current_cycle_start || issue_date || new Date(),
+      document_urls: Array.isArray(document_urls) ? document_urls : [],
+      audit_reports: Array.isArray(audit_reports) ? audit_reports : [],
+      nc_reports_files: Array.isArray(nc_reports_files) ? nc_reports_files : [],
+
+      audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : 'Direct Logsheet Review'),
+      audit_date: audit_date || new Date(),
+      auditors: auditors || req.user.full_name || 'HFA Lead Auditor',
+      ncs_close: ncs_close || 'N/A - Direct Logsheet Review',
+      docs_satisfactory: docs_satisfactory || 'Satisfactory - all product specifications and formulations verified',
+      pork_free_statement: pork_free_statement || 'Confirmed - signed pork-free declaration in place',
+      reviewed_by: reviewed_by || req.user.full_name || 'HFA Technical Reviewer',
+      reviewer_name: reviewer_name || req.user.full_name || 'HFA Technical Reviewer',
+      review_date: review_date || new Date(),
+
+      annual_certificate: annual_certificate || 'Yes',
+      batch_certificate: batch_certificate || 'No',
+      new_products_only: new_products_only || 'No',
+      new_site_line: new_site_line || 'No',
+      new_client: (is_new_client === 'Yes' || is_new_client === true) ? 'Yes' : 'No',
+      agreement_signed: agreement_signed || 'Yes',
+      status_date: status_date || new Date(),
+
+      comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
+      status: 'Waiting for Signature'
+    });
+
+    // Apply immediate role signature if provided
+    if (role && signature_url) {
+      const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
+      const roleLower = role.toLowerCase();
+      if (roleLower === 'mufti') {
+        logsheet.mufti_signature = signature_url;
+        logsheet.mufti_sign_name = signerName;
+        logsheet.mufti_sign_date = new Date();
+      } else if (roleLower === 'ceo') {
+        logsheet.ceo_signature = signature_url;
+        logsheet.ceo_sign_name = signerName;
+        logsheet.ceo_sign_date = new Date();
+      } else if (roleLower === 'manager') {
+        logsheet.manager_signature = signature_url;
+        logsheet.manager_sign_name = signerName;
+        logsheet.manager_sign_date = new Date();
+      } else if (roleLower === 'mufti2') {
+        logsheet.mufti2_signature = signature_url;
+        logsheet.mufti2_sign_name = signerName;
+        logsheet.mufti2_sign_date = new Date();
+      }
+    }
+
+    await logsheet.save();
+
+    // Send signatory notification emails
+    let emailNote = '';
+    if (send_signatory_notifications) {
+      const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+      const emailResult = await sendSignatoryEmails({
+        logsheet,
+        applicationNumber: directRef,
+        adminUrl,
+        customMessage: `Direct Logsheet #${directRef} has been initiated for ${company_name} and is ready for committee review & signatures.`
+      });
+      emailNote = emailResult.sent > 0
+        ? `Signature notifications sent to ${emailResult.sent} signatory address(es).`
+        : 'No signatory email addresses configured.';
+    }
+
+    res.status(201).json({
+      data: logsheet,
+      message: 'Direct Logsheet created successfully and placed in waiting for signature queue.',
+      emailNote
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/application-logsheets/application/:appId
 router.get('/application/:appId', authenticateToken, async (req, res) => {
@@ -292,9 +521,10 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('application_id', 'application_number application_type status category')
       .populate('addon_application_id', 'status')
       .populate('initial_product_application_id', 'status')
-      .populate('client_id', 'full_name company_name email')
+      .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
-      .sort({ created_at: -1 });
+      .populate('created_by', 'full_name email role')
+      .sort({ created_at: -1, createdAt: -1 });
 
     // Auto-sync logsheets where certificate has already been issued
     const certIssuedLogs = logsheets.filter(l => l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
@@ -323,8 +553,9 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const logsheet = await ApplicationLogsheet.findById(req.params.id)
       .populate('application_id')
-      .populate('client_id', 'full_name company_name email')
-      .populate('site_id', 'name address');
+      .populate('client_id', 'full_name company_name email phone address')
+      .populate('site_id', 'name address')
+      .populate('created_by', 'full_name email role');
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
     res.json({ data: logsheet });
   } catch (err) {
@@ -777,6 +1008,39 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           } catch (pErr) {
             console.error('Failed to sync main app products:', pErr.message);
           }
+        }
+      }
+
+      // Handle direct logsheet product sync if applicable
+      if (logsheet.source_type === 'direct' && logsheet.client_id) {
+        try {
+          const { default: Product } = await import('../models/Product.js');
+          const clientId = logsheet.client_id?._id || logsheet.client_id;
+          const siteId = logsheet.site_id?._id || logsheet.site_id;
+          const prodsToSync = Array.isArray(approved_products) && approved_products.length > 0
+            ? approved_products
+            : (Array.isArray(logsheet.products_list) ? logsheet.products_list : []);
+
+          for (const prod of prodsToSync) {
+            const pName = prod.name || prod.product_name;
+            if (pName) {
+              await Product.findOneAndUpdate(
+                { client_id: clientId, name: pName },
+                {
+                  client_id: clientId,
+                  name: pName,
+                  code: prod.code || '',
+                  category: prod.category || logsheet.product_category || 'Halal Certified',
+                  site_id: siteId,
+                  status: 'approved',
+                  updated_at: new Date()
+                },
+                { upsert: true, new: true }
+              );
+            }
+          }
+        } catch (dirSyncErr) {
+          console.error('[Logsheet] Failed to sync direct logsheet products:', dirSyncErr.message);
         }
       }
 

@@ -15,14 +15,33 @@ async function generateQRCode(url) {
   });
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 function formatDate(dateVal) {
   if (!dateVal) return '—';
+  if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(dateVal.trim())) {
+    const parts = dateVal.trim().split('-');
+    const day = parts[0].padStart(2, '0');
+    const month = parts[1].charAt(0).toUpperCase() + parts[1].slice(1, 3).toLowerCase();
+    const year = parts[2];
+    return `${day}-${month}-${year}`;
+  }
+  if (typeof dateVal === 'string' && /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(dateVal.trim())) {
+    const match = dateVal.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (match) {
+      const year = match[1];
+      const monthIdx = parseInt(match[2], 10) - 1;
+      const day = match[3].padStart(2, '0');
+      const monthStr = MONTH_NAMES[monthIdx] || 'Jan';
+      return `${day}-${monthStr}-${year}`;
+    }
+  }
   const date = new Date(dateVal);
   if (isNaN(date.getTime())) return String(dateVal);
   const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const monthStr = MONTH_NAMES[date.getMonth()] || 'Jan';
   const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
+  return `${day}-${monthStr}-${year}`;
 }
 
 export const CERT_CONFIGS = {
@@ -427,8 +446,8 @@ export async function renderCertificateHtml(certData) {
             <thead>
               <tr>
                 <th style="width: 12%; text-align: center;">NO.</th>
-                <th style="width: 28%; text-align: center;">CODE</th>
                 <th style="width: 60%; text-align: left; padding-left: 12px;">DESCRIPTION</th>
+                <th style="width: 28%; text-align: center;">CODE</th>
               </tr>
             </thead>
             <tbody>
@@ -437,8 +456,8 @@ export async function renderCertificateHtml(certData) {
                   ? products.slice(0, 6).map((p, idx) => `
                     <tr>
                       <td style="text-align: center;">${idx + 1}</td>
-                      <td style="text-align: center;">${p.code || `PRD-${String(idx + 1).padStart(2, '0')}`}</td>
                       <td style="padding-left: 12px;">${p.name || p.description || p}</td>
+                      <td style="text-align: center;">${p.code || `PRD-${String(idx + 1).padStart(2, '0')}`}</td>
                     </tr>
                   `).join('')
                   : `

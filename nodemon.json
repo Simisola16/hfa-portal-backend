@@ -1,0 +1,20 @@
+{
+  "watch": [
+    "server.js",
+    "routes/",
+    "models/",
+    "lib/",
+    "services/",
+    "middleware/"
+  ],
+  "ignore": [
+    "scratch/**",
+    "scripts/**",
+    "tests/**",
+    "*.test.js",
+    "test-*.js",
+    "*.log",
+    "*.pdf"
+  ],
+  "ext": "js,json"
+}
