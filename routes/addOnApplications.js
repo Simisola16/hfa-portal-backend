@@ -12,6 +12,7 @@ import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -208,7 +209,10 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.user.role === 'client') {
       query.client_id = req.user._id;
     } else if (req.user.role === 'food_tech') {
-      query.assigned_food_techs = req.user._id;
+      query.$or = [
+        { assigned_food_techs: req.user._id },
+        { assigned_food_tech: req.user._id }
+      ];
     }
 
     const data = await AddOnApplication.find(query)
@@ -323,18 +327,25 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 });
 
 // ─── PUT /api/add-on-applications/:id/assign-ft ──────────────────────────────
-// Admin: Assign one or more FT staff (appends to assigned_food_techs array)
+// Admin: Assign one or more FT staff and/or typed custom FT details
 router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
   try {
     // Accept single ID string OR array of IDs
     const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
-    const ftIds = Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean);
-    if (ftIds.length === 0) return res.status(400).json({ error: 'At least one Food Technologies staff member is required.' });
+    const ftIds = (Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean)).filter(id => id && mongoose.Types.ObjectId.isValid(id));
+    const customFtName = (req.body.custom_ft_name || '').trim();
+    const customFtEmail = (req.body.custom_ft_email || '').trim();
+    const customFtNotes = (req.body.custom_ft_notes || '').trim();
+    const customFtDetails = (req.body.assigned_ft_details || customFtName || '').trim();
 
-    // Validate all IDs are food_tech users
-    const ftUsers = await User.find({ _id: { $in: ftIds }, role: 'food_tech' });
-    if (ftUsers.length !== ftIds.length) {
-      return res.status(400).json({ error: 'One or more selected users are not Food Technologies staff members.' });
+    if (ftIds.length === 0 && !customFtName && !customFtDetails) {
+      return res.status(400).json({ error: 'Please select at least one FT staff member or enter FT staff details.' });
+    }
+
+    // Validate selected system IDs are food_tech users if any provided
+    let ftUsers = [];
+    if (ftIds.length > 0) {
+      ftUsers = await User.find({ _id: { $in: ftIds } });
     }
 
     const app = await AddOnApplication.findById(req.params.id);
@@ -345,30 +356,60 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 
     // Set the new list (replace, not append) — admin manages the full list
     app.assigned_food_techs = ftIds;
-    // Keep legacy field for backward compat (first FT)
-    app.assigned_food_tech = ftIds[0];
+    app.assigned_food_tech = ftIds[0] || null;
+
+    if (customFtName || customFtDetails) {
+      app.assigned_ft_details = customFtDetails || customFtName;
+      app.assigned_ft_custom = {
+        name: customFtName,
+        email: customFtEmail,
+        notes: customFtNotes
+      };
+    } else {
+      app.assigned_ft_details = undefined;
+      app.assigned_ft_custom = undefined;
+    }
+
     app.status = 'ft_assigned';
-    await pushHistory(app, 'ft_assigned', `FT assigned: ${ftUsers.map(u => u.full_name).join(', ')}`, req.user._id);
+
+    const ftLabels = [
+      ...ftUsers.map(u => u.full_name || u.email),
+      customFtName ? `${customFtName}${customFtEmail ? ` (${customFtEmail})` : ''}` : null
+    ].filter(Boolean);
+
+    await pushHistory(app, 'ft_assigned', `FT assigned: ${ftLabels.join(', ') || 'FT Staff'}`, req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'ft_assigned');
 
-    // Notify each newly assigned FT
+    // Notify each newly assigned FT user
     for (const ft of ftUsers) {
+      if (ft.email) {
+        await sendContactEmail({
+          contactEmail: ft.email,
+          contactName: ft.full_name,
+          subject: '🔍 New Add-on Application FT Assignment',
+          bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for Add-on Application (${app.contact_name || 'Client'}). Please log in to the HFA Admin Portal to proceed.</p>`
+        });
+      }
+    }
+
+    // Notify typed custom FT email if provided
+    if (customFtEmail) {
       await sendContactEmail({
-        contactEmail: ft.email,
-        contactName: ft.full_name,
+        contactEmail: customFtEmail,
+        contactName: customFtName || 'Food Technologies Specialist',
         subject: '🔍 New Add-on Application FT Assignment',
-        bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for a new Add-on Product Application. Please log in to the HFA Admin Portal to proceed.</p>`
+        bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for Add-on Application (${app.contact_name || 'Client'}).</p>`
       });
     }
 
-    // Notify contact person
+    // Notify client contact person
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
       subject: '👷 HFA: Food Technologies Staff Assigned',
-      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (${ftUsers.map(u => u.full_name).join(', ')}) have been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (${ftLabels.join(', ')}) have been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
     });
 
     res.json({ data });
@@ -995,8 +1036,8 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'ready_for_certificate') {
-      return res.status(400).json({ error: 'Application must be in "Ready for Certificate" status before completing.' });
+    if (!['ready_for_certificate', 'product_form_approved'].includes(app.status)) {
+      return res.status(400).json({ error: 'Application must be in "Ready for Certificate" or "Product Form Approved" status before completing.' });
     }
 
     let cert = null;
@@ -1020,7 +1061,24 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     }
 
     if (!cert) {
-      return res.status(404).json({ error: 'Linked certificate not found. Please ensure the client has an active certificate in the system.' });
+      // Auto-create an active Certificate for this client
+      const clientUser = await User.findById(app.client_id);
+      const companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
+      const certNumber = generateHfaId(companyForId);
+      cert = new Certificate({
+        certificate_number: certNumber,
+        client_id: app.client_id,
+        site_id: app.site_id,
+        application_id: app.application_id,
+        company_name: clientUser?.company_name || clientUser?.full_name || 'Halal Certified Client',
+        company_address: clientUser?.address || '—',
+        scope: 'Halal Food & Products Certification',
+        issue_date: new Date(),
+        expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        products_covered: [],
+        status: 'active'
+      });
+      await cert.save();
     }
 
     // Ensure app is linked to the resolved certificate

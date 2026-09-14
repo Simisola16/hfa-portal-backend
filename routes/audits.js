@@ -1,6 +1,7 @@
 import express from 'express';
 import Audit from '../models/Audit.js';
 import Application from '../models/Application.js';
+import InitialProductApplication from '../models/InitialProductApplication.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -38,28 +39,75 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
-      query.client_id = req.user._id.toString();
+      const userApps = await Application.find({ client_id: req.user._id }, '_id');
+      const appIds = userApps.map(a => a._id);
+      query.$or = [
+        { client_id: req.user._id.toString() },
+        { client_id: req.user._id },
+        { application_id: { $in: appIds } }
+      ];
+    } else if (req.user.role === 'auditor' || req.user.role === 'inspector') {
+      const userObjId = req.user._id;
+      const userEmail = req.user.email?.toLowerCase();
+      const userName = req.user.full_name || req.user.username;
+      query.$or = [
+        { inspector_id: userObjId },
+        { 'auditors._id': userObjId },
+        { 'auditors.email': userEmail },
+        { 'auditors.name': userName }
+      ];
     }
     const audits = await Audit.find(query)
       .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
-      .populate('inspector_id', 'full_name email')
+      .populate('inspector_id', 'full_name email phone')
       .sort({ createdAt: -1 });
 
-    // Fetch clients safely
+    // Fetch clients and staff users safely
     const clientIds = audits
       .map(a => a.client_id)
       .filter(id => id && mongoose.Types.ObjectId.isValid(id.toString()));
       
-    const clients = await User.find({ _id: { $in: clientIds } }, 'company_name full_name');
+    const [clients, allStaffUsers] = await Promise.all([
+      User.find({ _id: { $in: clientIds } }, 'company_name full_name'),
+      User.find({ role: { $in: ['auditor', 'inspector', 'admin', 'superadmin', 'food_tech'] } }, 'full_name username email phone')
+    ]);
     const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
 
     const formatted = audits.map(a => {
       const clientIdStr = a.client_id ? a.client_id.toString() : '';
       const client = clientMap[clientIdStr];
       
-      const inspectorName = a.auditors && a.auditors.length > 0
-        ? a.auditors.map(aud => aud.name).join(', ')
+      const resolvedAuditors = (a.auditors || []).map(aud => {
+        let audEmail = (aud.email || '').trim();
+        let audContact = (aud.contact_number || '').trim();
+        if (!audEmail && aud.name) {
+          const matchUser = allStaffUsers.find(u => 
+            (u.full_name && u.full_name.toLowerCase().trim() === aud.name.toLowerCase().trim()) ||
+            (u.username && u.username.toLowerCase().trim() === aud.name.toLowerCase().trim()) ||
+            (u.full_name && u.full_name.toLowerCase().includes(aud.name.toLowerCase().trim()))
+          );
+          if (matchUser) {
+            audEmail = matchUser.email || '';
+            audContact = audContact || matchUser.phone || '';
+          }
+        }
+        return {
+          _id: aud._id,
+          name: aud.name,
+          email: audEmail,
+          contact_number: audContact,
+          purpose: aud.purpose,
+          role: aud.role || ''
+        };
+      });
+
+      const inspectorName = resolvedAuditors.length > 0
+        ? resolvedAuditors.map(aud => aud.name).join(', ')
         : (a.inspector_id ? a.inspector_id.full_name : 'Unassigned');
+
+      const inspectorEmail = resolvedAuditors.length > 0
+        ? resolvedAuditors.map(aud => aud.email).filter(Boolean).join(', ')
+        : (a.inspector_id ? a.inspector_id.email : '');
 
       const resolvedSiteName = a.application_id?.site_name || a.application_id?.establishment_name || 'Manufacturing Site';
 
@@ -99,7 +147,7 @@ router.get('/', authenticateToken, async (req, res) => {
         profiles: { company_name: client?.company_name || client?.full_name || 'Unknown Client' },
         company_name: client?.company_name || client?.full_name || 'Unknown Client',
         inspector_id: a.inspector_id,
-        inspectors: { full_name: inspectorName },
+        inspectors: { full_name: inspectorName, email: inspectorEmail },
         site_name: resolvedSiteName,
         sites: { name: resolvedSiteName },
         audit_type: a.audit_type || 'Initial',
@@ -108,7 +156,7 @@ router.get('/', authenticateToken, async (req, res) => {
         proposed_dates: a.proposed_dates || [],
         selected_dates: a.selected_dates || [],
         finalized_date: a.finalized_date,
-        auditors: a.auditors || [],
+        auditors: resolvedAuditors,
         nc_reports: combinedNc,
         scheduled_date: a.scheduled_date || a.finalized_date || a.selected_dates?.[0],
         completed_at: a.completed_at || (['audit_completed', 'completed', 'done', 'inspection_completed'].includes(a.status) ? a.updatedAt : null),
@@ -263,11 +311,44 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
       return res.status(400).json({ error: 'Please provide 3 distinct dates. Duplicate dates are not allowed.' });
     }
 
+    let targetApp = null;
+    let resolvedClientId = client_id;
+    if (application_id) {
+      targetApp = await Application.findById(application_id);
+      if (targetApp && targetApp.client_id) {
+        resolvedClientId = targetApp.client_id.toString();
+      }
+    }
+
+    // Enforce: Admin must not be able to propose audit date if initial product is not approved for GSO application
+    if (targetApp) {
+      const cat = String(targetApp.category || '').toLowerCase();
+      const type = String(targetApp.application_type || '').toLowerCase();
+      const scheme = String(targetApp.scheme || '').toLowerCase();
+      const isGso = cat.includes('gso') || cat.includes('uae') || type.includes('gso') || scheme.includes('gso');
+      const isRenewalOrSurveillance = type === 'renewal' || type === 'surveillance';
+
+      if (isGso && !isRenewalOrSurveillance) {
+        const ip = await InitialProductApplication.findOne({ application_id: targetApp._id });
+        const isApproved = Boolean(
+          (ip && ip.status === 'initial_product_approved') ||
+          targetApp.status === 'initial_product_approved' ||
+          targetApp.is_initial_product_approved
+        );
+        if (!isApproved) {
+          return res.status(400).json({
+            error: 'Audit dates cannot be proposed for this UAE/GSO application because the Initial Product has not been approved yet. Initial Product must be approved first.'
+          });
+        }
+      }
+    }
+
     let audit = await Audit.findOne({ application_id, stage: stage || 1 });
     if (!audit) {
-      audit = new Audit({ application_id, client_id, stage: stage || 1 });
+      audit = new Audit({ application_id, client_id: resolvedClientId, stage: stage || 1 });
     }
     
+    audit.client_id = resolvedClientId;
     audit.proposed_dates = dates;
     audit.client_unavailable = false;
     audit.selected_dates = [];
@@ -285,12 +366,7 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     }
 
     if (application_id) {
-      const isStage2 = (stage === 2);
-      // Only change app status for stage 1. Stage 2 operates concurrently with 'audit_report_submitted' logic?
-      // Wait, if we are in Stage 2, should we update Application status?
-      // For now, let's just leave the Application status alone if it's Stage 2, or set it back.
-      // We can just add a history note for Stage 2.
-      const statusToSet = isStage2 ? 'audit_assigned' : 'dates_proposed'; // We don't rollback app status for stage 2, it's just 'audit_assigned' for the whole audit process until both stages finish.
+      const statusToSet = 'dates_proposed';
       
       const updatedApp = await Application.findByIdAndUpdate(application_id, {
         status: statusToSet,
@@ -308,9 +384,9 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
     }
 
     await createNotification(
-      client_id,
+      resolvedClientId,
       'Audit Dates Proposed 🗓️',
-      'The admin has proposed 3 dates for your upcoming audit. Please select 2 dates or mark as unavailable.',
+      `The admin has proposed 3 dates for your ${stage === 2 ? 'Stage 2 ' : ''}audit. Please select 2 dates or mark as unavailable.`,
       'info',
       '/applications'
     );
@@ -534,10 +610,24 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
         $push: { statusHistory: histEntry }
       },
       { new: true }
-    );
+    ).populate('client_id');
     if (app) emitApplicationUpdate(app, targetStatus);
 
-    const companyName = app?.establishment_name || app?.company_name || 'HFA Client Facility';
+    let siteName = app?.site_name || app?.establishment_name || '';
+    if (app?.site_id) {
+      try {
+        const Site = mongoose.model('Site');
+        if (mongoose.Types.ObjectId.isValid(app.site_id)) {
+          const s = await Site.findById(app.site_id).lean();
+          if (s && s.name) siteName = s.name;
+        }
+      } catch (sErr) {}
+    }
+    if (!siteName) {
+      siteName = app?.establishment_name || app?.establishment_address || 'Main Facility Site';
+    }
+
+    const companyName = app?.client_id?.company_name || app?.company_name || app?.establishment_name || 'HFA Client Facility';
     const appRef = app?.application_number || 'HFA Audit';
     const auditDate = audit.finalized_date 
       ? new Date(audit.finalized_date).toDateString() 
@@ -555,7 +645,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
         await resend.emails.send({
           from: emailFrom,
           to: auditor.email.trim(),
-          subject: `Audit Assignment Notification: ${companyName} (${appRef})`,
+          subject: `Audit Assignment Notification: ${companyName} - ${siteName} (${appRef})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
               <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -566,14 +656,18 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
                 <h3 style="color: #1e293b; margin-top: 0;">You have been assigned to conduct an audit</h3>
                 <p style="font-size: 14px; color: #475569; line-height: 1.6;">
                   Hello <strong>${auditor.name || 'Auditor'}</strong>,<br/><br/>
-                  You have been assigned to conduct the halal certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+                  You have been assigned to conduct the halal certification audit for <strong>${companyName}</strong> (Site: <strong>${siteName}</strong>, Application Ref: <strong>${appRef}</strong>).
                 </p>
                 <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
                   <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Audit Schedule Details</h4>
                   <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
                     <tr>
-                      <td style="padding: 4px 0; font-weight: 600; width: 120px;">Company:</td>
+                      <td style="padding: 4px 0; font-weight: 600; width: 130px;">Company:</td>
                       <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">${companyName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0; font-weight: 600;">Site Name:</td>
+                      <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">${siteName}</td>
                     </tr>
                     <tr>
                       <td style="padding: 4px 0; font-weight: 600;">Application Ref:</td>
@@ -613,7 +707,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     await createNotification(
       audit.client_id,
       'Auditors Assigned 👨‍💼',
-      'Auditors have been assigned for your upcoming audit. Please check the audit details.',
+      `Auditors have been assigned for your upcoming audit for ${companyName} (${siteName}). Please check the audit details.`,
       'info',
       '/applications'
     );
@@ -621,7 +715,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     const auditorNames = auditors.map(a => `${a.name || 'Auditor'}${a.role ? ` (${a.role.replace(/_/g, ' ')})` : ''}`).join(', ');
     await sendClientEmail(
       audit.client_id,
-      `Audit Team Assigned: ${companyName} (${appRef}) 👨‍💼`,
+      `Audit Team Assigned: ${companyName} - ${siteName} (${appRef}) 👨‍💼`,
       `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
           <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -631,10 +725,12 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
           <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
             <h3 style="color: #1e293b; margin-top: 0;">Auditors Assigned for Your Audit</h3>
             <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-              An audit team has been assigned to conduct your Halal Certification audit for <strong>${companyName}</strong> (Application Ref: <strong>${appRef}</strong>).
+              An audit team has been assigned to conduct your Halal Certification audit for <strong>${companyName}</strong> (Site: <strong>${siteName}</strong>, Application Ref: <strong>${appRef}</strong>).
             </p>
             <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
-              <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase;">Assigned Team</h4>
+              <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase;">Audit Schedule Details</h4>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Company:</strong> ${companyName}</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Site Name:</strong> ${siteName}</p>
               <p style="margin: 0 0 6px 0; font-size: 14px; color: #0f172a;"><strong>Auditors:</strong> ${auditorNames}</p>
               <p style="margin: 0; font-size: 14px; color: #15803d;"><strong>Audit Date:</strong> ${auditDate}</p>
             </div>
@@ -941,74 +1037,46 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     if (!appId && audit?.application_id) appId = audit.application_id;
     if (!appId) return res.status(400).json({ error: 'Application ID is required' });
 
-    if (audit && audit.nc_reports) {
-      if (report_id) {
-        const r = audit.nc_reports.id(report_id) || audit.nc_reports.find(item => String(item._id) === String(report_id));
-        if (r) r.status = 'closed';
-      } else {
-        audit.nc_reports.forEach(r => { r.status = 'closed'; });
+    if (audit) {
+      if (audit.nc_reports && audit.nc_reports.length > 0) {
+        if (report_id) {
+          const r = audit.nc_reports.id(report_id) || audit.nc_reports.find(item => String(item._id) === String(report_id));
+          if (r) r.status = 'closed';
+        } else {
+          audit.nc_reports.forEach(r => { r.status = 'closed'; });
+        }
       }
+      audit.status = 'audit_completed';
       await audit.save();
     }
 
     const currentApp = await Application.findById(appId);
     if (!currentApp) return res.status(404).json({ error: 'Application not found' });
 
-    const postNcStatuses = [
-      'logsheet_created',
-      'logsheet_signed',
-      'application_successful',
-      'agreement_sent',
-      'agreement_signed',
-      'agreement_finalised',
-      'final_invoice_sent',
-      'final_invoice_paid',
-      'ready_for_certificate',
-      'certificate_issued'
-    ];
+    currentApp.status = 'nc_closed';
+    currentApp.updated_at = new Date();
 
-    const shouldChangeStatus = !postNcStatuses.includes(currentApp.status);
-
-    const updateFields = {
-      updated_at: new Date()
-    };
-
-    if (shouldChangeStatus) {
-      updateFields.status = 'nc_closed';
-    }
-
-    const updatedApp = await Application.findByIdAndUpdate(
-      appId,
-      {
-        ...updateFields,
-        ...(shouldChangeStatus ? {
-          $push: {
-            statusHistory: {
-              status: 'nc_closed',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
-            }
-          }
-        } : {})
-      },
-      { new: true }
-    );
-
-    if (updatedApp) {
-      if (updatedApp.nc_reports) {
-        if (report_id) {
-          const r = updatedApp.nc_reports.id(report_id) || updatedApp.nc_reports.find(item => String(item._id) === String(report_id));
-          if (r) r.status = 'closed';
-        } else {
-          updatedApp.nc_reports.forEach(r => { r.status = 'closed'; });
-        }
-        await updatedApp.save();
+    if (currentApp.nc_reports && currentApp.nc_reports.length > 0) {
+      if (report_id) {
+        const r = currentApp.nc_reports.id(report_id) || currentApp.nc_reports.find(item => String(item._id) === String(report_id));
+        if (r) r.status = 'closed';
+      } else {
+        currentApp.nc_reports.forEach(r => { r.status = 'closed'; });
       }
-      emitApplicationUpdate(updatedApp, updatedApp.status);
     }
 
-    const clientId = updatedApp?.client_id || updatedApp?.user_id;
+    if (!currentApp.statusHistory) currentApp.statusHistory = [];
+    currentApp.statusHistory.push({
+      status: 'nc_closed',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
+    });
+
+    await currentApp.save();
+    emitApplicationUpdate(currentApp, 'nc_closed');
+
+    const clientId = currentApp.client_id || currentApp.user_id;
     if (clientId) {
       await createNotification(
         clientId,
@@ -1019,7 +1087,7 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
       );
     }
 
-    res.json({ data: updatedApp, message: 'NC Closed successfully' });
+    res.json({ data: currentApp, message: 'NC Closed successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

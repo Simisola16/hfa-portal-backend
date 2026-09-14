@@ -6,9 +6,10 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
+import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -69,8 +70,112 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (data.status && (data.status.includes(' ') || data.status !== data.status.toLowerCase())) {
       const normalized = data.status.toLowerCase().replace(/ /g, '_');
       data.status = normalized;
+      finalData.status = normalized;
       await Application.findByIdAndUpdate(data._id, { status: normalized });
     }
+
+    // Auto-sync status if logsheet exists and application status is lagging behind
+    try {
+      const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
+      const isObjId = mongoose.Types.ObjectId.isValid(data._id);
+      const logsheets = await ApplicationLogsheet.find({
+        $or: [
+          { application_id: data._id },
+          { application_id: String(data._id) },
+          ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : []),
+          ...(data.logsheet_id ? [{ _id: data.logsheet_id }] : [])
+        ]
+      }).sort({ createdAt: -1, created_at: -1 }).lean();
+
+      const logsheet = logsheets.find(l => {
+        if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+        if (l.initial_product_application_id || l.addon_application_id) return false;
+        if (l.audit_type === 'Initial Product Evaluation') return false;
+        return true;
+      }) || null;
+
+      if (logsheet) {
+        let sigCount = 0;
+        if (logsheet.mufti_signature) sigCount++;
+        if (logsheet.ceo_signature) sigCount++;
+        if (logsheet.manager_signature) sigCount++;
+        if (logsheet.mufti2_signature) sigCount++;
+
+        const isRenewal = data.application_type === 'renewal';
+        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 4;
+
+        if (isLogsheetFinalized) {
+          const targetStatus = 'application_successful';
+          const preLogsheetStatuses = ['audit_completed', 'audit_successful', 'nc_flagged', 'nc_closed', 'logsheet_created', 'logsheet_signed'];
+          if (preLogsheetStatuses.includes(data.status)) {
+            data.status = targetStatus;
+            finalData.status = targetStatus;
+            await Application.findByIdAndUpdate(data._id, {
+              status: targetStatus,
+              logsheet_id: logsheet._id,
+              $addToSet: {
+                statusHistory: {
+                  status: targetStatus,
+                  changedAt: new Date(),
+                  note: isRenewal ? 'Renewal LogSheet completed. Application Successful — ready for Renewal Invoice.' : 'Application Successful — committee sign-off complete.'
+                }
+              }
+            });
+          }
+        } else {
+          const targetStatus = sigCount > 0 ? 'logsheet_signed' : 'logsheet_created';
+          const preLogsheetStatuses = ['audit_completed', 'audit_successful', 'nc_flagged', 'nc_closed'];
+          if (preLogsheetStatuses.includes(data.status)) {
+            data.status = targetStatus;
+            finalData.status = targetStatus;
+            await Application.findByIdAndUpdate(data._id, {
+              status: targetStatus,
+              logsheet_id: logsheet._id,
+              $addToSet: {
+                statusHistory: {
+                  status: 'logsheet_created',
+                  changedAt: logsheet.created_at || logsheet.createdAt || new Date(),
+                  note: 'LogSheet created. Awaiting committee signatures.'
+                }
+              }
+            });
+          }
+        }
+      } else {
+        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful or ready_for_certificate
+        if (['application_successful', 'ready_for_certificate'].includes(data.status)) {
+          const Audit = mongoose.model('Audit');
+          const audit = await Audit.findOne({
+            $or: [
+              { application_id: data._id },
+              ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
+            ]
+          }).sort({ created_at: -1 });
+
+          let properStatus = 'audit_completed';
+          if (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) {
+            properStatus = 'nc_closed';
+          } else if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
+            properStatus = 'audit_completed';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'audit_assigned' || h.status === 'auditor_assigned')) {
+            properStatus = 'audit_assigned';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'date_finalized')) {
+            properStatus = 'date_finalized';
+          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'payment_received')) {
+            properStatus = 'payment_received';
+          }
+
+          data.status = properStatus;
+          finalData.status = properStatus;
+          const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'ready_for_certificate'].includes(h.status));
+          finalData.statusHistory = cleanedHistory;
+          await Application.findByIdAndUpdate(data._id, {
+            status: properStatus,
+            statusHistory: cleanedHistory
+          });
+        }
+      }
+    } catch (lErr) {}
 
     res.json({ data: finalData });
   } catch (err) {
@@ -149,9 +254,9 @@ router.post('/', authenticateToken, upload.fields([
     }
     documents.supporting_docs = newSupportingDocs;
 
-    // If Renewal, inherit details and documents from the prior application for this site
+    // If Renewal or Surveillance, inherit details and documents from the prior application for this site
     let priorApp = null;
-    if (site_id && application_type === 'renewal') {
+    if (site_id && (application_type === 'renewal' || application_type === 'surveillance')) {
       priorApp = await Application.findOne({
         site_id: String(site_id),
         client_id: req.user._id
@@ -203,7 +308,9 @@ router.post('/', authenticateToken, upload.fields([
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: application_type === 'renewal' ? 'Renewal application submitted by client.' : 'Application submitted by client.',
+        note: application_type === 'surveillance' 
+          ? 'Surveillance application submitted by client.' 
+          : (application_type === 'renewal' ? 'Renewal application submitted by client.' : 'Application submitted by client.'),
       }],
     };
 
@@ -380,7 +487,185 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
       '/applications'
     );
 
-    res.json({ data, message: 'Application status set to Ready for Certificate' });
+    res.json({ data, message: 'Application marked ready for certificate.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/applications/:id/issue-surveillance-letter (admin only — issue surveillance letter to client)
+router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, upload.single('letter_file'), async (req, res) => {
+  try {
+    const app = await Application.findById(req.params.id).populate('profiles');
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    let letterUrl = app.documents?.surveillance_letter || '';
+    const {
+      letter_number,
+      issue_date,
+      next_due_date,
+      letter_mode = 'compose',
+      recipient_name,
+      recipient_address,
+      recipient_attention,
+      letter_subject,
+      letter_salutation,
+      letter_body,
+      products_covered,
+      standards,
+      signatory_name,
+      signatory_title,
+      surveillance_cycle,
+      notes
+    } = req.body;
+
+    if (req.file) {
+      letterUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } else {
+      // Auto-generate official PDF letter with Puppeteer
+      const clientProfile = app.profiles || {};
+      const company = recipient_name || app.establishment_name || clientProfile.company_name || clientProfile.full_name || 'HFA Client';
+      const address = recipient_address || app.establishment_address || clientProfile.address || '—';
+
+      const pdfBuffer = await generateSurveillanceLetter({
+        letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+        issue_date: issue_date || new Date(),
+        next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        surveillance_cycle: surveillance_cycle || 'Annual Halal Surveillance Audit (UAE/GSO 3-Year Scheme)',
+        recipient_name: company,
+        recipient_address: address,
+        recipient_attention: recipient_attention || 'Quality Assurance & Regulatory Compliance Team',
+        letter_subject: letter_subject || 'CONFIRMATION OF CONTINUED HALAL CERTIFICATION COMPLIANCE — ANNUAL SURVEILLANCE',
+        letter_salutation: letter_salutation || 'Dear Sir / Madam,',
+        letter_body: letter_body || '',
+        products_covered: products_covered || app.scope || (Array.isArray(app.products) ? app.products.map(p => p.name).join(', ') : 'Halal Certified Products'),
+        standards: standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
+        signatory_name: signatory_name || 'HFA Halal Certification Committee',
+        signatory_title: signatory_title || 'Lead Halal Auditor & Certification Director',
+        verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+      });
+
+      const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
+      letterUrl = await uploadToGridFS(pdfBuffer, fileName, 'application/pdf');
+    }
+
+    const histNote = `Official Surveillance Letter issued (${letter_number || 'HFA-SURV'}). UAE/GSO 3-Year Halal Certification confirmed active.`;
+    const histEntry = {
+      status: 'certificate_issued',
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: histNote
+    };
+
+    const letterData = {
+      letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+      issue_date: issue_date || new Date(),
+      next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      letter_mode: req.file ? 'upload' : 'compose',
+      recipient_name: recipient_name || app.establishment_name,
+      recipient_address: recipient_address || app.establishment_address,
+      recipient_attention,
+      letter_subject,
+      letter_salutation,
+      letter_body,
+      products_covered,
+      standards,
+      signatory_name,
+      signatory_title,
+      surveillance_cycle,
+      pdf_url: letterUrl,
+      issued_at: new Date()
+    };
+
+    const data = await Application.findByIdAndUpdate(
+      req.params.id,
+      {
+        status: 'certificate_issued',
+        certificate_url: letterUrl || app.certificate_url,
+        'documents.surveillance_letter': letterUrl,
+        surveillance_letter_data: letterData,
+        updated_at: new Date(),
+        $push: { statusHistory: histEntry }
+      },
+      { new: true, strict: false }
+    ).populate('profiles');
+
+    if (data) emitApplicationUpdate(data, 'certificate_issued');
+
+    await createNotification(
+      data.client_id,
+      'Surveillance Letter Issued 📜',
+      `Your annual UAE/GSO Halal Surveillance review is complete. Your official Surveillance Letter is now available in your portal.`,
+      'success',
+      `/applications/${data._id}/track`
+    );
+
+    res.json({ data, message: 'Surveillance Letter issued successfully.' });
+  } catch (err) {
+    console.error('Error issuing surveillance letter:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/applications/:id/preview-surveillance-letter (admin only — generate HTML preview)
+router.post('/:id/preview-surveillance-letter', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const app = await Application.findById(req.params.id).populate('profiles');
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    const clientProfile = app.profiles || {};
+    const company = req.body.recipient_name || app.establishment_name || clientProfile.company_name || clientProfile.full_name || 'HFA Client';
+    const address = req.body.recipient_address || app.establishment_address || clientProfile.address || '—';
+
+    const html = await buildSurveillanceLetterHtml({
+      letter_number: req.body.letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+      issue_date: req.body.issue_date || new Date(),
+      next_due_date: req.body.next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      surveillance_cycle: req.body.surveillance_cycle || 'Annual Halal Surveillance Audit (UAE/GSO 3-Year Scheme)',
+      recipient_name: company,
+      recipient_address: address,
+      recipient_attention: req.body.recipient_attention || 'Quality Assurance & Regulatory Compliance Team',
+      letter_subject: req.body.letter_subject || 'CONFIRMATION OF CONTINUED HALAL CERTIFICATION COMPLIANCE — ANNUAL SURVEILLANCE',
+      letter_salutation: req.body.letter_salutation || 'Dear Sir / Madam,',
+      letter_body: req.body.letter_body || '',
+      products_covered: req.body.products_covered || app.scope || (Array.isArray(app.products) ? app.products.map(p => p.name).join(', ') : 'Halal Certified Products'),
+      standards: req.body.standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
+      signatory_name: req.body.signatory_name || 'HFA Halal Certification Committee',
+      signatory_title: req.body.signatory_title || 'Lead Halal Auditor & Certification Director',
+      verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+    });
+
+    res.json({ html });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/applications/:id (general update)
+router.put('/:id', authenticateToken, async (req, res) => {
+  try {
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
+
+    const updateFields = { ...req.body, updated_at: new Date() };
+    delete updateFields._id;
+
+    const data = await Application.findOneAndUpdate(
+      query,
+      { $set: updateFields },
+      { new: true, runValidators: false }
+    )
+      .populate('client_id', 'company_name full_name email phone address country postcode city')
+      .populate('profiles')
+      .populate('inspectors');
+
+    if (!data) return res.status(404).json({ error: 'Application not found' });
+
+    if (updateFields.status) {
+      emitApplicationUpdate(data, updateFields.status);
+    }
+
+    res.json({ data, message: 'Application updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -417,9 +702,10 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     const client = await User.findById(data.client_id);
     
     // Auto-generate certificate if application status is updated to 'approved'
+    // Certificate MUST start in 'under_review' (Pending Review) and be reviewed on the review page before sending to client
     if (status === 'approved' && data) {
       try {
-        const existingCert = await Certificate.findOne({ application_id: data._id, status: 'active' });
+        const existingCert = await Certificate.findOne({ application_id: data._id, status: { $in: ['active', 'under_review'] } });
         if (!existingCert) {
           const companyForId = client ? (client.company_name || client.full_name) : data.establishment_name;
           const certNumber = generateHfaId(companyForId);
@@ -459,23 +745,14 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
                ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
                : ['Certified Halal Food Products'],
             certificate_url,
-            status: 'active'
+            status: 'under_review' // Strictly starts in Pending Review
           });
 
           await certificate.save();
 
-          // Change local data status to certificate_issued so the notification/email matches
-          data.status = 'certificate_issued';
+          // Set application status to ready_for_certificate awaiting QA review
+          data.status = 'ready_for_certificate';
           await data.save();
-
-          // Notify client about the certificate specifically
-          await createNotification(
-            data.client_id,
-            '🏅 Certificate Issued',
-            `Your Halal Certification certificate (${certNumber}) has been issued. Please log in to download it.`,
-            'success',
-            '/certificates'
-          );
         }
       } catch (genErr) {
         console.error('Auto certificate generation failed on application approval:', genErr);

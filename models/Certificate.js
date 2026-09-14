@@ -12,11 +12,15 @@ const certificateSchema = new mongoose.Schema({
   scope: String,
   issue_date: Date,
   expiry_date: Date,
+  certification_start_date: Date,
+  current_cycle_start_date: Date,
+  original_cycle_start_date: Date,
   products_covered: { type: [String], default: [] },
   product_details: [{
     name: String,
     code: String,
     category: String,
+    description: String,
     barcode: String
   }],
   certificate_url: String,

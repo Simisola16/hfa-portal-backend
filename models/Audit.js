@@ -7,8 +7,7 @@ const auditorSchema = new mongoose.Schema({
   purpose: String,
   role: { 
     type: String, 
-    enum: ['lead_auditor', 'sharia_board', 'audit_trainee'],
-    default: 'lead_auditor'
+    default: ''
   }
 });
 

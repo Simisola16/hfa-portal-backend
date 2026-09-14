@@ -2,9 +2,12 @@ import express from 'express';
 import mongoose from 'mongoose';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
+import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
+import { createNotification } from '../lib/notifications.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -34,11 +37,16 @@ function getSignatoryEmails() {
  * Gracefully skips (logs warning) if no addresses are configured.
  * Returns { sent: number, failed: number }.
  */
-async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
-  const addresses = getSignatoryEmails();
+async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, customEmails, customMessage }) {
+  let addresses = [];
+  if (customEmails && customEmails.length > 0) {
+    addresses = customEmails;
+  } else {
+    addresses = getSignatoryEmails();
+  }
 
   if (addresses.length === 0) {
-    console.warn('[Logsheet] LOGSHEET_SIGNATORY_EMAILS not configured — skipping signatory email notifications.');
+    console.warn('[Logsheet] No signatory email addresses provided or configured.');
     return { sent: 0, failed: 0 };
   }
 
@@ -58,8 +66,14 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl }) {
       <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
         <h3 style="color: #1e293b; margin-top: 0;">Your Signature is Required</h3>
         <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-          A new Halal Certification LogSheet has been created and requires authorised signatures before the application can proceed.
+          A Halal Certification LogSheet has been sent for your review and signature before the application can proceed.
         </p>
+        ${customMessage ? `
+          <div style="background-color: #fefce8; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+            <strong style="color: #854d0e; font-size: 13px;">Message from Admin:</strong>
+            <p style="margin: 4px 0 0; color: #713f12; font-size: 13.5px; line-height: 1.4;">${customMessage}</p>
+          </div>
+        ` : ''}
         <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
           <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">LogSheet Details</h4>
           <table style="width: 100%; font-size: 13.5px; color: #475569; border-collapse: collapse;">
@@ -114,6 +128,234 @@ function rejectClients(req, res) {
   return null;
 }
 
+// GET /api/application-logsheets/direct-history (Admin only)
+router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const filter = { source_type: 'direct' };
+    if (req.query.type && req.query.type !== 'all') {
+      filter.logsheet_type = req.query.type;
+    }
+    const logsheets = await ApplicationLogsheet.find(filter)
+      .populate('client_id', 'full_name company_name email phone address')
+      .populate('site_id', 'name address')
+      .populate('created_by', 'full_name email role')
+      .sort({ created_at: -1, createdAt: -1 });
+    res.json({ data: logsheets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/application-logsheets/direct (Admin only - creates direct logsheet without application)
+router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      logsheet_type = 'application',
+      existing_certificate_number,
+      extension_duration_type,
+      extension_days,
+      extension_reason,
+      extended_expiry_date,
+      addon_type,
+      raw_materials_approved,
+      cross_contamination_risk,
+      formulation_checked,
+      lab_test_required,
+      initial_approval_stage,
+      decision_type,
+      client_id,
+      new_client,
+      site_id,
+      site_name,
+      company_name,
+      company_address,
+      manufacturing_address,
+      contact_person,
+      contact_email,
+      certificate_standard,
+      scope,
+      nature_of_business,
+      product_category,
+      product_name,
+      product_code,
+      products_list,
+      issue_date,
+      expiry_date,
+      current_cycle_start,
+      original_cycle_start,
+      audit_type,
+      audit_date,
+      auditors,
+      ncs_close,
+      docs_satisfactory,
+      pork_free_statement,
+      reviewed_by,
+      reviewer_name,
+      review_date,
+      annual_certificate,
+      batch_certificate,
+      new_products_only,
+      new_site_line,
+      is_new_client,
+      agreement_signed,
+      status_date,
+      comment,
+      document_urls,
+      audit_reports,
+      nc_reports_files,
+      role,
+      signature_url,
+      signature_name,
+      send_signatory_notifications = true
+    } = req.body;
+
+    let resolvedClientId = client_id;
+
+    // Quick-create client if requested
+    if (new_client && !client_id) {
+      const { full_name, email, phone, address, postcode, country, company_name: newCompName } = new_client;
+      if (!email?.trim()) {
+        return res.status(400).json({ error: 'Client email is required for new client creation.' });
+      }
+      let existingUser = await User.findOne({ email: email.trim().toLowerCase() });
+      if (!existingUser) {
+        const autoPass = `HFA${Math.random().toString(36).slice(-8)}!`;
+        existingUser = new User({
+          full_name: full_name?.trim() || newCompName?.trim() || 'Client',
+          email: email.trim().toLowerCase(),
+          company_name: newCompName?.trim() || full_name?.trim() || '',
+          phone,
+          address,
+          postcode,
+          country: country || 'United Kingdom',
+          password: autoPass,
+          role: 'client',
+          is_verified: true,
+          is_active: true
+        });
+        await existingUser.save();
+      }
+      resolvedClientId = existingUser._id;
+    }
+
+    const directRef = generateHfaId(company_name || 'DL');
+
+    const logsheet = new ApplicationLogsheet({
+      source_type: 'direct',
+      logsheet_type: logsheet_type || 'application',
+      direct_ref: directRef,
+      certificate_standard: certificate_standard || 'GSO MEAT',
+      scope: scope || 'Halal Certification Operations',
+      client_id: resolvedClientId || undefined,
+      site_id: site_id || undefined,
+      created_by: req.user._id,
+
+      existing_certificate_number: existing_certificate_number || '',
+      extension_duration_type: extension_duration_type || '30_days',
+      extension_days: extension_days || 30,
+      extension_reason: extension_reason || '',
+      extended_expiry_date: extended_expiry_date || undefined,
+
+      addon_type: addon_type || 'New Products',
+      raw_materials_approved: raw_materials_approved || 'Yes',
+      cross_contamination_risk: cross_contamination_risk || 'None',
+
+      formulation_checked: formulation_checked || 'Yes',
+      lab_test_required: lab_test_required || 'No',
+      initial_approval_stage: initial_approval_stage || 'Stage 1 - Desk Review',
+      decision_type: decision_type || 'Approved',
+
+      site_name: site_name || 'Main Manufacturing Site',
+      company_name: company_name || 'Company',
+      company_address: company_address || '',
+      manufacturing_address: manufacturing_address || company_address || '',
+      contact_person: contact_person || '',
+      contact_email: contact_email || '',
+      issue_date: issue_date || new Date(),
+      expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      nature_of_business: nature_of_business || 'Halal Food Production',
+      product_category: product_category || 'Halal Certified',
+      product_name: product_name || (Array.isArray(products_list) && products_list.length > 0 ? products_list.map(p => p.name).filter(Boolean).join(', ') : ''),
+      product_code: product_code || '',
+      products_list: Array.isArray(products_list) ? products_list : [],
+      current_cycle_start: current_cycle_start || issue_date || new Date(),
+      original_cycle_start: original_cycle_start || current_cycle_start || issue_date || new Date(),
+      document_urls: Array.isArray(document_urls) ? document_urls : [],
+      audit_reports: Array.isArray(audit_reports) ? audit_reports : [],
+      nc_reports_files: Array.isArray(nc_reports_files) ? nc_reports_files : [],
+
+      audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : 'Direct Logsheet Review'),
+      audit_date: audit_date || new Date(),
+      auditors: auditors || req.user.full_name || 'HFA Lead Auditor',
+      ncs_close: ncs_close || 'N/A - Direct Logsheet Review',
+      docs_satisfactory: docs_satisfactory || 'Satisfactory - all product specifications and formulations verified',
+      pork_free_statement: pork_free_statement || 'Confirmed - signed pork-free declaration in place',
+      reviewed_by: reviewed_by || req.user.full_name || 'HFA Technical Reviewer',
+      reviewer_name: reviewer_name || req.user.full_name || 'HFA Technical Reviewer',
+      review_date: review_date || new Date(),
+
+      annual_certificate: annual_certificate || 'Yes',
+      batch_certificate: batch_certificate || 'No',
+      new_products_only: new_products_only || 'No',
+      new_site_line: new_site_line || 'No',
+      new_client: (is_new_client === 'Yes' || is_new_client === true) ? 'Yes' : 'No',
+      agreement_signed: agreement_signed || 'Yes',
+      status_date: status_date || new Date(),
+
+      comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
+      status: 'Waiting for Signature'
+    });
+
+    // Apply immediate role signature if provided
+    if (role && signature_url) {
+      const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
+      const roleLower = role.toLowerCase();
+      if (roleLower === 'mufti') {
+        logsheet.mufti_signature = signature_url;
+        logsheet.mufti_sign_name = signerName;
+        logsheet.mufti_sign_date = new Date();
+      } else if (roleLower === 'ceo') {
+        logsheet.ceo_signature = signature_url;
+        logsheet.ceo_sign_name = signerName;
+        logsheet.ceo_sign_date = new Date();
+      } else if (roleLower === 'manager') {
+        logsheet.manager_signature = signature_url;
+        logsheet.manager_sign_name = signerName;
+        logsheet.manager_sign_date = new Date();
+      } else if (roleLower === 'mufti2') {
+        logsheet.mufti2_signature = signature_url;
+        logsheet.mufti2_sign_name = signerName;
+        logsheet.mufti2_sign_date = new Date();
+      }
+    }
+
+    await logsheet.save();
+
+    // Send signatory notification emails
+    let emailNote = '';
+    if (send_signatory_notifications) {
+      const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+      const emailResult = await sendSignatoryEmails({
+        logsheet,
+        applicationNumber: directRef,
+        adminUrl,
+        customMessage: `Direct Logsheet #${directRef} has been initiated for ${company_name} and is ready for committee review & signatures.`
+      });
+      emailNote = emailResult.sent > 0
+        ? `Signature notifications sent to ${emailResult.sent} signatory address(es).`
+        : 'No signatory email addresses configured.';
+    }
+
+    res.status(201).json({
+      data: logsheet,
+      message: 'Direct Logsheet created successfully and placed in waiting for signature queue.',
+      emailNote
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/application-logsheets/application/:appId
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
@@ -121,17 +363,29 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     if (clientReject) return;
 
     const appId = req.params.appId;
-    let query = { $or: [{ application_id: appId }, { addon_application_id: appId }] };
-    if (mongoose.Types.ObjectId.isValid(appId)) {
-      query.$or.push({ _id: appId });
-    }
+    const isObjId = mongoose.Types.ObjectId.isValid(appId);
 
-    const logsheet = await ApplicationLogsheet.findOne(query)
+    const app = await Application.findById(appId).lean();
+
+    const logsheets = await ApplicationLogsheet.find({
+      $or: [
+        { application_id: appId },
+        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : []),
+        ...(app?.logsheet_id ? [{ _id: app.logsheet_id }] : [])
+      ]
+    })
       .populate('client_id', 'full_name company_name email')
-      .populate('site_id', 'name address');
-    
-    if (!logsheet) return res.json({ data: null });
-    res.json({ data: logsheet });
+      .populate('site_id', 'name address')
+      .sort({ createdAt: -1, created_at: -1 });
+
+    const mainLogsheet = logsheets.find(l => {
+      if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+      if (l.initial_product_application_id || l.addon_application_id) return false;
+      if (l.audit_type === 'Initial Product Evaluation') return false;
+      return true;
+    }) || null;
+
+    res.json({ data: mainLogsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -140,32 +394,75 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 // POST /api/application-logsheets
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { application_id, client_id, site_id, ...logsheetData } = req.body;
-    
-    // Upsert: update if exists, create if not
-    let logsheet = await ApplicationLogsheet.findOne({ application_id });
-    let isNew = false;
+    const {
+      application_id,
+      client_id,
+      site_id,
+      _id,
+      id,
+      initial_product_application_id,
+      addon_application_id,
+      source_type,
+      ...logsheetData
+    } = req.body;
+    const isObjId = mongoose.Types.ObjectId.isValid(application_id);
+
+    const allLogsheets = await ApplicationLogsheet.find({
+      $or: [
+        { application_id },
+        ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(application_id) }] : [])
+      ]
+    });
+
+    let logsheet = allLogsheets.find(l => {
+      if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+      if (l.initial_product_application_id || l.addon_application_id) return false;
+      if (l.audit_type === 'Initial Product Evaluation') return false;
+      return true;
+    });
+
+    const clientIdVal = (client_id && typeof client_id === 'object') ? client_id._id : client_id;
+    const siteIdVal = (site_id && typeof site_id === 'object') ? site_id._id : site_id;
+
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
+      logsheet.source_type = 'application';
+      logsheet.initial_product_application_id = undefined;
+      logsheet.addon_application_id = undefined;
+      if (clientIdVal) logsheet.client_id = clientIdVal;
+      if (siteIdVal) logsheet.site_id = siteIdVal;
+      logsheet.updated_at = new Date();
     } else {
-      logsheet = new ApplicationLogsheet({ application_id, client_id, site_id, ...logsheetData });
-      isNew = true;
+      logsheet = new ApplicationLogsheet({
+        application_id,
+        client_id: clientIdVal,
+        site_id: siteIdVal,
+        source_type: 'application',
+        ...logsheetData
+      });
+      logsheet.initial_product_application_id = undefined;
+      logsheet.addon_application_id = undefined;
     }
     
     await logsheet.save();
 
-    // Clean up any other duplicate logsheets for this application
+    // Clean up any duplicate main application logsheets
     if (application_id) {
       await ApplicationLogsheet.deleteMany({
-        application_id,
+        $or: [
+          { application_id },
+          ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(application_id) }] : [])
+        ],
+        source_type: 'application',
         _id: { $ne: logsheet._id }
       });
     }
 
-    // Update application status to logsheet_created (fix: was incorrectly setting 'AGREEMENT SENT')
+    // Update application status to logsheet_created
     const app = await Application.findByIdAndUpdate(
       application_id,
       {
+        logsheet_id: logsheet._id,
         status: 'logsheet_created',
         updated_at: new Date(),
         $push: {
@@ -173,7 +470,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_created',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'LogSheet created by admin. Awaiting signatory signatures.'
+            note: 'Application submitted for Committee Review. Awaiting committee endorsement.'
           }
         }
       },
@@ -206,12 +503,108 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 // GET /api/application-logsheets (Admin only)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const logsheets = await ApplicationLogsheet.find({})
+    const filter = {};
+    if (req.query.initial_product_application_id) {
+      filter.initial_product_application_id = req.query.initial_product_application_id;
+    }
+    if (req.query.application_id) {
+      filter.application_id = req.query.application_id;
+    }
+    if (req.query.addon_application_id) {
+      filter.addon_application_id = req.query.addon_application_id;
+    }
+    if (req.query.source_type) {
+      filter.source_type = req.query.source_type;
+    }
+
+    const logsheets = await ApplicationLogsheet.find(filter)
       .populate('application_id', 'application_number application_type status category')
-      .populate('client_id', 'full_name company_name email')
+      .populate('addon_application_id', 'status')
+      .populate('initial_product_application_id', 'status')
+      .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
-      .sort({ created_at: -1 });
+      .populate('created_by', 'full_name email role')
+      .sort({ created_at: -1, createdAt: -1 });
+
+    // Auto-sync logsheets where certificate has already been issued
+    const certIssuedLogs = logsheets.filter(l => l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
+    if (certIssuedLogs.length > 0) {
+      const idsToComplete = certIssuedLogs.map(l => l._id);
+      ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      certIssuedLogs.forEach(l => { l.status = 'Completed'; });
+    }
+
+    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate
+    const ipLogsToComplete = logsheets.filter(l => (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
+    if (ipLogsToComplete.length > 0) {
+      const ipIdsToComplete = ipLogsToComplete.map(l => l._id);
+      ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      ipLogsToComplete.forEach(l => { l.status = 'Completed'; });
+    }
+
     res.json({ data: logsheets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/application-logsheets/:id (Admin only)
+router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const logsheet = await ApplicationLogsheet.findById(req.params.id)
+      .populate('application_id')
+      .populate('client_id', 'full_name company_name email phone address')
+      .populate('site_id', 'name address')
+      .populate('created_by', 'full_name email role');
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+    res.json({ data: logsheet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id/documents (Admin only)
+router.put('/:id/documents', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { document_urls, audit_reports, document_url } = req.body;
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (Array.isArray(document_urls)) {
+      logsheet.document_urls = document_urls;
+    }
+    if (Array.isArray(audit_reports)) {
+      logsheet.audit_reports = audit_reports;
+    } else if (Array.isArray(document_urls)) {
+      logsheet.audit_reports = document_urls;
+    }
+    if (document_url !== undefined) {
+      logsheet.document_url = document_url;
+    } else if (Array.isArray(document_urls) && document_urls.length > 0) {
+      logsheet.document_url = document_urls[0].url;
+    }
+
+    logsheet.updated_at = new Date();
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Documents updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id (Admin only)
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    const { _id, id, ...updates } = req.body;
+    Object.assign(logsheet, updates);
+    logsheet.updated_at = new Date();
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Logsheet updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -258,30 +651,30 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'logsheet_created',
             changedAt: new Date(Date.now() - 2000),
             changedBy: req.user._id,
-            note: 'LogSheet generated for technical & shariah review.'
+            note: 'Submitted for technical & shariah committee review.'
           });
         }
         newHistory.push({
           status: 'logsheet_signed',
           changedAt: new Date(Date.now() - 1000),
           changedBy: req.user._id,
-          note: `LogSheet marked as done and verified with ${sigCount}/4 signatures.`
+          note: `Committee review completed and endorsed with ${sigCount}/4 signatures.`
         });
 
         if (isRenewal) {
           newHistory.push({
-            status: 'ready_for_certificate',
+            status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet completed and verified. Waiting for Certificate Issuance.'
+            note: 'Renewal review completed and verified. Application Successful — ready for Renewal Invoice.'
           });
-          app.status = 'ready_for_certificate';
+          app.status = 'application_successful';
         } else {
           newHistory.push({
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Application Successful — logsheet completed. Proceeding to Certification Agreement.'
+            note: 'Application Successful — committee review completed. Proceeding to Certification Agreement.'
           });
           app.status = 'application_successful';
         }
@@ -313,17 +706,19 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         return res.status(400).json({ error: `Cannot finalize logsheet without at least 3 committee signatures (currently ${sigCount}/4 signed).` });
       }
 
-      logsheet.status = 'Waiting For Certificate';
+      const isInitialProductLogsheet = logsheet.source_type === 'initial_product_application' || Boolean(logsheet.initial_product_application_id) || logsheet.audit_type === 'Initial Product Evaluation';
+      logsheet.status = isInitialProductLogsheet ? 'Completed' : 'Waiting For Certificate';
       await logsheet.save();
 
       const { approved_products } = req.body;
 
       // Handle add-on application logsheets separately
-      if (logsheet.source_type === 'addon_application' && logsheet.addon_application_id) {
+      const addonAppId = logsheet.addon_application_id || (logsheet.source_type === 'addon_application' ? logsheet.application_id : null);
+      if (addonAppId) {
         try {
           const { default: AddOnApplication } = await import('../models/AddOnApplication.js');
           const { default: Product } = await import('../models/Product.js');
-          const addonApp = await AddOnApplication.findById(logsheet.addon_application_id);
+          const addonApp = await AddOnApplication.findById(addonAppId);
           if (addonApp) {
             const approvedList = Array.isArray(approved_products) && approved_products.length > 0
               ? approved_products
@@ -391,35 +786,185 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         }
       }
 
+      // Handle initial product application logsheets
+      const initialProductAppId = logsheet.initial_product_application_id || (logsheet.source_type === 'initial_product_application' ? logsheet.application_id : null);
+      if (initialProductAppId) {
+        try {
+          const { default: InitialProductApplication } = await import('../models/InitialProductApplication.js');
+          const { default: Product } = await import('../models/Product.js');
+          const initialApp = await InitialProductApplication.findById(initialProductAppId);
+          if (initialApp) {
+            initialApp.status = 'initial_product_approved';
+            initialApp.statusHistory.push({
+              status: 'initial_product_approved',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: `Committee signatures verified (${sigCount}/4). 1 product(s) approved.`
+            });
+            await initialApp.save();
+
+            const clientId = initialApp.client_id?._id || initialApp.client_id;
+            const siteId = initialApp.site_id?._id || initialApp.site_id;
+            const prodName = initialApp.product?.name;
+
+            if (prodName) {
+              await Product.findOneAndUpdate(
+                { client_id: clientId, name: prodName },
+                {
+                  client_id: clientId,
+                  name: prodName,
+                  code: initialApp.product?.code || '',
+                  barcode: initialApp.product?.code || '',
+                  site_id: siteId,
+                  status: 'approved',
+                  category: initialApp.product?.category || 'Initial Product',
+                  is_initial: true,
+                  updated_at: new Date()
+                },
+                { upsert: true, new: true }
+              );
+            }
+
+            // Unlock main application audit stage
+            if (initialApp.application_id) {
+              try {
+                const parentAppId = initialApp.application_id._id || initialApp.application_id;
+                const parentApp = await Application.findById(parentAppId);
+                if (parentApp) {
+                  const auditEligibleStatuses = ['dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_successful', 'audit_completed'];
+                  if (!auditEligibleStatuses.includes(parentApp.status)) {
+                    parentApp.status = 'initial_product_approved';
+                  }
+                  parentApp.statusHistory.push({
+                    status: parentApp.status,
+                    changedAt: new Date(),
+                    changedBy: req.user._id,
+                    note: `Initial Product "${prodName || 'Product'}" approved by Committee. Facility audit scheduling is now ready.`
+                  });
+                  await parentApp.save();
+                  emitApplicationUpdate(parentApp, parentApp.status);
+
+                  // Email notification to Audit Managers
+                  try {
+                    const auditManagers = await User.find({
+                      $or: [
+                        { role: 'audit_manager' },
+                        { roles: 'audit_manager' }
+                      ]
+                    });
+                    const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
+                    const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
+                    for (const mgr of recipients) {
+                      if (mgr.email) {
+                        await resend.emails.send({
+                          from: emailFrom,
+                          to: mgr.email.trim(),
+                          subject: `📋 Ready for Audit: Application ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Client Site'})`,
+                          html: `
+                            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
+                              <div style="background:linear-gradient(135deg,#059669,#047857);border-radius:8px 8px 0 0;padding:24px;color:white">
+                                <h2 style="margin:0;font-size:20px;font-weight:800">Halal Food Authority</h2>
+                                <p style="margin:6px 0 0;font-size:13px;opacity:0.9">Audit Department &bull; Action Required</p>
+                              </div>
+                              <div style="padding:28px 24px;background:white;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
+                                <p style="margin-top:0;font-size:14px;color:#334155">Dear ${mgr.full_name || 'Audit Manager'},</p>
+                                <p style="font-size:14px;color:#334155;line-height:1.6">
+                                  The Initial Product (<strong>${prodName || 'Initial Product'}</strong>) for application <strong>${parentApp.application_number}</strong> has been officially approved by the Committee.
+                                </p>
+                                <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:16px 18px;margin:20px 0">
+                                  <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#166534;margin-bottom:8px">Application Summary</div>
+                                  <div style="font-size:13px;color:#1e293b;line-height:1.7">
+                                    <strong>Reference:</strong> ${parentApp.application_number}<br/>
+                                    <strong>Company:</strong> ${parentApp.establishment_name || 'Client'}<br/>
+                                    <strong>Site:</strong> ${parentApp.site_name || parentApp.establishment_address || 'Main Site'}<br/>
+                                    <strong>Scheme / Category:</strong> ${parentApp.category || 'Halal Certification'}<br/>
+                                    <strong>Status:</strong> Initial Product Approved &bull; Ready for Facility Audit
+                                  </div>
+                                </div>
+                                <p style="font-size:14px;color:#334155;line-height:1.6">
+                                  This application is now ready for audit date proposals, audit scheduling, and auditor assignment.
+                                </p>
+                                <div style="margin:24px 0;text-align:center">
+                                  <a href="${adminBaseUrl}/applications/${parentApp._id}/processing" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;display:inline-block">
+                                    Schedule Facility Audit &rarr;
+                                  </a>
+                                </div>
+                                <p style="font-size:12px;color:#94a3b8;margin-top:24px;border-top:1px solid #f1f5f9;padding-top:16px">
+                                  This is an automated notification from HFA Compliance Management.
+                                </p>
+                              </div>
+                            </div>
+                          `
+                        });
+                      }
+                      await createNotification(
+                        mgr._id,
+                        'Application Ready for Audit 📋',
+                        `Initial Product approved for ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Site'}). Ready for audit scheduling.`,
+                        'info',
+                        `/applications/${parentApp._id}/processing`
+                      );
+                    }
+                  } catch (mgrErr) {
+                    console.error('[Logsheet] Failed to notify audit managers:', mgrErr.message);
+                  }
+                }
+              } catch (pErr) {
+                console.error('[Logsheet] Error updating parent application:', pErr.message);
+              }
+            }
+
+            try {
+              const { getIO } = await import('../lib/socket.js');
+              const io = getIO();
+              if (io) {
+                io.emit('initial_product_updated', { id: initialApp._id, status: 'initial_product_approved' });
+                io.emit('product_updated', { client_id: clientId });
+              }
+            } catch (sockErr) {}
+          }
+        } catch (initErr) {
+          console.error('[Logsheet] Failed to update initial product application after sign-off:', initErr.message);
+        }
+      }
+
       // Update the linked main application to canonical milestone after logsheet sign-off
-      if (logsheet.source_type !== 'addon_application' && logsheet.application_id) {
+      if (!addonAppId && !initialProductAppId && logsheet.application_id) {
         const appId = logsheet.application_id._id || logsheet.application_id;
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';
-        const targetStatus = isRenewal ? 'ready_for_certificate' : 'application_successful';
+        const isSurveillance = currentApp?.application_type === 'surveillance';
+        const targetStatus = isSurveillance ? 'ready_for_certificate' : 'application_successful';
 
         const newHistoryEntries = [
           {
             status: 'logsheet_signed',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: `LogSheet marked as done with ${sigCount}/4 committee signatures. Products approved.`
+            note: `Committee review completed and endorsed with ${sigCount}/4 signatures. Products approved.`
           }
         ];
 
-        if (isRenewal) {
+        if (isSurveillance) {
           newHistoryEntries.push({
             status: 'ready_for_certificate',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal LogSheet signed & completed. Ready for Certificate Issuance.'
+            note: 'Surveillance review endorsed & completed. Ready for Surveillance Letter Issuance.'
+          });
+        } else if (isRenewal) {
+          newHistoryEntries.push({
+            status: 'application_successful',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Renewal review endorsed & completed. Application Successful — ready for Renewal Invoice.'
           });
         } else {
           newHistoryEntries.push({
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Application Successful — proceeding to certification agreement.'
+            note: 'Application Successful — committee review endorsed. Proceeding to certification agreement.'
           });
         }
 
@@ -466,6 +1011,39 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         }
       }
 
+      // Handle direct logsheet product sync if applicable
+      if (logsheet.source_type === 'direct' && logsheet.client_id) {
+        try {
+          const { default: Product } = await import('../models/Product.js');
+          const clientId = logsheet.client_id?._id || logsheet.client_id;
+          const siteId = logsheet.site_id?._id || logsheet.site_id;
+          const prodsToSync = Array.isArray(approved_products) && approved_products.length > 0
+            ? approved_products
+            : (Array.isArray(logsheet.products_list) ? logsheet.products_list : []);
+
+          for (const prod of prodsToSync) {
+            const pName = prod.name || prod.product_name;
+            if (pName) {
+              await Product.findOneAndUpdate(
+                { client_id: clientId, name: pName },
+                {
+                  client_id: clientId,
+                  name: pName,
+                  code: prod.code || '',
+                  category: prod.category || logsheet.product_category || 'Halal Certified',
+                  site_id: siteId,
+                  status: 'approved',
+                  updated_at: new Date()
+                },
+                { upsert: true, new: true }
+              );
+            }
+          }
+        } catch (dirSyncErr) {
+          console.error('[Logsheet] Failed to sync direct logsheet products:', dirSyncErr.message);
+        }
+      }
+
       return res.json({ data: logsheet, message: 'Products approved and logsheet marked as done!' });
     }
 
@@ -477,7 +1055,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
     if (!role) return res.status(400).json({ error: 'Role is required for signature' });
 
-    const rolesArray = Array.isArray(role) ? role : [role];
+    if (Array.isArray(role) && role.length > 1) {
+      return res.status(400).json({ error: 'Please sign logsheet roles one by one. Bulk signing is not permitted.' });
+    }
+
+    const singleRole = Array.isArray(role) ? role[0] : role;
+    const roleLower = (singleRole || '').toLowerCase();
 
     // Restrict Mufti from signing for CEO or Manager (Technical Auditor)
     const userRoleLower = (req.user.role || '').toLowerCase();
@@ -485,43 +1068,34 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
     const userFullNameLower = (req.user.full_name || '').toLowerCase();
     const isMuftiSigner = userRoleLower === 'mufti' || userRoleLower === 'shariah' || userUsernameLower.includes('mufti') || userFullNameLower.includes('mufti');
 
-    if (isMuftiSigner) {
-      const hasRestrictedRole = rolesArray.some(r => {
-        const rl = r.toLowerCase();
-        return rl === 'ceo' || rl === 'manager';
-      });
-      if (hasRestrictedRole) {
-        return res.status(403).json({ error: 'Mufti / Shariah Scholar signatories are not permitted to sign for CEO or Technical Auditor / Manager roles.' });
-      }
+    if (isMuftiSigner && (roleLower === 'ceo' || roleLower === 'manager')) {
+      return res.status(403).json({ error: 'Mufti / Shariah Scholar signatories are not permitted to sign for CEO or Technical Auditor / Manager roles.' });
     }
 
     const signerFullName = req.user.full_name || signature_name || req.user.username || 'Authorized Signatory';
 
-    for (const r of rolesArray) {
-      const roleLower = r.toLowerCase();
-      if (roleLower === 'mufti') {
-        if (logsheet.mufti_signature) return res.status(400).json({ error: 'Mufti role has already been signed.' });
-        logsheet.mufti_signature = signature_url;
-        logsheet.mufti_sign_name = signerFullName;
-        logsheet.mufti_sign_date = new Date();
-      } else if (roleLower === 'ceo') {
-        if (logsheet.ceo_signature) return res.status(400).json({ error: 'CEO role has already been signed.' });
-        logsheet.ceo_signature = signature_url;
-        logsheet.ceo_sign_name = signerFullName;
-        logsheet.ceo_sign_date = new Date();
-      } else if (roleLower === 'manager') {
-        if (logsheet.manager_signature) return res.status(400).json({ error: 'Manager role has already been signed.' });
-        logsheet.manager_signature = signature_url;
-        logsheet.manager_sign_name = signerFullName;
-        logsheet.manager_sign_date = new Date();
-      } else if (roleLower === 'mufti2') {
-        if (logsheet.mufti2_signature) return res.status(400).json({ error: 'Mufti 2 role has already been signed.' });
-        logsheet.mufti2_signature = signature_url;
-        logsheet.mufti2_sign_name = signerFullName;
-        logsheet.mufti2_sign_date = new Date();
-      } else {
-        return res.status(400).json({ error: `Invalid role selected: ${r}` });
-      }
+    if (roleLower === 'mufti') {
+      if (logsheet.mufti_signature) return res.status(400).json({ error: 'Mufti role has already been signed.' });
+      logsheet.mufti_signature = signature_url;
+      logsheet.mufti_sign_name = signerFullName;
+      logsheet.mufti_sign_date = new Date();
+    } else if (roleLower === 'ceo') {
+      if (logsheet.ceo_signature) return res.status(400).json({ error: 'CEO role has already been signed.' });
+      logsheet.ceo_signature = signature_url;
+      logsheet.ceo_sign_name = signerFullName;
+      logsheet.ceo_sign_date = new Date();
+    } else if (roleLower === 'manager') {
+      if (logsheet.manager_signature) return res.status(400).json({ error: 'Manager role has already been signed.' });
+      logsheet.manager_signature = signature_url;
+      logsheet.manager_sign_name = signerFullName;
+      logsheet.manager_sign_date = new Date();
+    } else if (roleLower === 'mufti2') {
+      if (logsheet.mufti2_signature) return res.status(400).json({ error: 'Mufti 2 role has already been signed.' });
+      logsheet.mufti2_signature = signature_url;
+      logsheet.mufti2_sign_name = signerFullName;
+      logsheet.mufti2_sign_date = new Date();
+    } else {
+      return res.status(400).json({ error: `Invalid role selected: ${singleRole}` });
     }
 
     if (comment) {
@@ -531,7 +1105,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
     // Keep state in "Waiting for Signature" to allow further role sign-offs one-by-one
     await logsheet.save();
     
-    res.json({ data: logsheet, message: `Successfully signed as ${role}` });
+    res.json({ data: logsheet, message: `Successfully signed as ${singleRole}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -548,22 +1122,37 @@ router.post('/:id/resend-emails', authenticateToken, requireAdmin, async (req, r
     const applicationNumber = logsheet.application_id?.application_number;
     const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
 
+    let customEmails = [];
+    if (req.body.emails) {
+      if (Array.isArray(req.body.emails)) {
+        customEmails = req.body.emails.map(e => String(e).trim()).filter(Boolean);
+      } else if (typeof req.body.emails === 'string') {
+        customEmails = req.body.emails.split(/[,;\n]+/).map(e => e.trim()).filter(Boolean);
+      }
+    } else if (req.body.email) {
+      customEmails = [String(req.body.email).trim()].filter(Boolean);
+    }
+
     const emailResult = await sendSignatoryEmails({
       logsheet,
       applicationNumber,
       adminUrl,
+      customEmails: customEmails.length > 0 ? customEmails : undefined,
+      customMessage: req.body.message || req.body.custom_message
     });
 
     if (emailResult.sent === 0 && emailResult.failed === 0) {
       return res.status(400).json({
-        error: 'No signatory email addresses configured. Set LOGSHEET_SIGNATORY_EMAILS in your .env file.'
+        error: 'No recipient email addresses provided or configured.'
       });
     }
 
+    const recipientDesc = customEmails.length > 0 ? ` to ${customEmails.join(', ')}` : '';
     res.json({
-      message: `Emails sent: ${emailResult.sent}, failed: ${emailResult.failed}`,
+      message: `Emails sent successfully${recipientDesc} (${emailResult.sent} sent${emailResult.failed > 0 ? `, ${emailResult.failed} failed` : ''})`,
       sent: emailResult.sent,
       failed: emailResult.failed,
+      recipients: customEmails.length > 0 ? customEmails : undefined
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

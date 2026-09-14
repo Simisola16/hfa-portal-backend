@@ -68,9 +68,15 @@ const addOnApplicationSchema = new mongoose.Schema({
   rejection_reason: String,
   notes: String, // internal admin notes
 
-  // FT assignment — array supports multiple assigned FT staff
+  // FT assignment — array supports multiple assigned FT staff or manual details
   assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // legacy (kept for populate compat)
   assigned_food_techs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  assigned_ft_details: String,
+  assigned_ft_custom: {
+    name: String,
+    email: String,
+    notes: String
+  },
 
   // Product Approval Form — ONE form per application authored by admin
   // Client responds per product in the product_responses array

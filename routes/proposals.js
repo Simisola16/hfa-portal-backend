@@ -41,14 +41,15 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
   try {
     const { application_id, client_id, title, estimated_cost, admin_comment, details } = req.body;
 
-    let proposal_url = '';
-    if (req.file) {
-      proposal_url = await uploadToGridFS(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+    if (!req.file) {
+      return res.status(400).json({ error: 'Proposal PDF document is required.' });
     }
+
+    const proposal_url = await uploadToGridFS(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
 
     // Check if proposal already exists
     let proposal = await Proposal.findOne({ application_id });
@@ -221,6 +222,36 @@ router.put('/:id', authenticateToken, async (req, res) => {
     Object.assign(proposal, otherData);
     
     const data = await proposal.save();
+
+    // Automatically synchronize Application status
+    if (status && data.application_id) {
+      try {
+        const Application = (await import('../models/Application.js')).default;
+        const { emitApplicationUpdate } = await import('../lib/socket.js');
+        const targetStatus = status === 'accepted' ? 'proposal_approved' : status === 'rejected' ? 'proposal_rejected' : null;
+        if (targetStatus) {
+          const updatedApp = await Application.findByIdAndUpdate(
+            data.application_id,
+            {
+              status: targetStatus,
+              updated_at: new Date(),
+              $push: {
+                statusHistory: {
+                  status: targetStatus,
+                  changedAt: new Date(),
+                  changedBy: req.user._id,
+                  note: `Proposal ${status === 'accepted' ? 'accepted' : 'rejected'} by client.${client_comment ? ` Reason: "${client_comment}"` : ''}`
+                }
+              }
+            },
+            { new: true }
+          );
+          if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+        }
+      } catch (appErr) {
+        console.error('[Proposal] Error syncing application status:', appErr.message);
+      }
+    }
 
     // Trigger email if proposal updated
     try {

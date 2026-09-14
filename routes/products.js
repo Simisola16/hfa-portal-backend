@@ -16,7 +16,7 @@ router.get('/', authenticateToken, async (req, res) => {
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
     }
-    const products = await Product.find(query).populate('site_id').sort({ created_at: -1 }).lean();
+    const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
     // Enrich with client user information
     const userIds = [...new Set(products.map(p => {

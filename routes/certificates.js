@@ -1,7 +1,9 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
+import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Site from '../models/Site.js';
@@ -32,11 +34,19 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
-    // Renewal applications do not require a Final Invoice — only Initial Invoice payment and ready_for_certificate status!
+    // Renewal applications require Renewal Invoice payment before certificate issuance
     if (app.application_type === 'renewal') {
-      if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+      const renewalInvoice = await Invoice.findOne({ application_id });
+      if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
-          error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+          error: 'The Renewal Invoice must be paid before a Certificate can be issued.',
+          code: 'RENEWAL_INVOICE_NOT_PAID',
+          invoice_status: renewalInvoice.status
+        });
+      }
+      if (!['ready_for_certificate', 'certificate_issued', 'payment_received', 'application_successful'].includes(app.status)) {
+        return res.status(403).json({
+          error: 'Application must be marked "Application Successful" or "Ready for Certificate" before issuing a certificate.',
           code: 'READY_FOR_CERTIFICATE_REQUIRED',
           application_status: app.status
         });
@@ -44,26 +54,20 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return next();
     }
 
-    const finalInvoice = await Invoice.findOne({ application_id, invoice_type: 'final' });
+    const invoices = await Invoice.find({ application_id });
+    const finalInvoice = invoices.find(inv => inv.invoice_type === 'final') || (invoices.length > 0 ? invoices[invoices.length - 1] : null);
 
-    if (!finalInvoice) {
+    if (finalInvoice && !['paid', 'client_paid'].includes(finalInvoice.status)) {
       return res.status(403).json({
-        error: 'A Final Invoice must be sent and paid before a Certificate can be issued.',
-        code: 'FINAL_INVOICE_REQUIRED'
-      });
-    }
-
-    if (!['paid', 'client_paid'].includes(finalInvoice.status)) {
-      return res.status(403).json({
-        error: 'The Final Invoice must be paid before a Certificate can be issued.',
+        error: 'The Invoice must be paid before a Certificate can be issued.',
         code: 'FINAL_INVOICE_NOT_PAID',
         invoice_status: finalInvoice.status
       });
     }
 
-    if (!['ready_for_certificate', 'certificate_issued'].includes(app.status)) {
+    if (!['ready_for_certificate', 'certificate_issued', 'application_successful', 'payment_received', 'initial_product_approved'].includes(app.status)) {
       return res.status(403).json({
-        error: 'Application must be marked "Ready for Certificate" before issuing a certificate.',
+        error: 'Application must be marked "Ready for Certificate" or "Application Successful" before issuing a certificate.',
         code: 'READY_FOR_CERTIFICATE_REQUIRED',
         application_status: app.status
       });
@@ -109,7 +113,46 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    res.json({ data });
+    // Attach has_ongoing_renewal flag to each certificate
+    let finalData = data;
+    try {
+      const clientIds = [...new Set(data.map(c => c.client_id ? String(c.client_id._id || c.client_id) : null).filter(Boolean))];
+      if (clientIds.length > 0) {
+        const ongoingRenewals = await Application.find({
+          client_id: { $in: clientIds },
+          application_type: 'renewal',
+          status: { $nin: ['rejected', 'certificate_issued'] }
+        }).select('_id application_number site_id renewed_certificate_id status');
+
+        finalData = data.map(c => {
+          const cObj = c.toObject ? c.toObject() : { ...c };
+          const cIdStr = String(c._id);
+          const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
+
+          const matchingApp = ongoingRenewals.find(app => {
+            const renCertStr = app.renewed_certificate_id ? String(app.renewed_certificate_id) : '';
+            if (renCertStr && renCertStr === cIdStr) return true;
+            const appSiteStr = app.site_id ? String(app.site_id) : '';
+            if (appSiteStr && cSiteStr && appSiteStr === cSiteStr) return true;
+            return false;
+          });
+
+          if (matchingApp) {
+            cObj.has_ongoing_renewal = true;
+            cObj.ongoing_renewal_id = matchingApp._id;
+            cObj.ongoing_renewal_number = matchingApp.application_number;
+            cObj.ongoing_renewal_status = matchingApp.status;
+          } else {
+            cObj.has_ongoing_renewal = false;
+          }
+          return cObj;
+        });
+      }
+    } catch (renewalErr) {
+      console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
+    }
+
+    res.json({ data: finalData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -125,6 +168,44 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       .populate('reviewed_by', 'full_name email role');
     res.json({ data });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/certificates/direct-history (Superadmin & Authorized Staff - MUST be before /:id)
+router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
+  try {
+    const certs = await Certificate.find({ is_direct_issuance: true })
+      .populate('site_id')
+      .populate('issued_by', 'full_name email username')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
+    const validUserIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const users = await User.find({ _id: { $in: validUserIds } }, 'company_name full_name email phone address country').lean();
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = u; });
+
+    const enriched = await Promise.all(certs.map(async (c) => {
+      const client = userMap[c.client_id] || null;
+      const products = await Product.find({ 
+        $or: [
+          { certificate_id: c._id.toString() },
+          { certificate_id: c.certificate_number }
+        ]
+      }).lean();
+      return {
+        ...c,
+        id: c._id.toString(),
+        client,
+        products
+      };
+    }));
+
+    res.json({ data: enriched });
+  } catch (err) {
+    console.error('Direct history error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -173,7 +254,10 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       manufacturing_address,
       scope,
       issue_date, 
-      expiry_date, 
+      expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date, 
       products_covered, 
       product_details,
       certificate_number,
@@ -212,8 +296,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         parsedProductDetails = JSON.parse(product_details);
       } catch (e) {
         parsedProductDetails = parsedProducts.map((p, idx) => ({
-          name: typeof p === 'string' ? p : p.name,
-          code: `GEN-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title),
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          description: typeof p === 'object' && p.description ? p.description : '',
           category: 'Halal Certified',
           barcode: ''
         }));
@@ -223,6 +308,14 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let app = null;
     if (application_id) {
       app = await Application.findById(application_id);
+    }
+
+    let resolvedScheme = certificate_type;
+    if (!resolvedScheme) {
+      if (app?.category?.toLowerCase().includes('cosmetic')) resolvedScheme = 'Cosmetics';
+      else if (app?.category?.toLowerCase().includes('meat') && !app?.category?.toLowerCase().includes('non')) resolvedScheme = 'GSO meat';
+      else if (app?.category?.toLowerCase().includes('gso') || app?.category?.toLowerCase().includes('uae')) resolvedScheme = 'GSO non-meat';
+      else resolvedScheme = 'HFA Scheme';
     }
 
     let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || 'Halal Certified Client';
@@ -236,19 +329,25 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     } else {
       // Auto-generate initial PDF preview
       try {
-        const productCategories = parsedProducts.map((p, idx) => ({
-          code: `PROD-${String(idx + 1).padStart(2, '0')}`,
-          name: typeof p === 'string' ? p : (p.name || p.title)
+        const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p, idx) => ({
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+          description: typeof p === 'object' ? (p.description || p.name) : p
         }));
         const pdfBuffer = await generateCertificate({
+          certificateType: resolvedScheme,
           businessName: resolvedCompanyName,
           businessAddress: resolvedCompanyAddress,
           manufacturerAddress: resolvedManufacturingAddress,
           certificateNumber: certNo,
           scopeOfCertification: resolvedScope,
           productCategories,
+          products: productCategories,
           issueDate: issue_date || new Date(),
           expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          certificationStartDate: certification_start_date || issue_date || new Date(),
+          currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
+          originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
           verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNo}`
         });
         const filename = `${certNo}.pdf`;
@@ -258,38 +357,64 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
-    const initialStatus = reqStatus || 'under_review';
+    // Certificates must always go to Review Certification page first
+    const initialStatus = 'under_review';
 
-    const certificate = new Certificate({
-      certificate_number: certNo,
-      client_id,
-      application_id,
-      site_id,
-      certificate_type: certificate_type || (app?.category?.includes('UAE') ? 'UAE/GSO Halal Certification' : 'Halal Certification'),
-      company_name: resolvedCompanyName,
-      company_address: resolvedCompanyAddress,
-      manufacturing_address: resolvedManufacturingAddress,
-      scope: resolvedScope,
-      issue_date: issue_date || new Date(),
-      expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      products_covered: parsedProducts,
-      product_details: parsedProductDetails,
-      certificate_url,
-      status: initialStatus,
-      created_by: req.user._id,
-      review_notes: review_notes || ''
-    });
+    let certificate = null;
+    if (application_id) {
+      certificate = await Certificate.findOne({ application_id, status: { $in: ['under_review', 'draft'] } });
+    }
+
+    if (certificate) {
+      certificate.certificate_number = certNo;
+      certificate.client_id = client_id || certificate.client_id;
+      certificate.site_id = site_id || certificate.site_id;
+      certificate.certificate_type = resolvedScheme;
+      certificate.company_name = resolvedCompanyName;
+      certificate.company_address = resolvedCompanyAddress;
+      certificate.manufacturing_address = resolvedManufacturingAddress;
+      certificate.scope = resolvedScope;
+      certificate.issue_date = issue_date || certificate.issue_date;
+      certificate.expiry_date = expiry_date || certificate.expiry_date;
+      certificate.certification_start_date = certification_start_date || certificate.certification_start_date;
+      certificate.current_cycle_start_date = current_cycle_start_date || certificate.current_cycle_start_date;
+      certificate.original_cycle_start_date = original_cycle_start_date || certificate.original_cycle_start_date;
+      certificate.products_covered = parsedProducts;
+      certificate.product_details = parsedProductDetails;
+      if (certificate_url) certificate.certificate_url = certificate_url;
+      certificate.status = initialStatus;
+      certificate.review_notes = review_notes || certificate.review_notes;
+      certificate.updated_at = new Date();
+    } else {
+      certificate = new Certificate({
+        certificate_number: certNo,
+        client_id,
+        application_id,
+        site_id,
+        certificate_type: resolvedScheme,
+        company_name: resolvedCompanyName,
+        company_address: resolvedCompanyAddress,
+        manufacturing_address: resolvedManufacturingAddress,
+        scope: resolvedScope,
+        issue_date: issue_date || new Date(),
+        expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        certification_start_date: certification_start_date || issue_date || new Date(),
+        current_cycle_start_date: current_cycle_start_date || issue_date || new Date(),
+        original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
+        products_covered: parsedProducts,
+        product_details: parsedProductDetails,
+        certificate_url,
+        status: initialStatus,
+        created_by: req.user._id,
+        review_notes: review_notes || ''
+      });
+    }
 
     const data = await certificate.save();
 
-    // If directly created as active, perform issuance routines
-    if (initialStatus === 'active') {
-      await performCertificateIssuance({ certificate: data, application_id, client_id, site_id, certNo, user: req.user });
-    }
-
     res.status(201).json({ 
       success: true, 
-      message: initialStatus === 'under_review' ? 'Certificate created and ready for review' : 'Certificate issued successfully',
+      message: 'Certificate created and ready for review',
       data 
     });
   } catch (err) {
@@ -357,6 +482,53 @@ async function performCertificateIssuance({ certificate, application_id, client_
         }
       }
     });
+
+    // Mark associated application logsheets as Completed so they leave Waiting for Certificate
+    try {
+      await ApplicationLogsheet.updateMany(
+        { application_id },
+        { $set: { status: 'Completed', updated_at: new Date() } }
+      );
+    } catch (e) {
+      console.error('Error updating logsheets to Completed on certificate issuance:', e);
+    }
+  }
+
+  // Sync products covered to Product collection
+  try {
+    const prodsToSync = (certificate.product_details && certificate.product_details.length > 0)
+      ? certificate.product_details
+      : (certificate.products_covered || []).map(p => (typeof p === 'string' ? { name: p } : p));
+
+    for (const prod of prodsToSync) {
+      const prodName = typeof prod === 'string' ? prod.trim() : (prod.name || prod.product_name || prod.title || '').trim();
+      if (!prodName) continue;
+      const prodCode = typeof prod === 'object' ? (prod.code || prod.barcode || '') : '';
+      const prodDesc = typeof prod === 'object' ? (prod.description || '') : '';
+      const prodCategory = typeof prod === 'object' ? (prod.category || 'Halal Certified') : 'Halal Certified';
+      const prodType = typeof prod === 'object' ? (prod.product_type || 'Processed') : 'Processed';
+
+      await Product.findOneAndUpdate(
+        { client_id, name: prodName },
+        {
+          $set: {
+            client_id,
+            site_id: site_id || undefined,
+            certificate_id: certificate._id.toString(),
+            name: prodName,
+            code: prodCode,
+            category: prodCategory,
+            product_type: prodType,
+            description: prodDesc,
+            status: 'active',
+            updated_at: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+    }
+  } catch (syncErr) {
+    console.warn('[Certificate] Product sync warning during issuance:', syncErr.message);
   }
 
   // Notify client
@@ -416,6 +588,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
       scope,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       products_covered,
       product_details,
       review_notes,
@@ -430,6 +605,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (certification_start_date) cert.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
     if (status) cert.status = status;
 
@@ -485,6 +663,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       scope,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       products_covered,
       product_details,
       certificate_type,
@@ -501,6 +682,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (certification_start_date) cert.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
 
     if (products_covered) {
@@ -516,21 +700,40 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       }
     }
 
+    if (product_details) {
+      if (Array.isArray(product_details)) {
+        cert.product_details = product_details;
+      } else if (typeof product_details === 'string') {
+        try {
+          cert.product_details = JSON.parse(product_details);
+        } catch (e) {}
+      }
+    }
+
     // Regenerate final PDF to ensure it is 100% up-to-date with reviewer edits
     try {
-      const productCategories = (cert.products_covered || []).map((p, idx) => ({
-        code: `PROD-${String(idx + 1).padStart(2, '0')}`,
-        name: typeof p === 'string' ? p : (p.name || p.title)
-      }));
+      const prods = (cert.product_details && cert.product_details.length > 0)
+        ? cert.product_details
+        : (cert.products_covered || []).map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+            description: typeof p === 'object' ? (p.description || p.name) : p
+          }));
+
       const pdfBuffer = await generateCertificate({
+        certificateType: cert.certificate_type || 'HFA Scheme',
         businessName: cert.company_name || 'Halal Certified Client',
         businessAddress: cert.company_address || '—',
         manufacturerAddress: cert.manufacturing_address || 'Same as above',
         certificateNumber: cert.certificate_number,
         scopeOfCertification: cert.scope || 'Halal Food Certification',
-        productCategories,
+        productCategories: prods,
+        products: prods,
         issueDate: cert.issue_date || new Date(),
         expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
+        currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
+        originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
         verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${cert.certificate_number}`
       });
       const filename = `${cert.certificate_number}.pdf`;
@@ -573,23 +776,37 @@ async function buildCertDataFromApplication(application) {
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
   const certNumber = generateHfaId(companyForId);
   
-  const productCategories = (application.products || []).map(p => ({
-    code: p.brand || 'GEN',
-    name: p.name
+  let scheme = 'HFA Scheme';
+  if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
+  else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'GSO meat';
+  else if (application?.category?.toLowerCase().includes('gso') || application?.category?.toLowerCase().includes('uae')) scheme = 'GSO non-meat';
+
+  const productCategories = (application.products || []).map((p, idx) => ({
+    code: p.brand || p.code || `PRD-${String(idx + 1).padStart(2, '0')}`,
+    name: p.name,
+    description: p.description || p.name
   }));
 
+  const issueDate = new Date();
+  const expiryDate = (scheme === 'GSO meat' || scheme === 'GSO non-meat')
+    ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
   return {
+    certificateType: scheme,
     businessName: client ? (client.company_name || client.full_name) : application.establishment_name,
     businessAddress: application.establishment_address || '—',
     manufacturerAddress: application.manufacturer_address || 'Same as above',
     certificateNumber: certNumber,
     scopeOfCertification: application.scope || 'Halal Food Certification',
     productCategories,
-    issueDate: new Date(),
-    expiryDate: application.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
-      ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
-      : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-    verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
+    products: productCategories,
+    issueDate,
+    expiryDate,
+    certificationStartDate: issueDate,
+    currentCycleStartDate: issueDate,
+    originalCycleStartDate: issueDate,
+    verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
   };
 }
 
@@ -606,13 +823,16 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    // Check if an active certificate already exists for this application
-    let existingCert = await Certificate.findOne({ application_id: applicationId, status: 'active' });
+    // Check if an active or pending review certificate already exists for this application
+    let existingCert = await Certificate.findOne({ application_id: applicationId, status: { $in: ['active', 'under_review'] } });
     if (existingCert) {
       return res.status(400).json({ 
-        error: 'An active certificate already exists for this application. Use the regenerate endpoint to recreate it.',
+        error: existingCert.status === 'under_review'
+          ? 'A certificate draft for this application is already in Pending Review. Please inspect and approve it on the review page.'
+          : 'An active certificate already exists for this application. Use the regenerate endpoint to recreate it.',
         certificateNumber: existingCert.certificate_number,
-        certificateUrl: existingCert.certificate_url
+        certificateUrl: existingCert.certificate_url,
+        reviewUrl: `/certificates/${existingCert._id}/review`
       });
     }
 
@@ -623,7 +843,7 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
     const filename = `${certData.certificateNumber}.pdf`;
     const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
 
-    // Save certificate record
+    // Save certificate record strictly in under_review (Pending Review)
     const certificate = new Certificate({
       certificate_number: certData.certificateNumber,
       client_id: application.client_id.toString(),
@@ -636,58 +856,23 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
         ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
         : ['Certified Halal Food Products'],
       certificate_url,
-      status: 'active'
+      status: 'under_review'
     });
 
     const data = await certificate.save();
 
-    // Update application status to CERTIFICATE ISSUED (case matches the status list in frontend/routes)
+    // Ensure application status is set to ready_for_certificate awaiting QA review
     await Application.findByIdAndUpdate(applicationId, {
-      status: 'certificate_issued',
+      status: 'ready_for_certificate',
       updated_at: new Date()
     });
 
-    // Notify client
-    await createNotification(
-      application.client_id,
-      '🏅 Certificate Issued',
-      `Your Halal Certification certificate (${certData.certificateNumber}) has been issued. Please log in to download it.`,
-      'success',
-      '/certificates'
-    );
-
-    // Send email to client
-    const client = await User.findById(application.client_id);
-    if (client) {
-      try {
-        await resend.emails.send({
-          from: emailFrom,
-          to: client.email,
-          subject: `🏅 Your Halal Certificate is Ready – ${certData.certificateNumber}`,
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
-              <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
-                <h1 style="color:white;margin:0">🏅 Certificate Issued</h1>
-                <p style="color:#bbf7d0;margin:8px 0 0">Halal Food Authority</p>
-              </div>
-              <div style="background:white;border-radius:12px;padding:32px">
-                <h2 style="color:#166534;margin:0 0 16px">Congratulations, ${client.full_name}!</h2>
-                <p style="color:#374151">Your Halal Certificate has been issued for <strong>${client.company_name}</strong>.</p>
-                <p style="color:#374151">Certificate Number: <strong>${certData.certificateNumber}</strong></p>
-                <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/certificates" style="display:inline-block;background:linear-gradient(135deg,#15803d,#166534);color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">View My Certificate</a>
-              </div>
-            </div>
-          `,
-        });
-      } catch (emailErr) {
-        console.error('Resend Email Error:', emailErr);
-      }
-    }
-
     res.status(201).json({ 
       success: true, 
+      message: 'Certificate created and sent to Pending Review for QA inspection.',
       certificateUrl: certificate_url, 
       certificateNumber: certData.certificateNumber,
+      reviewUrl: `/certificates/${data._id}/review`,
       data 
     });
   } catch (err) {
@@ -715,15 +900,24 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       scope,
       issue_date,
       expiry_date,
-      products_covered
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
+      certificate_type,
+      products_covered,
+      product_details
     } = req.body || {};
 
+    if (certificate_type) certificate.certificate_type = certificate_type;
     if (company_name) certificate.company_name = company_name;
     if (company_address) certificate.company_address = company_address;
     if (manufacturing_address) certificate.manufacturing_address = manufacturing_address;
     if (scope) certificate.scope = scope;
     if (issue_date) certificate.issue_date = issue_date;
     if (expiry_date) certificate.expiry_date = expiry_date;
+    if (certification_start_date) certificate.certification_start_date = certification_start_date;
+    if (current_cycle_start_date) certificate.current_cycle_start_date = current_cycle_start_date;
+    if (original_cycle_start_date) certificate.original_cycle_start_date = original_cycle_start_date;
 
     let parsedProducts = certificate.products_covered || [];
     if (products_covered) {
@@ -741,26 +935,44 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       }
     }
 
+    if (product_details) {
+      if (Array.isArray(product_details)) {
+        certificate.product_details = product_details;
+      } else if (typeof product_details === 'string') {
+        try {
+          certificate.product_details = JSON.parse(product_details);
+        } catch (e) {}
+      }
+    }
+
     const resolvedBusinessName = certificate.company_name || client?.company_name || client?.full_name || application?.establishment_name || 'Halal Certified Client';
     const resolvedBusinessAddress = certificate.company_address || application?.establishment_address || client?.address || '—';
     const resolvedManufacturerAddress = certificate.manufacturing_address || application?.manufacturer_address || resolvedBusinessAddress;
     const resolvedScope = certificate.scope || application?.scope || 'Halal Food Certification';
 
-    const productCategories = (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
-      .map((p, idx) => ({
-        code: `GEN-${String(idx + 1).padStart(2, '0')}`,
-        name: typeof p === 'string' ? p : (p?.name || p?.title || String(p))
-      }));
+    const prods = (certificate.product_details && certificate.product_details.length > 0)
+      ? certificate.product_details
+      : (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
+          .map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p?.name || p?.title || p?.description || String(p)),
+            description: typeof p === 'object' ? (p?.description || p?.name) : p
+          }));
 
     const certData = {
+      certificateType: certificate.certificate_type || 'HFA Scheme',
       businessName: resolvedBusinessName,
       businessAddress: resolvedBusinessAddress,
       manufacturerAddress: resolvedManufacturerAddress,
       certificateNumber: certificate.certificate_number,
       scopeOfCertification: resolvedScope,
-      productCategories,
+      productCategories: prods,
+      products: prods,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
+      currentCycleStartDate: certificate.current_cycle_start_date || certificate.issue_date || new Date(),
+      originalCycleStartDate: certificate.original_cycle_start_date || certificate.issue_date || new Date(),
       verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificate.certificate_number}`
     };
 
@@ -840,6 +1052,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       scope_of_certification,
       issue_date,
       expiry_date,
+      certification_start_date,
+      current_cycle_start_date,
+      original_cycle_start_date,
       status,
       notes,
       
@@ -955,18 +1170,31 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     if (req.file) {
       certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
+      const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
+      const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
+      const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
+      const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
+
       const certData = {
+        certificateType: certificate_type || 'HFA Scheme',
         businessName: targetClient.company_name || targetClient.full_name || 'Valued Client',
         businessAddress: businessAddress,
         manufacturerAddress: manufacturerAddr,
         certificateNumber: certNumber,
         scopeOfCertification: scope_of_certification || 'Halal Food Certification',
         productCategories: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'GEN', name: p.name }))
-          : [{ code: 'GEN', name: 'Certified Halal Food Products' }],
-        issueDate: issue_date ? new Date(issue_date) : new Date(),
-        expiryDate: expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+        products: cleanProducts.length > 0
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+        issueDate: parsedIssueDate,
+        expiryDate: parsedExpiryDate,
+        certificationStartDate: parsedCertStartDate,
+        currentCycleStartDate: parsedCurrentCycle,
+        originalCycleStartDate: parsedOrigCycle,
+        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
       };
 
       try {
@@ -981,15 +1209,22 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     // 6. Save Certificate
     const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
     const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
+    const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
+    const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
 
     const certificate = new Certificate({
       certificate_number: certNumber,
       client_id: targetClientId,
       site_id: targetSiteId || undefined,
-      certificate_type: certificate_type || 'Annual Halal Certificate',
+      certificate_type: certificate_type || 'HFA Scheme',
       issue_date: parsedIssueDate,
       expiry_date: parsedExpiryDate,
+      certification_start_date: parsedCertStartDate,
+      current_cycle_start_date: parsedCurrentCycle,
+      original_cycle_start_date: parsedOrigCycle,
       products_covered: productsCoveredNames,
+      product_details: cleanProducts,
       certificate_url,
       status: status || 'active',
       is_direct_issuance: true,
@@ -1065,7 +1300,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
                 <p style="color:#374151">Your official Halal Certificate has been issued for <strong>${targetClient.company_name || targetClient.full_name}</strong>.</p>
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:20px 0">
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Number:</strong> ${certNumber}</p>
-                  <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Type:</strong> ${certificate_type || 'Annual Halal Certificate'}</p>
+                  <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certificate Type:</strong> ${certificate_type || 'HFA SCHEME'}</p>
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certified Products:</strong> ${createdProductDocs.length} product(s) registered</p>
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Expiry Date:</strong> ${parsedExpiryDate.toLocaleDateString('en-GB')}</p>
                 </div>
@@ -1093,36 +1328,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
   }
 });
 
-// GET /api/certificates/direct-history (Superadmin & Authorized Staff)
-router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
-  try {
-    const certs = await Certificate.find({ is_direct_issuance: true })
-      .populate('site_id')
-      .populate('issued_by', 'full_name email username')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
-    const users = await User.find({ _id: { $in: userIds } }, 'company_name full_name email phone address country').lean();
-    const userMap = {};
-    users.forEach(u => { userMap[u._id.toString()] = u; });
-
-    const enriched = await Promise.all(certs.map(async (c) => {
-      const client = userMap[c.client_id] || null;
-      const products = await Product.find({ certificate_id: c._id.toString() }).lean();
-      return {
-        ...c,
-        id: c._id.toString(),
-        client,
-        products
-      };
-    }));
-
-    res.json({ data: enriched });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // PUT revoke
 router.put('/:id/revoke', authenticateToken, requireAdmin, async (req, res) => {

@@ -1,22 +1,19 @@
 import express from 'express';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
-const router = express.Router();
-
 import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
 import { createNotification } from '../lib/notifications.js';
+import { Resend } from 'resend';
+import dotenv from 'dotenv';
 
-// GET /api/users/:id
-router.get('/:id', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ data: user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+dotenv.config();
+
+const router = express.Router();
+const resend = new Resend(process.env.RESEND_API_KEY);
+const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
+
+// ─── CLIENT TEAM / SUBUSERS ENDPOINTS (Must be defined BEFORE /:id) ───────────────
 
 // GET /api/users/company/subusers (Client endpoint to get primary user + subusers)
 router.get('/company/subusers', authenticateToken, async (req, res) => {
@@ -69,7 +66,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
     const existing = await User.findOne({ email: email.trim().toLowerCase() });
     if (existing) return res.status(400).json({ error: 'User with this email already exists' });
 
-    const subUserPassword = password || `HFA${Math.random().toString(36).slice(-8)}!`;
+    const subUserPassword = password?.trim() || `HFA${Math.random().toString(36).slice(-8)}!`;
 
     const subUser = new User({
       full_name: full_name.trim(),
@@ -91,7 +88,73 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
     const resData = data.toJSON();
     delete resData.password;
 
-    res.status(201).json({ data: resData, message: 'Team member added successfully' });
+    // Send Welcome / Credentials email to newly created subuser
+    try {
+      const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+      const roleLabel = role ? (role.charAt(0).toUpperCase() + role.slice(1)) : 'Viewer';
+      await resend.emails.send({
+        from: emailFrom,
+        to: subUser.email,
+        subject: `Welcome to HFA Portal — Team Account for ${parent.company_name || parent.full_name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+            <div style="background: linear-gradient(135deg, #15803d, #166534); padding: 28px 32px; text-align: center; color: white;">
+              <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+              <p style="margin: 6px 0 0; font-size: 13.5px; opacity: 0.9;">Company Team Portal Access</p>
+            </div>
+            <div style="padding: 28px 32px; background: white;">
+              <p style="font-size: 15px; color: #1e293b; margin-top: 0;">Hello <strong>${subUser.full_name}</strong>,</p>
+              <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                You have been added as a team member (<strong>${roleLabel}</strong>) for <strong>${parent.company_name || parent.full_name}</strong> on the HFA Certification Portal.
+              </p>
+              <div style="background: #f1f5f9; border-radius: 8px; padding: 18px 20px; margin: 20px 0;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 8px;">Your Login Credentials</div>
+                <div style="font-size: 13.5px; color: #1e293b; margin-bottom: 6px;"><strong>Email:</strong> ${subUser.email}</div>
+                <div style="font-size: 13.5px; color: #1e293b;"><strong>Password:</strong> <code style="background: #e2e8f0; padding: 3px 8px; border-radius: 4px; font-family: monospace;">${subUserPassword}</code></div>
+              </div>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${clientPortalUrl}/login" style="display: inline-block; background: #15803d; color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+                  Log In to Client Portal &rarr;
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin-top: 20px; border-top: 1px solid #f1f5f9; padding-top: 14px;">
+                You can change your password anytime in your profile settings after logging in.
+              </p>
+            </div>
+          </div>
+        `
+      });
+    } catch (emailErr) {
+      console.warn('[Users] Welcome email failed for subuser:', emailErr.message);
+    }
+
+    res.status(201).json({
+      data: resData,
+      temp_password: subUserPassword,
+      message: 'Team member added successfully'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/company/subusers/:id (Client endpoint to update a subuser)
+router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
+  try {
+    const parentId = req.user.parent_client_id || req.user._id;
+    const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
+    if (!subUser) return res.status(404).json({ error: 'Team member not found or access denied' });
+
+    const { full_name, role, password } = req.body;
+    if (full_name?.trim()) subUser.full_name = full_name.trim();
+    if (role && ['admin', 'editor', 'viewer'].includes(role)) subUser.client_role = role;
+    if (password?.trim()) subUser.password = password.trim();
+
+    await subUser.save();
+    const resData = subUser.toJSON();
+    delete resData.password;
+
+    res.json({ data: resData, message: 'Team member updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -111,15 +174,44 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── GENERAL USER ENDPOINTS ───────────────────────────────────────────────────────
+
+// GET /api/users/:id
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ data: user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
-  const isStaffRole = ['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(role);
-  if (isStaffRole && !username?.trim()) {
-    return res.status(400).json({ error: 'Username is required for HFA Staff accounts.' });
+  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
+  
+  if (!email?.trim()) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+  if (!password?.trim()) {
+    return res.status(400).json({ error: 'Password is required.' });
   }
 
+  // Parse and normalize assigned roles
+  let assignedRoles = [];
+  if (Array.isArray(roles) && roles.length > 0) {
+    assignedRoles = roles.filter(Boolean);
+  } else if (role) {
+    assignedRoles = Array.isArray(role) ? role : [role];
+  } else {
+    assignedRoles = ['food_tech'];
+  }
+
+  const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+  const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+
   try {
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
     if (existing) return res.status(400).json({ error: 'Email already exists' });
     if (username?.trim()) {
       const existingUser = await User.findOne({ username: username.trim() });
@@ -127,17 +219,18 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     const user = new User({
-      email,
+      email: email.trim().toLowerCase(),
       password,
-      full_name,
-      company_name: company_name || full_name,
+      full_name: full_name?.trim() || '',
+      company_name: company_name || full_name || '',
       phone,
       address,
       postcode,
       country,
-      role: role || 'client',
-      can_issue_direct_certificate: Boolean(can_issue_direct_certificate),
-      username: username || undefined,
+      role: primaryRole,
+      roles: assignedRoles,
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || primaryRole === 'certificate_officer' || assignedRoles.includes('superadmin') || assignedRoles.includes('certificate_officer')),
+      username: username?.trim() || undefined,
       is_verified: true,
       is_active: true
     });
@@ -158,13 +251,14 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await User.find().sort({ created_at: -1 });
     
-    // Enrich users with stats
+    // Enrich users with stats and normalized roles
     const enrichedUsers = await Promise.all(users.map(async (u) => {
       const appCount = await Application.countDocuments({ client_id: u._id });
       const approvedAppCount = await Application.countDocuments({ client_id: u._id, status: 'approved' });
       const certCount = await Certificate.countDocuments({ client_id: u._id, status: 'active' });
       const userObj = u.toJSON();
-      return { ...userObj, appCount, approvedAppCount, certCount };
+      const userRoles = (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : []);
+      return { ...userObj, roles: userRoles, appCount, approvedAppCount, certCount };
     }));
 
     res.json({ data: enrichedUsers });
@@ -175,8 +269,30 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role } = req.body;
-    const data = await User.findByIdAndUpdate(req.params.id, { role }, { new: true });
+    const { role, roles, can_issue_direct_certificate } = req.body;
+    let assignedRoles = [];
+    if (Array.isArray(roles) && roles.length > 0) {
+      assignedRoles = roles.filter(Boolean);
+    } else if (role) {
+      assignedRoles = Array.isArray(role) ? role : [role];
+    } else {
+      assignedRoles = ['food_tech'];
+    }
+
+    const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+    const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+
+    const updateObj = {
+      role: primaryRole,
+      roles: assignedRoles
+    };
+    if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
+      updateObj.can_issue_direct_certificate = true;
+    } else if (can_issue_direct_certificate !== undefined) {
+      updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+    }
+
+    const data = await User.findByIdAndUpdate(req.params.id, updateObj, { new: true });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
