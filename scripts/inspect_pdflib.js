@@ -5,17 +5,20 @@ import { PDFDocument } from 'pdf-lib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '../..');
 
-async function inspect() {
-  const filePath = path.resolve(rootDir, 'Template GSO Scheme (meat) Cert-unlocked (1).pdf');
-  console.log('Inspecting file:', filePath);
-  const pdfBytes = fs.readFileSync(filePath);
-  console.log('Size:', pdfBytes.length);
-  const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  console.log('Pages:', doc.getPageCount());
+async function inspectPdfLib(fileName) {
+  const filePath = path.join(__dirname, '../assets/certificates', fileName);
+  const buf = fs.readFileSync(filePath);
+  const doc = await PDFDocument.load(buf);
   const page = doc.getPage(0);
-  console.log('Dimensions:', page.getWidth(), 'x', page.getHeight());
+  console.log(`\n=== ${fileName} === size: ${page.getWidth()} x ${page.getHeight()}`);
 }
 
-inspect().catch(console.error);
+async function run() {
+  await inspectPdfLib('Template GSO Scheme (meat) Cert-unlocked (1) 2.pdf');
+  await inspectPdfLib('Template GSO Scheme (Non-meat) Cert-unlocked 2.pdf');
+  await inspectPdfLib('Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf');
+  await inspectPdfLib('Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked 2.pdf');
+  await inspectPdfLib('Template HFA Scheme (Cosmetic) Cert 11 Oct 22-unlocked 1.pdf');
+}
+run().catch(console.error);

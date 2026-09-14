@@ -193,7 +193,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA Scheme (meat)': {
     name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -204,7 +204,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA SCHEME MEAT': {
     name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -215,7 +215,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA Scheme Meat': {
     name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -226,7 +226,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA Scheme (non-meat)': {
     name: 'HFA Scheme (non-meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -237,7 +237,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA SCHEME NON MEAT': {
     name: 'HFA Scheme (non-meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -248,7 +248,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA Scheme Non-Meat': {
     name: 'HFA Scheme (non-meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -259,7 +259,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA Scheme': {
     name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -270,7 +270,7 @@ export const CERTIFICATE_SCHEMES = {
   'HFA SCHEME': {
     name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -323,7 +323,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO meat': {
     name: 'GSO meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -335,7 +335,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO MEAT': {
     name: 'GSO meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -347,7 +347,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO Meat': {
     name: 'GSO meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -359,7 +359,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO non-meat': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -370,7 +370,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO NON MEAT': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -381,7 +381,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO Non-Meat': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -392,7 +392,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO Non Meat': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 2.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -604,38 +604,44 @@ export async function generateCertificate(certData) {
     const [page] = await pdfDoc.copyPages(baseDoc, [0]);
     pdfDoc.addPage(page);
 
+    const basePdfName = scheme.basePdf || '';
+    const isGsoMeat = basePdfName.includes('(meat)') && isGso;
+    const isGsoNonMeat = basePdfName.includes('(Non-meat)') && isGso;
+
     // 1. Certificate Number (rendered next to pre-printed "Certificate No.:")
-    const certNoX = isGso ? 264.0 : 278.0;
-    const certNoY = isGso ? 634.0 : 636.0;
+    let certNoX = 264.0;
+    let certNoY = 633.99;
+    if (!isGso) {
+      certNoX = 282.0;
+      certNoY = 637.50;
+    }
     page.drawText(sanitizedCertNo, {
       x: certNoX,
       y: certNoY,
-      size: 10.0,
+      size: 8.5,
       font: fontRegular,
       color: cDark
     });
 
-    // 2. Dates Block (Font size strictly 10.0 to match the pre-printed labels exactly!)
-    const dateFontSize = 10.0;
+    // 2. Dates Block (Font size 8.5 to match the pre-printed labels exactly)
+    const dateFontSize = 8.5;
+
     if (!isGso) {
       // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC):
-      // Issue Date: label at x: 51.69 -> value at x: 116.0
-      // Certification Start Date: label at x: 210.0 -> value at x: 338.0
-      // Expiry Date: label at x: 418.63 -> value at x: 488.0
       const dateY = 607.21;
-      page.drawText(formattedIssue, { x: 116.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedCertStart, { x: 338.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedExpiry, { x: 488.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedIssue, { x: 114.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedCertStart, { x: 330.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 486.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
     } else {
       // GSO (GSO Meat, GSO Non-Meat):
-      // Row 1: Issue Date (left: 110.0), Current Cycle Start Date (center: 310.0), Expiry Date (right: 468.0)
       const dateY = 611.28;
-      page.drawText(formattedIssue, { x: 110.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      // Row 1: Issue Date, Current Cycle Start Date, Expiry Date
+      page.drawText(formattedIssue, { x: 108.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
       page.drawText(formattedCurrentCycle, { x: 310.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
       page.drawText(formattedExpiry, { x: 468.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
 
-      // Row 2: Original Cycle Start Date (center: 311.0, y: 589.55)
-      page.drawText(formattedOrigCycle, { x: 311.0, y: 589.55, size: dateFontSize, font: fontRegular, color: cDark });
+      // Row 2: Original Cycle Start Date
+      page.drawText(formattedOrigCycle, { x: 310.0, y: 589.55, size: dateFontSize, font: fontRegular, color: cDark });
     }
 
     const isUnlockedBase = scheme.basePdf && scheme.basePdf.includes('unlocked');
@@ -674,11 +680,25 @@ export async function generateCertificate(certData) {
       const maxValW = 355;
       const companyInfoFontSize = 8.5;
 
-      // Exact PDF baseline coordinates: sitting directly on the pre-printed underline
-      const nameY = isGso ? 474.50 : 494.71;
-      const addrY = isGso ? 434.33 : 452.98;
-      const mfgY = isGso ? 386.05 : 404.69;
-      const scopeY = isGso ? 360.30 : 376.16;
+      // Exact PDF baseline coordinates per template scheme
+      let nameY, addrY, mfgY, scopeY;
+      if (isGsoMeat) {
+        nameY = 474.50;
+        addrY = 434.33;
+        mfgY = 386.05;
+        scopeY = 360.30;
+      } else if (isGsoNonMeat) {
+        nameY = 503.50;
+        addrY = 463.00;
+        mfgY = 415.00;
+        scopeY = 388.50;
+      } else {
+        // HFA Scheme Meat, HFA Scheme Non-Meat, Cosmetics, SMIIC
+        nameY = 494.50;
+        addrY = 453.00;
+        mfgY = 404.50;
+        scopeY = 376.00;
+      }
 
       // Company Name
       const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, companyInfoFontSize, 1);
@@ -724,9 +744,18 @@ export async function generateCertificate(certData) {
       }
     }
 
-    const headerBottomY = isFirstPage ? (isGso ? 295.44 : 298.51) : 511.0;
+    let headerBottomY;
+    if (!isFirstPage) {
+      headerBottomY = 511.0;
+    } else if (isGsoMeat) {
+      headerBottomY = 295.44;
+    } else if (isGsoNonMeat) {
+      headerBottomY = 295.14;
+    } else {
+      headerBottomY = 303.61;
+    }
     const headerHeight = 15.0;
-    const rowHeight = isFirstPage ? (isGso ? 15.0 : 15.6) : 13.5;
+    const rowHeight = 15.0;
 
     if (!isFirstPage) {
       // Subsequent continuation pages: Clean continuation panel for annex
@@ -765,17 +794,30 @@ export async function generateCertificate(certData) {
     const cellFontSize = isFirstPage ? 7.5 : 7.0;
 
     if (isGso) {
-      // 3-Column Table: NO. | CODE | DESCRIPTION
-      const tableWidth = isFirstPage ? 272.87 : 460.0;
-      const tableLeftX = isFirstPage ? 160.74 : (PAGE_WIDTH - tableWidth) / 2;
+      // 3-Column Table: NO. | CODE | DESCRIPTION (for GSO Meat and GSO Non-Meat)
+      const tableWidth = isFirstPage ? 360.0 : 480.0;
+      const tableLeftX = (PAGE_WIDTH - tableWidth) / 2;
       
       // Dynamic NO. column width: spacious for single or multi-digit numbers
       const numDigits = String(allProducts.length).length;
       const col1W = isFirstPage
         ? Math.max(34.0, 20.0 + numDigits * 6.5)
         : Math.max(40.0, 26.0 + numDigits * 7.0);
-      const col2W = isFirstPage ? 90.0 : 125.0; // CODE column (left-aligned)
-      const col3W = tableWidth - col1W - col2W; // DESCRIPTION column
+
+      // Dynamically calculate CODE column width based on content
+      const codeLengths = currentProducts.map(p => fontRegular.widthOfTextAtSize(p.code || '', cellFontSize));
+      const maxCodeW = Math.max(fontBold.widthOfTextAtSize('CODE', hFontSize), ...codeLengths);
+      const col2W = Math.min(130.0, Math.max(isFirstPage ? 90.0 : 120.0, maxCodeW + 16.0));
+      const col3W = tableWidth - col1W - col2W; // Generous remaining space for DESCRIPTION
+
+      // Draw solid clean white body background for rows to mask any background artifact
+      page.drawRectangle({
+        x: tableLeftX,
+        y: headerBottomY - currentProducts.length * rowHeight,
+        width: tableWidth,
+        height: currentProducts.length * rowHeight,
+        color: cWhite
+      });
 
       // Draw Header (Both on Page 1 and continuation pages for 100% unified alignment)
       page.drawRectangle({
@@ -913,13 +955,22 @@ export async function generateCertificate(certData) {
       }
     } else {
       // 2-Column Table: NO. | NAME OF THE PRODUCTS (for HFA Scheme, Cosmetics, SMIIC)
-      const tableWidth = isFirstPage ? 146.62 : 460.0;
-      const tableLeftX = isFirstPage ? 218.39 : (PAGE_WIDTH - tableWidth) / 2;
+      const tableWidth = isFirstPage ? 330.0 : 480.0;
+      const tableLeftX = (PAGE_WIDTH - tableWidth) / 2;
       const numDigits = String(allProducts.length).length;
       const col1W = isFirstPage
-        ? Math.max(28.0, 16.0 + numDigits * 6.0)
+        ? Math.max(34.0, 20.0 + numDigits * 6.5)
         : Math.max(40.0, 26.0 + numDigits * 7.0);
       const col2W = tableWidth - col1W;
+
+      // Draw solid clean white body background for rows to mask any background artifact
+      page.drawRectangle({
+        x: tableLeftX,
+        y: headerBottomY - currentProducts.length * rowHeight,
+        width: tableWidth,
+        height: currentProducts.length * rowHeight,
+        color: cWhite
+      });
 
       // Draw Header (Both on Page 1 and continuation pages for 100% unified alignment)
       page.drawRectangle({
@@ -1063,12 +1114,20 @@ export async function generateCertificate(certData) {
 
     // 8. Dynamic Page Numbering: "Page X of Y" (drawn on multi-page certs or clean bases)
     if (totalPages > 1 || !isUnlockedBase) {
+      if (totalPages > 1) {
+        page.drawRectangle({
+          x: 502,
+          y: 58,
+          width: 72,
+          height: 20,
+          color: cWhite
+        });
+      }
       const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
-      const pageNoW = fontOblique.widthOfTextAtSize(pageNoStr, 7.5);
       page.drawText(pageNoStr, {
-        x: PAGE_WIDTH - 45 - pageNoW,
+        x: 509,
         y: 68.5,
-        size: 7.5,
+        size: 8.5,
         font: fontOblique,
         color: cDark
       });
