@@ -9,6 +9,16 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 const router = express.Router();
 
+const makeIdQuery = (rawId) => {
+  if (!rawId) return null;
+  const str = rawId.toString();
+  const list = [str];
+  if (mongoose.isValidObjectId(str)) {
+    list.push(new mongoose.Types.ObjectId(str));
+  }
+  return { $in: list };
+};
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     // Delete any orphaned pending products so Product List only displays active/certified products
@@ -16,10 +26,10 @@ router.get('/', authenticateToken, async (req, res) => {
 
     let query = { status: { $ne: 'pending' } };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = req.user._id;
+      query.client_id = makeIdQuery(req.user._id);
     } else {
-      if (req.query.client_id) query.client_id = req.query.client_id;
-      if (req.query.site_id) query.site_id = req.query.site_id;
+      if (req.query.client_id) query.client_id = makeIdQuery(req.query.client_id);
+      if (req.query.site_id) query.site_id = makeIdQuery(req.query.site_id);
     }
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
@@ -99,6 +109,9 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
       site = await Site.findById(site_id).lean();
     }
 
+    const clientIdObj = mongoose.isValidObjectId(client_id) ? new mongoose.Types.ObjectId(client_id) : client_id;
+    const siteIdObj = (site_id && mongoose.isValidObjectId(site_id)) ? new mongoose.Types.ObjectId(site_id) : (site_id || undefined);
+
     const docsToInsert = products.map((p, index) => {
       const name = p.name ? p.name.trim() : '';
       if (!name) return null;
@@ -110,8 +123,8 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
       const productNotes = p.notes ? p.notes.trim() : (notes || 'Directly registered by administrator');
 
       return {
-        client_id,
-        site_id: site_id || undefined,
+        client_id: clientIdObj,
+        site_id: siteIdObj,
         name,
         code,
         barcode: code,
@@ -166,12 +179,16 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // If added by admin directly, create as active product
     if (isAdmin) {
+      const targetClientId = req.body.client_id || req.user._id;
+      const clientIdObj = mongoose.isValidObjectId(targetClientId) ? new mongoose.Types.ObjectId(targetClientId) : targetClientId;
+      const siteIdObj = (site_id && mongoose.isValidObjectId(site_id)) ? new mongoose.Types.ObjectId(site_id) : (site_id || undefined);
+
       const product = new Product({
-        client_id: req.body.client_id || req.user._id,
+        client_id: clientIdObj,
         name,
         description,
         category,
-        site_id: site_id || undefined,
+        site_id: siteIdObj,
         ingredients,
         barcode: barcode || '',
         status: 'active'
