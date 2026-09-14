@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { generateHfaId } from '../lib/idGenerator.js';
 
 const extensionApplicationSchema = new mongoose.Schema({
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -62,10 +63,8 @@ const extensionApplicationSchema = new mongoose.Schema({
 // Auto-generate application_number before save if not present
 extensionApplicationSchema.pre('save', async function(next) {
   if (!this.application_number) {
-    const year = new Date().getFullYear();
-    const count = await mongoose.model('ExtensionApplication').countDocuments();
-    const seq = String(count + 1).padStart(4, '0');
-    this.application_number = `EXT-${year}-${seq}`;
+    const comp = this.company_name || this.site_name || 'HFA';
+    this.application_number = generateHfaId(comp, 'EX');
   }
   next();
 });

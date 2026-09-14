@@ -6,6 +6,7 @@ import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
 import Site from '../models/Site.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin, requireStaff } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { getIO } from '../lib/socket.js';
@@ -577,8 +578,8 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
       newExpiryDate = new Date(Date.now() + extensionDays * 24 * 60 * 60 * 1000);
     }
 
-    const year = new Date().getFullYear();
-    const certNumber = certificate_number || `EXT-CERT-${year}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+    const companyForId = app.company_name || app.client_id?.company_name || app.client_id?.full_name || 'HFA';
+    const certNumber = certificate_number || generateHfaId(companyForId, 'EX');
 
     // Create or update Certificate in Certificate collection
     const cert = new Certificate({
