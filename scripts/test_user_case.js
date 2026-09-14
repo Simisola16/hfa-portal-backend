@@ -42,6 +42,26 @@ async function renderTest(browser, name, data) {
 async function run() {
   const browser = await chromium.launch();
 
+  // Test GSO Meat with 4 products matching user screenshot
+  await renderTest(browser, 'gso_meat_4prods', {
+    certificateType: 'GSO MEAT',
+    certificateNumber: 'GSO-24-MEAT-0099',
+    companyName: 'PRIME HALAL FOODS LTD',
+    companyAddress: '12 INDUSTRIAL ESTATE, BIRMINGHAM B12 0JJ',
+    manufacturingAddress: '12 INDUSTRIAL ESTATE, BIRMINGHAM B12 0JJ',
+    scope: 'PRODUCTION AND PACKAGING OF HALAL BEEF, POULTRY AND SAUCES',
+    issueDate: '13-Sep-2026',
+    currentCycleStartDate: '13-Sep-2026',
+    originalCycleStartDate: '13-Sep-2026',
+    expiryDate: '12-Sep-2027',
+    products: [
+      { code: 'PRD-BF-01', name: 'Premium Halal Beef Patty 150g' },
+      { code: 'PRD-CK-02', name: 'Fresh Halal Chicken Breast Fillets 1kg' },
+      { code: 'PRD-LM-03', name: 'Halal Gourmet Lamb Sausages 400g' },
+      { code: 'PRD-SC-04', name: 'Halal Artisan Garlic Mayo Sauce 250ml' }
+    ]
+  });
+
   // Test HFA Scheme Meat with 4 products
   await renderTest(browser, 'hfa_scheme_meat_4prods', {
     certificateType: 'HFA Scheme (meat)',

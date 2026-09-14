@@ -650,7 +650,7 @@ export async function generateCertificate(certData) {
 
     let tableStartY = 0;
     let headerHeight = 0;
-    let rowHeight = 16;
+    let rowHeight = 15.0;
 
     if (isFirstPage) {
       // 4. Company & Category Info Block Values (Labels and lines are pre-printed on base template!)
@@ -706,6 +706,7 @@ export async function generateCertificate(certData) {
       }
 
       tableStartY = isGso ? 294.0 : 296.0;
+      rowHeight = isGso ? 15.0 : 15.6;
       headerHeight = 0; // Header is already pre-printed on page 1 of master templates
     } else {
       // Subsequent continuation pages: Clean continuation panel for annex
@@ -893,10 +894,11 @@ export async function generateCertificate(certData) {
       }
     } else {
       // 2-Column Table: NO. | NAME OF THE PRODUCTS (for HFA Scheme, Cosmetics, SMIIC)
-      const tableWidth = 280;
-      const tableLeftX = (PAGE_WIDTH - tableWidth) / 2; // 157.64 pt
-      const col1W = 40;  // NO.
-      const col2W = tableWidth - col1W; // 240 pt NAME OF THE PRODUCTS
+      // Master unlocked template dimensions: width 147.1 pt, left: 218.44 pt (col1: 25.0 pt, col2: 122.1 pt)
+      const tableLeftX = isFirstPage ? 218.44 : (PAGE_WIDTH - 280) / 2;
+      const tableWidth = isFirstPage ? 147.1 : 280;
+      const col1W = isFirstPage ? 25.0 : 40.0;  // NO.
+      const col2W = tableWidth - col1W; // NAME OF THE PRODUCTS
 
       if (!isFirstPage) {
         // Draw Header on continuation pages
@@ -969,10 +971,11 @@ export async function generateCertificate(certData) {
           color: cDark
         });
 
-        // Cell 2: Product Name (left-aligned with 10pt padding)
-        const nameStr = truncateToWidth(p.name, col2W - 20, fontRegular, cellFontSize);
+        // Cell 2: Product Name (left-aligned with padding)
+        const padLeft = isFirstPage ? 6 : 10;
+        const nameStr = truncateToWidth(p.name, col2W - (padLeft * 2), fontRegular, cellFontSize);
         page.drawText(nameStr, {
-          x: tableLeftX + col1W + 10,
+          x: tableLeftX + col1W + padLeft,
           y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
           size: cellFontSize,
           font: fontRegular,
