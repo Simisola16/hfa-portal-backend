@@ -9,80 +9,25 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 const router = express.Router();
 
-const buildClientScopeFilter = (rawTarget) => {
-  if (!rawTarget) return null;
-
-  const ids = [];
-
-  const addTarget = (t) => {
-    if (!t) return;
-    if (typeof t === 'object') {
-      if (t._id) ids.push(t._id.toString());
-      if (t.parent_client_id) ids.push(t.parent_client_id.toString());
-      if (t.id) ids.push(t.id.toString());
-    } else {
-      ids.push(t.toString());
-    }
-  };
-
-  addTarget(rawTarget);
-
-  const list = [];
-  ids.forEach(idStr => {
-    if (!idStr || typeof idStr !== 'string') return;
-    if (!list.includes(idStr)) list.push(idStr);
-    if (mongoose.isValidObjectId(idStr)) {
-      const objId = new mongoose.Types.ObjectId(idStr);
-      if (!list.some(item => item instanceof mongoose.Types.ObjectId && item.equals(objId))) {
-        list.push(objId);
-      }
-    }
-  });
-
-  if (list.length === 0) return null;
-
-  return {
-    $or: [
-      { client_id: { $in: list } },
-      { "client_id._id": { $in: list } }
-    ]
-  };
-};
-
 router.get('/', authenticateToken, async (req, res) => {
   try {
     // Delete any orphaned pending products so Product List only displays active/certified products
     await Product.deleteMany({ status: 'pending' }).catch(() => {});
 
-    const staffRoles = ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'food_tech_manager', 'food_tech', 'audit_manager', 'finance'];
-    const userRole = req.user.role;
-    const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [userRole].filter(Boolean);
-    const isStaffOrAdmin = userRole === 'superadmin' || userRoles.includes('superadmin') || userRoles.some(r => staffRoles.includes(r));
-
-    const requestedClientId = req.query.client_id;
-    const isExplicitAll = req.query.all === 'true' || req.query.all === '1' || req.query.admin === 'true';
-
     let query = { status: { $ne: 'pending' } };
-
-    if (requestedClientId) {
-      // Explicit client_id filter provided in query URL
-      const filter = buildClientScopeFilter(requestedClientId);
-      if (filter) Object.assign(query, filter);
-    } else if (!isStaffOrAdmin || req.user.is_impersonation || !isExplicitAll) {
-      // Client user, impersonation session, or client portal request: Scope strictly to client account
-      const targetUser = req.user.parent_client_id || req.user._id;
-      const filter = buildClientScopeFilter(targetUser);
-      if (filter) Object.assign(query, filter);
-    }
-
-    if (req.query.site_id) {
-      const siteList = [req.query.site_id.toString()];
-      if (mongoose.isValidObjectId(req.query.site_id)) {
-        siteList.push(new mongoose.Types.ObjectId(req.query.site_id.toString()));
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
+      // client_id may be stored as ObjectId or string due to Mixed type — query both forms
+      const clientIdStr = req.user._id.toString();
+      query.client_id = { $in: [req.user._id, clientIdStr] };
+    } else {
+      if (req.query.client_id) {
+        // Admin filtering: also match both ObjectId and string forms
+        query.client_id = mongoose.isValidObjectId(req.query.client_id)
+          ? { $in: [new mongoose.Types.ObjectId(req.query.client_id), req.query.client_id] }
+          : req.query.client_id;
       }
-      query.site_id = { $in: siteList };
+      if (req.query.site_id) query.site_id = req.query.site_id;
     }
-
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
     // Enrich with client user information
@@ -161,9 +106,6 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
       site = await Site.findById(site_id).lean();
     }
 
-    const clientIdObj = mongoose.isValidObjectId(client_id) ? new mongoose.Types.ObjectId(client_id) : client_id;
-    const siteIdObj = (site_id && mongoose.isValidObjectId(site_id)) ? new mongoose.Types.ObjectId(site_id) : (site_id || undefined);
-
     const docsToInsert = products.map((p, index) => {
       const name = p.name ? p.name.trim() : '';
       if (!name) return null;
@@ -175,8 +117,8 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
       const productNotes = p.notes ? p.notes.trim() : (notes || 'Directly registered by administrator');
 
       return {
-        client_id: clientIdObj,
-        site_id: siteIdObj,
+        client_id,
+        site_id: site_id || undefined,
         name,
         code,
         barcode: code,
@@ -184,7 +126,7 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
         product_type,
         description,
         notes: productNotes,
-        status: p.status || 'approved',
+        status: p.status || 'active',
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -231,19 +173,15 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // If added by admin directly, create as active product
     if (isAdmin) {
-      const targetClientId = req.body.client_id || req.user._id;
-      const clientIdObj = mongoose.isValidObjectId(targetClientId) ? new mongoose.Types.ObjectId(targetClientId) : targetClientId;
-      const siteIdObj = (site_id && mongoose.isValidObjectId(site_id)) ? new mongoose.Types.ObjectId(site_id) : (site_id || undefined);
-
       const product = new Product({
-        client_id: clientIdObj,
+        client_id: req.body.client_id || req.user._id,
         name,
         description,
         category,
-        site_id: siteIdObj,
+        site_id: site_id || undefined,
         ingredients,
         barcode: barcode || '',
-        status: 'approved'
+        status: 'active'
       });
       const data = await product.save();
       return res.status(201).json({ data });

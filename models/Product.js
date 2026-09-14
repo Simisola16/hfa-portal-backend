@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema({
-  client_id: { type: mongoose.Schema.Types.Mixed, ref: 'User', required: true },
+  client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
   description: String,
   category: String,
