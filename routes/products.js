@@ -9,26 +9,27 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 const router = express.Router();
 
-const makeIdQuery = (rawId) => {
-  if (!rawId) return null;
-  const str = rawId.toString();
-  const list = [str];
-  if (mongoose.isValidObjectId(str)) {
-    list.push(new mongoose.Types.ObjectId(str));
-  }
-  return { $in: list };
-};
+const buildClientScopeFilter = (rawTarget) => {
+  if (!rawTarget) return null;
 
-const makeClientIdsQuery = (user) => {
-  if (!user) return null;
   const ids = [];
-  if (user._id) ids.push(user._id.toString());
-  if (user.parent_client_id) ids.push(user.parent_client_id.toString());
-  if (user.id) ids.push(user.id.toString());
+
+  const addTarget = (t) => {
+    if (!t) return;
+    if (typeof t === 'object') {
+      if (t._id) ids.push(t._id.toString());
+      if (t.parent_client_id) ids.push(t.parent_client_id.toString());
+      if (t.id) ids.push(t.id.toString());
+    } else {
+      ids.push(t.toString());
+    }
+  };
+
+  addTarget(rawTarget);
 
   const list = [];
   ids.forEach(idStr => {
-    if (!idStr) return;
+    if (!idStr || typeof idStr !== 'string') return;
     if (!list.includes(idStr)) list.push(idStr);
     if (mongoose.isValidObjectId(idStr)) {
       const objId = new mongoose.Types.ObjectId(idStr);
@@ -38,7 +39,14 @@ const makeClientIdsQuery = (user) => {
     }
   });
 
-  return { $in: list };
+  if (list.length === 0) return null;
+
+  return {
+    $or: [
+      { client_id: { $in: list } },
+      { "client_id._id": { $in: list } }
+    ]
+  };
 };
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -51,15 +59,30 @@ router.get('/', authenticateToken, async (req, res) => {
     const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [userRole].filter(Boolean);
     const isStaffOrAdmin = userRole === 'superadmin' || userRoles.includes('superadmin') || userRoles.some(r => staffRoles.includes(r));
 
+    const requestedClientId = req.query.client_id;
+    const isExplicitAll = req.query.all === 'true' || req.query.all === '1' || req.query.admin === 'true';
+
     let query = { status: { $ne: 'pending' } };
-    if (!isStaffOrAdmin) {
-      // Client account: Strictly scope query to this client / company account
-      query.client_id = makeClientIdsQuery(req.user);
-    } else {
-      // Admin / Staff: Filter by query parameters if provided
-      if (req.query.client_id) query.client_id = makeIdQuery(req.query.client_id);
-      if (req.query.site_id) query.site_id = makeIdQuery(req.query.site_id);
+
+    if (requestedClientId) {
+      // Explicit client_id filter provided in query URL
+      const filter = buildClientScopeFilter(requestedClientId);
+      if (filter) Object.assign(query, filter);
+    } else if (!isStaffOrAdmin || req.user.is_impersonation || !isExplicitAll) {
+      // Client user, impersonation session, or client portal request: Scope strictly to client account
+      const targetUser = req.user.parent_client_id || req.user._id;
+      const filter = buildClientScopeFilter(targetUser);
+      if (filter) Object.assign(query, filter);
     }
+
+    if (req.query.site_id) {
+      const siteList = [req.query.site_id.toString()];
+      if (mongoose.isValidObjectId(req.query.site_id)) {
+        siteList.push(new mongoose.Types.ObjectId(req.query.site_id.toString()));
+      }
+      query.site_id = { $in: siteList };
+    }
+
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
     // Enrich with client user information
