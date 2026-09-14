@@ -7,14 +7,6 @@ async function test() {
   const uploadIndex = pathParts.indexOf('upload');
   const publicIdWithExt = pathParts.slice(uploadIndex + 2).join('/');
   const publicId = publicIdWithExt.replace(/\.[^/.]+$/, ""); // strip extension
-  
-  const url = 'https://res.cloudinary.com/dyl5n7nsm/image/upload/v1777896249/hfa-portal/1777896249213_Receipt-2652-9732.pdf';
-  const urlObj = new URL(url);
-  const pathParts = urlObj.pathname.split('/');
-  const uploadIndex = pathParts.indexOf('upload');
-  const publicIdWithExt = pathParts.slice(uploadIndex + 2).join('/');
-  const publicId = publicIdWithExt.replace(/\.[^/.]+$/, ""); // strip extension
-  
   try {
     console.log('Changing type to authenticated for:', publicId);
     // Explicitly change the type to authenticated

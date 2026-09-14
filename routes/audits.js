@@ -1163,36 +1163,6 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
         { new: true }
       );
       if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_completed');
-    } else if (app) {
-      // Stage 1 of dual stage completed — advance to Stage 2 audit scheduling
-      const allAudits = await Audit.find({ application_id: app._id });
-      const stage2 = allAudits.find(a => a.stage === 2);
-      let nextAppStatus = 'dates_proposed';
-      if (stage2) {
-        if (stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
-        else if (stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
-        else if (stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
-        else nextAppStatus = 'dates_proposed';
-      }
-
-      const updatedApp = await Application.findByIdAndUpdate(
-        app._id,
-        {
-          status: nextAppStatus,
-          updated_at: new Date(),
-          $push: {
-            statusHistory: {
-              status: nextAppStatus,
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: 'Stage 1 audit completed successfully. Ready for Stage 2 audit scheduling.'
-            }
-          }
-        },
-        { new: true }
-      );
-      if (updatedApp) emitApplicationUpdate(updatedApp, nextAppStatus);
-    }
 
       const clientId = app.client_id || app.user_id;
       if (clientId) {
@@ -1230,6 +1200,35 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
         );
       }
     } else if (app) {
+      // Stage 1 of dual stage completed — advance to Stage 2 audit scheduling
+      const allAudits = await Audit.find({ application_id: app._id });
+      const stage2 = allAudits.find(a => a.stage === 2);
+      let nextAppStatus = 'dates_proposed';
+      if (stage2) {
+        if (stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
+        else if (stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
+        else if (stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
+        else nextAppStatus = 'dates_proposed';
+      }
+
+      const updatedApp = await Application.findByIdAndUpdate(
+        app._id,
+        {
+          status: nextAppStatus,
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: nextAppStatus,
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Stage 1 audit completed successfully. Ready for Stage 2 audit scheduling.'
+            }
+          }
+        },
+        { new: true }
+      );
+      if (updatedApp) emitApplicationUpdate(updatedApp, nextAppStatus);
+
       const clientId = app.client_id || app.user_id;
       if (clientId) {
         await createNotification(
