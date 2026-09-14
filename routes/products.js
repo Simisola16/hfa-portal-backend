@@ -19,15 +19,44 @@ const makeIdQuery = (rawId) => {
   return { $in: list };
 };
 
+const makeClientIdsQuery = (user) => {
+  if (!user) return null;
+  const ids = [];
+  if (user._id) ids.push(user._id.toString());
+  if (user.parent_client_id) ids.push(user.parent_client_id.toString());
+  if (user.id) ids.push(user.id.toString());
+
+  const list = [];
+  ids.forEach(idStr => {
+    if (!idStr) return;
+    if (!list.includes(idStr)) list.push(idStr);
+    if (mongoose.isValidObjectId(idStr)) {
+      const objId = new mongoose.Types.ObjectId(idStr);
+      if (!list.some(item => item instanceof mongoose.Types.ObjectId && item.equals(objId))) {
+        list.push(objId);
+      }
+    }
+  });
+
+  return { $in: list };
+};
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     // Delete any orphaned pending products so Product List only displays active/certified products
     await Product.deleteMany({ status: 'pending' }).catch(() => {});
 
+    const staffRoles = ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'food_tech_manager', 'food_tech', 'audit_manager', 'finance'];
+    const userRole = req.user.role;
+    const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [userRole].filter(Boolean);
+    const isStaffOrAdmin = userRole === 'superadmin' || userRoles.includes('superadmin') || userRoles.some(r => staffRoles.includes(r));
+
     let query = { status: { $ne: 'pending' } };
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = makeIdQuery(req.user._id);
+    if (!isStaffOrAdmin) {
+      // Client account: Strictly scope query to this client / company account
+      query.client_id = makeClientIdsQuery(req.user);
     } else {
+      // Admin / Staff: Filter by query parameters if provided
       if (req.query.client_id) query.client_id = makeIdQuery(req.query.client_id);
       if (req.query.site_id) query.site_id = makeIdQuery(req.query.site_id);
     }
