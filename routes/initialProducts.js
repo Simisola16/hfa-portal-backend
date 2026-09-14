@@ -245,8 +245,8 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── GET /api/initial-products/by-application/:appId ─────────────────────────
-router.get('/by-application/:appId', authenticateToken, async (req, res) => {
+// ─── GET /api/initial-products/by-application/:appId or /application/:appId ───
+router.get(['/by-application/:appId', '/application/:appId'], authenticateToken, async (req, res) => {
   try {
     const isObjId = mongoose.Types.ObjectId.isValid(req.params.appId);
     const Application = (await import('../models/Application.js')).default;

@@ -1103,7 +1103,36 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     // 2. Resolve or create Site if needed
     let targetSiteId = site_id || null;
-    let businessAddress = site_address || targetClient.address || '—';
+    let businessAddress = (site_address || '').trim();
+
+    if (!businessAddress && targetSiteId) {
+      const existingSite = await Site.findById(targetSiteId);
+      if (existingSite) {
+        const parts = [existingSite.address_1, existingSite.address_2, existingSite.city, existingSite.state, existingSite.postcode, existingSite.country].map(p => (p || '').trim()).filter(Boolean);
+        businessAddress = parts.join(', ') || existingSite.address_1 || '';
+      }
+    }
+
+    if (!businessAddress && targetClientId) {
+      // Check client user address
+      const userParts = [targetClient.address, targetClient.postcode, targetClient.country].map(p => (p || '').trim()).filter(Boolean);
+      if (userParts.length > 0) {
+        businessAddress = userParts.join(', ');
+      } else {
+        // Fallback: Check if client has a registered site in Site collection
+        const clientFirstSite = await Site.findOne({ client_id: targetClientId });
+        if (clientFirstSite) {
+          const parts = [clientFirstSite.address_1, clientFirstSite.address_2, clientFirstSite.city, clientFirstSite.state, clientFirstSite.postcode, clientFirstSite.country].map(p => (p || '').trim()).filter(Boolean);
+          businessAddress = parts.join(', ') || clientFirstSite.address_1 || '';
+          if (!targetSiteId) targetSiteId = clientFirstSite._id;
+        }
+      }
+    }
+
+    if (!businessAddress) {
+      businessAddress = 'N/A';
+    }
+
     let manufacturerAddr = manufacturer_address || businessAddress || 'Same as above';
 
     if (!targetSiteId && site_name && site_address) {
@@ -1112,7 +1141,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         name: site_name,
         email: targetClient.email,
         address_1: site_address,
-        postcode: new_client_postcode || targetClient.postcode || '—',
+        postcode: new_client_postcode || targetClient.postcode || 'N/A',
         state: 'N/A',
         country: new_client_country || targetClient.country || 'United Kingdom',
         contact_name: targetClient.full_name || targetClient.company_name,
@@ -1120,11 +1149,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       });
       const savedSite = await newSite.save();
       targetSiteId = savedSite._id;
-    } else if (targetSiteId) {
-      const existingSite = await Site.findById(targetSiteId);
-      if (existingSite) {
-        businessAddress = existingSite.address_1 || businessAddress;
-      }
     }
 
     // 3. Resolve Certificate Number

@@ -1053,7 +1053,24 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     const currentApp = await Application.findById(appId);
     if (!currentApp) return res.status(404).json({ error: 'Application not found' });
 
-    currentApp.status = 'nc_closed';
+    const catLower = String(currentApp?.category || '').toLowerCase();
+    const typeLower = String(currentApp?.application_type || '').toLowerCase();
+    const schemeLower = String(currentApp?.scheme || '').toLowerCase();
+    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+
+    const allAudits = await Audit.find({ application_id: currentApp._id });
+    const stage2 = allAudits.find(a => a.stage === 2);
+    const isStage2Done = stage2 && (stage2.status === 'audit_completed' || stage2.status === 'audit_successful' || stage2.completed_at);
+
+    let nextAppStatus = 'nc_closed';
+    if (isDualStage && !isStage2Done) {
+      if (stage2 && stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
+      else if (stage2 && stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
+      else if (stage2 && stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
+      else nextAppStatus = 'dates_proposed';
+    }
+
+    currentApp.status = nextAppStatus;
     currentApp.updated_at = new Date();
 
     if (currentApp.nc_reports && currentApp.nc_reports.length > 0) {
@@ -1067,14 +1084,16 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
 
     if (!currentApp.statusHistory) currentApp.statusHistory = [];
     currentApp.statusHistory.push({
-      status: 'nc_closed',
+      status: nextAppStatus,
       changedAt: new Date(),
       changedBy: req.user._id,
-      note: note || 'NC closed — non-conformity reviewed and closed by auditor/admin.'
+      note: note || (isDualStage && !isStage2Done
+        ? 'Stage 1 NC closed — non-conformity resolved. Ready for Stage 2 audit scheduling.'
+        : 'NC closed — non-conformity reviewed and closed by auditor/admin.')
     });
 
     await currentApp.save();
-    emitApplicationUpdate(currentApp, 'nc_closed');
+    emitApplicationUpdate(currentApp, nextAppStatus);
 
     const clientId = currentApp.client_id || currentApp.user_id;
     if (clientId) {
@@ -1120,7 +1139,10 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
       app = await Application.findById(appId);
     }
 
-    const isDualStage = app?.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE';
+    const catLower = String(app?.category || '').toLowerCase();
+    const typeLower = String(app?.application_type || '').toLowerCase();
+    const schemeLower = String(app?.scheme || '').toLowerCase();
+    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
     const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {
@@ -1141,6 +1163,36 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
         { new: true }
       );
       if (updatedApp) emitApplicationUpdate(updatedApp, 'audit_completed');
+    } else if (app) {
+      // Stage 1 of dual stage completed — advance to Stage 2 audit scheduling
+      const allAudits = await Audit.find({ application_id: app._id });
+      const stage2 = allAudits.find(a => a.stage === 2);
+      let nextAppStatus = 'dates_proposed';
+      if (stage2) {
+        if (stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
+        else if (stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
+        else if (stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
+        else nextAppStatus = 'dates_proposed';
+      }
+
+      const updatedApp = await Application.findByIdAndUpdate(
+        app._id,
+        {
+          status: nextAppStatus,
+          updated_at: new Date(),
+          $push: {
+            statusHistory: {
+              status: nextAppStatus,
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Stage 1 audit completed successfully. Ready for Stage 2 audit scheduling.'
+            }
+          }
+        },
+        { new: true }
+      );
+      if (updatedApp) emitApplicationUpdate(updatedApp, nextAppStatus);
+    }
 
       const clientId = app.client_id || app.user_id;
       if (clientId) {

@@ -174,6 +174,40 @@ router.get('/:id', authenticateToken, async (req, res) => {
             statusHistory: cleanedHistory
           });
         }
+
+        // Reconcile dual-stage application if prematurely set to nc_closed, audit_completed, or logsheet_created without Stage 2 completion
+        const catLower = String(data.category || '').toLowerCase();
+        const typeLower = String(data.application_type || '').toLowerCase();
+        const schemeLower = String(data.scheme || '').toLowerCase();
+        const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+
+        if (isDualStage) {
+          const Audit = mongoose.model('Audit');
+          const allAudits = await Audit.find({
+            $or: [
+              { application_id: data._id },
+              ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
+            ]
+          });
+          const stage1 = allAudits.find(a => (a.stage || 1) === 1);
+          const stage2 = allAudits.find(a => a.stage === 2);
+          const isStage1Complete = stage1 && (stage1.status === 'audit_completed' || stage1.status === 'audit_successful' || stage1.completed_at);
+          const isStage2Complete = stage2 && (stage2.status === 'audit_completed' || stage2.status === 'audit_successful' || stage2.completed_at);
+
+          if (isStage1Complete && !isStage2Complete && !logsheet) {
+            if (['nc_closed', 'audit_completed', 'audit_successful', 'logsheet_created'].includes(data.status)) {
+              let properStatus = 'dates_proposed';
+              if (stage2) {
+                if (stage2.status === 'auditors_assigned') properStatus = 'audit_assigned';
+                else if (stage2.status === 'date_finalized') properStatus = 'date_finalized';
+                else if (stage2.status === 'dates_accepted') properStatus = 'dates_accepted';
+              }
+              data.status = properStatus;
+              finalData.status = properStatus;
+              await Application.findByIdAndUpdate(data._id, { status: properStatus });
+            }
+          }
+        }
       }
     } catch (lErr) {}
 

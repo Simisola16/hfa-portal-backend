@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFName } from 'pdf-lib';
 import QRCode from 'qrcode';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,12 +17,11 @@ function getBasePdfBuffer(basePdfFile) {
     return pdfCache.get(basePdfFile);
   }
   
-  // Look in assets/certificates first, then workspace root
   const candidates = [
     path.join(__dirname, '../assets/certificates', basePdfFile),
     path.join(__dirname, '../../', basePdfFile),
-    path.join(process.cwd(), basePdfFile),
-    path.join(process.cwd(), 'assets/certificates', basePdfFile)
+    path.join(process.cwd(), 'assets/certificates', basePdfFile),
+    path.join(process.cwd(), basePdfFile)
   ];
 
   for (const p of candidates) {
@@ -33,13 +32,19 @@ function getBasePdfBuffer(basePdfFile) {
     }
   }
 
+  // Fallback to Template GSO Scheme if specific base is not found
+  const fallbackPath = path.join(__dirname, '../assets/certificates/Template GSO Scheme (meat) Cert.pdf');
+  if (fs.existsSync(fallbackPath)) {
+    const buffer = fs.readFileSync(fallbackPath);
+    pdfCache.set(basePdfFile, buffer);
+    return buffer;
+  }
+
   throw new Error(`Base certificate PDF template not found: ${basePdfFile}. Checked: ${candidates.join(', ')}`);
 }
 
 /**
  * Sanitizes strings for pdf-lib standard Helvetica (WinAnsi) encoding.
- * Converts bullets, dashes, smart quotes, checkmarks, etc. to valid Latin-1 characters
- * and strips any characters that WinAnsi cannot encode.
  */
 export function sanitizeForPdf(text) {
   if (text === null || text === undefined) return '';
@@ -110,12 +115,12 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
- * Formats a Date object or date string into DD-MMM-YYYY (e.g. 11-Sep-2026, 22-Sep-2023).
+ * Formats a Date object or date string into DD-MMM-YYYY (e.g. 13-Sep-2026).
  */
 export function formatDate(dateVal) {
   if (!dateVal) return '—';
 
-  // If already in DD-MMM-YYYY format (e.g. 11-Sep-2026)
+  // If already in DD-MMM-YYYY format (e.g. 13-Sep-2026)
   if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(dateVal.trim())) {
     const parts = dateVal.trim().split('-');
     const day = parts[0].padStart(2, '0');
@@ -124,7 +129,7 @@ export function formatDate(dateVal) {
     return `${day}-${month}-${year}`;
   }
 
-  // If in YYYY-MM-DD or YYYY/MM/DD (e.g. "2026-09-11")
+  // If in YYYY-MM-DD or YYYY/MM/DD (e.g. "2026-09-13")
   if (typeof dateVal === 'string' && /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(dateVal.trim())) {
     const match = dateVal.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
     if (match) {
@@ -136,7 +141,7 @@ export function formatDate(dateVal) {
     }
   }
 
-  // If in DD/MM/YYYY or DD-MM-YYYY (e.g. "11/09/2026" or "11-09-2026")
+  // If in DD/MM/YYYY or DD-MM-YYYY (e.g. "13/09/2026")
   if (typeof dateVal === 'string' && /^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(dateVal.trim())) {
     const parts = dateVal.trim().split(/[/-]/);
     const day = parts[0].padStart(2, '0');
@@ -156,7 +161,7 @@ export function formatDate(dateVal) {
 }
 
 /**
- * Scheme definitions, vector base PDF files, footer doc control texts, and layout coordinates.
+ * Scheme definitions, base PDFs, declarations, and document control texts.
  */
 export const CERTIFICATE_SCHEMES = {
   'HFA Scheme': {
@@ -164,109 +169,115 @@ export const CERTIFICATE_SCHEMES = {
     templateType: 'hfa',
     basePdf: 'HFA SCHEME.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 646,
-    datesY: 624,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5.'
+    ]
   },
   'HFA SCHEME': {
     name: 'HFA Scheme',
     templateType: 'hfa',
     basePdf: 'HFA SCHEME.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 646,
-    datesY: 624,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5.'
+    ]
   },
   'Cosmetics': {
     name: 'Cosmetics',
     templateType: 'hfa',
     basePdf: 'COSMETICS.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 628,
-    datesY: 606,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with OIC/SMIIC 4:2018.'
+    ]
   },
   'COSMETICS': {
     name: 'Cosmetics',
     templateType: 'hfa',
     basePdf: 'COSMETICS.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 628,
-    datesY: 606,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with OIC/SMIIC 4:2018.'
+    ]
   },
   'Smiic': {
     name: 'Smiic',
     templateType: 'hfa',
     basePdf: 'SMIIC.pdf',
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 646,
-    datesY: 624,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with GSO 2055-1,',
+      'OIC/SMIIC 1 and HFA Halal Certification Requirements Manual HFP-1005-20/5.'
+    ]
   },
   'SMIIC': {
     name: 'Smiic',
     templateType: 'hfa',
     basePdf: 'SMIIC.pdf',
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
-    certNoY: 646,
-    datesY: 624,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with GSO 2055-1,',
+      'OIC/SMIIC 1 and HFA Halal Certification Requirements Manual HFP-1005-20/5.'
+    ]
   },
   'GSO meat': {
     name: 'GSO meat',
     templateType: 'gso',
     basePdf: 'GSO MEAT.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
-    certNoY: 648,
-    datesY: 631,
-    datesRow2Y: 617,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5, HMP-1105-21/2, and other relevant',
+      'standards including SMIIC -1:2019/UAE.S.993/UAE.S.2055-1:2015.'
+    ]
   },
   'GSO MEAT': {
     name: 'GSO meat',
     templateType: 'gso',
     basePdf: 'GSO MEAT.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
-    certNoY: 648,
-    datesY: 631,
-    datesRow2Y: 617,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5, HMP-1105-21/2, and other relevant',
+      'standards including SMIIC -1:2019/UAE.S.993/UAE.S.2055-1:2015.'
+    ]
   },
   'GSO non-meat': {
     name: 'GSO non-meat',
     templateType: 'gso',
     basePdf: 'GSO NON MEAT.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
-    certNoY: 648,
-    datesY: 631,
-    datesRow2Y: 617,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 and UAE.S.2055-1:2015.'
+    ]
   },
   'GSO NON MEAT': {
     name: 'GSO non-meat',
     templateType: 'gso',
     basePdf: 'GSO NON MEAT.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
-    certNoY: 648,
-    datesY: 631,
-    datesRow2Y: 617,
-    infoTopY: 512,
-    tableTopY: 375
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 and UAE.S.2055-1:2015.'
+    ]
   }
 };
 
 /**
- * Normalize certificate type to one of the 5 official schemes
+ * Normalize certificate type to one of the official schemes.
  */
 export function normalizeCertificateType(rawType) {
   if (!rawType) return 'HFA Scheme';
@@ -282,28 +293,10 @@ export function normalizeCertificateType(rawType) {
 }
 
 /**
- * Generate a base64 encoded QR Code image from a URL.
- */
-async function generateQRCode(url) {
-  try {
-    return await QRCode.toDataURL(url, {
-      margin: 0,
-      width: 250,
-      color: {
-        dark: '#112211',
-        light: '#ffffff'
-      }
-    });
-  } catch (err) {
-    console.error('Error generating QR Code:', err);
-    throw err;
-  }
-}
-
-/**
  * Generates an official Halal certificate PDF buffer using pdf-lib.
- * Directly loads the original vector base PDF (GSO MEAT, GSO NON MEAT, HFA SCHEME, SMIIC, COSMETICS)
- * and overlays exact dynamic certificate data in matching regular Helvetica fonts (non-bold) and positions.
+ * All certificates are rendered on the pristine high-resolution vector base template,
+ * with maximum visibility, crisp typography, official emerald green header,
+ * [NO., CODE, DESCRIPTION] table columns, and centered asterisks.
  * 
  * @param {Object} certData - Certificate fields
  * @returns {Promise<Buffer>} PDF Buffer
@@ -357,7 +350,7 @@ export async function generateCertificate(certData) {
           code = `PRD-${String(idx + 1).padStart(2, '0')}`;
           name = p;
         } else if (p && typeof p === 'object') {
-          code = p.code || p.product_code || `PRD-${String(idx + 1).padStart(2, '0')}`;
+          code = p.code || p.product_code || p.brand || `PRD-${String(idx + 1).padStart(2, '0')}`;
           name = p.name || p.product_name || p.title || p.description || `Product ${idx + 1}`;
         } else {
           code = `PRD-${String(idx + 1).padStart(2, '0')}`;
@@ -371,10 +364,10 @@ export async function generateCertificate(certData) {
     : [{ code: 'PRD-01', name: 'Certified Halal Products & Formulations' }];
 
   // Pagination capacity:
-  // Page 1: Space from tableStartY (curY - 6 ≈ 367) to signatures (180) fits 11 products cleanly.
-  // Pages 2+: Space from top (480) to signatures (180) fits 25 products per page with clean breathing room below the statement.
-  const PAGE1_LIMIT = 11;
-  const SUBSEQUENT_PAGE_LIMIT = 25;
+  // Page 1 fits up to 9 products cleanly above the signatures and below the company info.
+  // Subsequent pages fit up to 24 products per page.
+  const PAGE1_LIMIT = 9;
+  const SUBSEQUENT_PAGE_LIMIT = 24;
 
   let pagesProducts = [];
   if (allProducts.length <= PAGE1_LIMIT) {
@@ -397,13 +390,10 @@ export async function generateCertificate(certData) {
   const fontOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
   // Standard Colors
-  const cEmerald = rgb(11 / 255, 124 / 255, 71 / 255); // #0b7c47 / HFA Green
-  const cDark = rgb(17 / 255, 24 / 255, 39 / 255);     // #111827 / Deep Black
-  const cSlate = rgb(51 / 255, 65 / 255, 85 / 255);    // #334155
-  const cMuted = rgb(71 / 255, 85 / 255, 105 / 255);   // #475569
-  const cTableBorder = rgb(11 / 255, 124 / 255, 71 / 255);
-  const cTableGrid = rgb(194 / 255, 222 / 255, 203 / 255);
+  const cEmerald = rgb(11 / 255, 124 / 255, 71 / 255); // #0b7c47 Emerald Green
+  const cDark = rgb(17 / 255, 24 / 255, 39 / 255);     // #111827 Deep Black/Charcoal
   const cWhite = rgb(1, 1, 1);
+  const cTableGrid = rgb(194 / 255, 222 / 255, 203 / 255); // Light mint border
   const cDivider = rgb(124 / 255, 181 / 255, 148 / 255);
 
   const sanitizedCertNo = sanitizeForPdf(certificateNumber || certData.certificate_number);
@@ -413,12 +403,18 @@ export async function generateCertificate(certData) {
   const formattedCurrentCycle = formatDate(currentCycleStartDate || certData.current_cycle_start_date || issueDate || certData.issue_date);
   const formattedOrigCycle = formatDate(originalCycleStartDate || certData.original_cycle_start_date || issueDate || certData.issue_date);
 
-  const resolvedName = sanitizeForPdf((companyName || businessName || certData.company_name || 'Halal Certified Client').toUpperCase());
-  const resolvedAddress = sanitizeForPdf((companyAddress || businessAddress || certData.company_address || '—').toUpperCase());
-  const resolvedMfgAddress = sanitizeForPdf((manufacturingAddress || manufacturerAddress || certData.manufacturing_address || certData.manufacturer_address || resolvedAddress || 'SAME AS ABOVE').toUpperCase());
-  const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || certData.scope || certData.scopeOfCertification || 'Halal Food and Consumer Products Certification').toUpperCase());
+  const rawCompanyAddr = (companyAddress || businessAddress || certData.company_address || '').trim();
+  const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
+  const resolvedAddress = isCompanyAddrEmpty ? '' : sanitizeForPdf(rawCompanyAddr.toUpperCase());
 
-  // Generate QR Code
+  const rawMfg = (manufacturingAddress || manufacturerAddress || certData.manufacturing_address || certData.manufacturer_address || '').trim();
+  const isMfgEmpty = !rawMfg || rawMfg === '-' || rawMfg === '—' || rawMfg.toUpperCase() === 'N/A' || rawMfg.toUpperCase() === rawCompanyAddr.toUpperCase() || rawMfg.toUpperCase() === 'SAME AS ABOVE';
+  const resolvedMfgAddress = isMfgEmpty ? '' : sanitizeForPdf(rawMfg.toUpperCase());
+
+  const resolvedName = sanitizeForPdf((companyName || businessName || certData.company_name || 'Halal Certified Client').toUpperCase());
+  const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || certData.scope || certData.scopeOfCertification || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase());
+
+  // Generate QR Code PNG
   const qrUrl = verificationUrl || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${sanitizedCertNo}`;
   const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
     type: 'png',
@@ -427,6 +423,28 @@ export async function generateCertificate(certData) {
     color: { dark: '#112211', light: '#ffffff' }
   });
   const qrImage = await pdfDoc.embedPng(qrPngBuffer);
+
+  // Embed signatures if available
+  let amirSigImg = null;
+  let muftiSigImg = null;
+  const amirSigPath = path.join(__dirname, '../assets/certificates/sig_amir_clean.png');
+  const muftiSigPath = path.join(__dirname, '../assets/certificates/sig_mufti_clean.png');
+
+  if (fs.existsSync(amirSigPath)) {
+    try {
+      amirSigImg = await pdfDoc.embedPng(fs.readFileSync(amirSigPath));
+    } catch (e) {
+      console.warn('Could not embed Amir signature:', e.message);
+    }
+  }
+
+  if (fs.existsSync(muftiSigPath)) {
+    try {
+      muftiSigImg = await pdfDoc.embedPng(fs.readFileSync(muftiSigPath));
+    } catch (e) {
+      console.warn('Could not embed Mufti signature:', e.message);
+    }
+  }
 
   const PAGE_WIDTH = 595.28;
   const PAGE_HEIGHT = 841.89;
@@ -442,401 +460,333 @@ export async function generateCertificate(certData) {
     const [page] = await pdfDoc.copyPages(baseDoc, [0]);
     pdfDoc.addPage(page);
 
-    // 1. Certificate Number (regular font matching template)
-    const certNoLbl = 'Certificate No.: ';
-    const lblW = fontRegular.widthOfTextAtSize(certNoLbl, 8.5);
-    const valW = fontRegular.widthOfTextAtSize(sanitizedCertNo, 8.5);
-    const certStartX = (PAGE_WIDTH - (lblW + valW)) / 2;
-
-    page.drawText(certNoLbl, {
-      x: certStartX,
-      y: scheme.certNoY,
-      size: 8.5,
-      font: fontRegular,
-      color: cEmerald
-    });
+    // 1. Certificate Number (rendered next to pre-printed "Certificate No.:")
     page.drawText(sanitizedCertNo, {
-      x: certStartX + lblW,
-      y: scheme.certNoY,
-      size: 8.5,
+      x: 263.98,
+      y: 632.91,
+      size: 9.0,
       font: fontRegular,
       color: cDark
     });
 
-    // 2. Dates Block (regular font matching template)
-    const leftMargin = 45;
-    const rightMargin = PAGE_WIDTH - 45;
-
+    // 2. Dates Block
     if (!isGso) {
-      // Non-GSO (HFA, Cosmetics, SMIIC): Single line of 3 dates
-      const dY = scheme.datesY;
-
-      // Issue Date (left)
-      const issueLbl = 'Issue Date: ';
-      page.drawText(issueLbl, { x: leftMargin, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedIssue, { x: leftMargin + fontRegular.widthOfTextAtSize(issueLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
-
-      // Certification Start Date (center)
-      const startLbl = 'Certification Start Date: ';
-      const startTotalW = fontRegular.widthOfTextAtSize(startLbl + formattedCertStart, 8.0);
-      const startX = (PAGE_WIDTH - startTotalW) / 2;
-      page.drawText(startLbl, { x: startX, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedCertStart, { x: startX + fontRegular.widthOfTextAtSize(startLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
-
-      // Expiry Date (right)
-      const expLbl = 'Expiry Date: ';
-      const expTotalW = fontRegular.widthOfTextAtSize(expLbl + formattedExpiry, 8.0);
-      const expX = rightMargin - expTotalW;
-      page.drawText(expLbl, { x: expX, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedExpiry, { x: expX + fontRegular.widthOfTextAtSize(expLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
+      // Non-GSO: Issue Date (left), Certification Start Date (center), Expiry Date (right)
+      page.drawText(formattedIssue, { x: 108.2, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedCertStart, { x: 310.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 466.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
     } else {
-      // GSO (GSO meat, GSO non-meat): 2 rows of dates
-      const dY = scheme.datesY;
-
-      // Row 1: Issue Date (left), Current Cycle Start Date (center), Expiry Date (right)
-      const issueLbl = 'Issue Date: ';
-      page.drawText(issueLbl, { x: leftMargin, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedIssue, { x: leftMargin + fontRegular.widthOfTextAtSize(issueLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
-
-      const currLbl = 'Current Cycle Start Date: ';
-      const currTotalW = fontRegular.widthOfTextAtSize(currLbl + formattedCurrentCycle, 8.0);
-      const currX = (PAGE_WIDTH - currTotalW) / 2;
-      page.drawText(currLbl, { x: currX, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedCurrentCycle, { x: currX + fontRegular.widthOfTextAtSize(currLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
-
-      const expLbl = 'Expiry Date: ';
-      const expTotalW = fontRegular.widthOfTextAtSize(expLbl + formattedExpiry, 8.0);
-      const expX = rightMargin - expTotalW;
-      page.drawText(expLbl, { x: expX, y: dY, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedExpiry, { x: expX + fontRegular.widthOfTextAtSize(expLbl, 8.0), y: dY, size: 8.0, font: fontRegular, color: cDark });
+      // GSO: Row 1: Issue Date (left), Current Cycle Start Date (center), Expiry Date (right)
+      page.drawText(formattedIssue, { x: 108.2, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedCurrentCycle, { x: 310.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 466.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
 
       // Row 2: Original Cycle Start Date (center)
-      const row2Y = scheme.datesRow2Y;
-      const origLbl = 'Original Cycle Start Date: ';
-      const origTotalW = fontRegular.widthOfTextAtSize(origLbl + formattedOrigCycle, 8.0);
-      const origX = (PAGE_WIDTH - origTotalW) / 2;
-      page.drawText(origLbl, { x: origX, y: row2Y, size: 8.0, font: fontRegular, color: cEmerald });
-      page.drawText(formattedOrigCycle, { x: origX + fontRegular.widthOfTextAtSize(origLbl, 8.0), y: row2Y, size: 8.0, font: fontRegular, color: cDark });
+      page.drawText(formattedOrigCycle, { x: 309.8, y: 589.55, size: 8.5, font: fontRegular, color: cDark });
+    }
+
+    // 3. Scheme-Specific Declaration Text (rendered centered for all schemes)
+    if (scheme.declarationLines && scheme.declarationLines.length > 0) {
+      const decLines = scheme.declarationLines.filter(Boolean);
+      const decFontSize = 10.2;
+      const decLineHeight = 14.0;
+      const blockHeight = (decLines.length - 1) * decLineHeight;
+      const startY = 536 + blockHeight / 2;
+      decLines.forEach((line, lIdx) => {
+        const lWidth = fontRegular.widthOfTextAtSize(line, decFontSize);
+        const lX = (PAGE_WIDTH - lWidth) / 2;
+        page.drawText(line, {
+          x: lX,
+          y: startY - (lIdx * decLineHeight),
+          size: decFontSize,
+          font: fontRegular,
+          color: cDark
+        });
+      });
     }
 
     let tableStartY = 0;
-    let headerHeight = 0;
-    let rowHeight = 0;
+    let headerHeight = 16;
+    let rowHeight = 15;
 
     if (isFirstPage) {
-      // 3. Company & Category Info Block (Page 1 only)
-      const infoW = 505;
-      const leftX = 45;
-      const valStartX = 230;
-      const valColW = infoW - (valStartX - leftX);
+      // 4. Company & Category Info Block Values (Labels and lines are pre-printed on base template!)
+      const valStartX = 191.0;
+      const maxValW = 350;
 
-      const infoRows = [
-        { label: 'COMPANY NAME:', val: resolvedName, isMfg: false },
-        { label: 'COMPANY ADDRESS:', val: resolvedAddress, isMfg: false },
-        { label: 'MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):', val: resolvedMfgAddress, isMfg: true },
-        { label: 'PRODUCT CATEGORY:', val: resolvedScope, isMfg: false }
-      ];
+      // Company Name
+      const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, 8.5, 1);
+      page.drawText(nameLines[0] || '—', {
+        x: valStartX,
+        y: 479.98,
+        size: 8.5,
+        font: fontRegular,
+        color: cDark
+      });
 
-      let curY = scheme.infoTopY;
-      for (const row of infoRows) {
-        const valLines = wrapTextLines(row.val, valColW - 10, fontRegular, 7.8, 2);
-        const rHeight = row.isMfg ? 28 : Math.max(16, valLines.length * 9.5 + 5);
-
-        if (row.isMfg) {
-          page.drawText('MANUFACTURING', { x: leftX, y: curY - 8, size: 7.8, font: fontRegular, color: cDark });
-          page.drawText('FACILITY(IES)', { x: leftX, y: curY - 16, size: 7.8, font: fontRegular, color: cDark });
-          page.drawText('ADDRESS (IF DIFFERENT):', { x: leftX, y: curY - 24, size: 7.8, font: fontRegular, color: cDark });
-        } else {
-          page.drawText(row.label, { x: leftX, y: curY - 9, size: 7.8, font: fontRegular, color: cDark });
-        }
-
-        valLines.forEach((line, lineIdx) => {
-          page.drawText(line, {
-            x: valStartX,
-            y: curY - 9 - (lineIdx * 9.5),
-            size: 7.8,
-            font: fontRegular,
-            color: cDark
-          });
+      // Company Address (only if provided and not '-')
+      if (resolvedAddress) {
+        const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, 8.5, 1);
+        page.drawText(addrLines[0], {
+          x: valStartX,
+          y: 447.04,
+          size: 8.5,
+          font: fontRegular,
+          color: cDark
         });
-
-        page.drawLine({
-          start: { x: leftX, y: curY - rHeight },
-          end: { x: leftX + infoW, y: curY - rHeight },
-          thickness: 0.75,
-          color: cDivider
-        });
-
-        curY -= (rHeight + 3);
       }
 
-      tableStartY = curY - 6;
+      // Manufacturing Facility Address (only if provided, distinct, and not '-')
+      if (resolvedMfgAddress) {
+        const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, 8.5, 1);
+        page.drawText(mfgLines[0], {
+          x: valStartX,
+          y: 402.82,
+          size: 8.5,
+          font: fontRegular,
+          color: cDark
+        });
+      }
+
+      // Product Category
+      const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, 7.5, 2);
+      if (scopeLines.length > 1) {
+        page.drawText(scopeLines[0], { x: valStartX, y: 370.0, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[1], { x: valStartX, y: 360.5, size: 7.5, font: fontRegular, color: cDark });
+      } else {
+        page.drawText(scopeLines[0] || '—', { x: valStartX, y: 365.81, size: 7.5, font: fontRegular, color: cDark });
+      }
+
+      tableStartY = 316;
+    } else {
+      // Subsequent continuation pages: Table starts below the header/declaration
+      // Clean continuation panel
+      page.drawRectangle({
+        x: 45,
+        y: 190,
+        width: 505,
+        height: 380,
+        color: cWhite
+      });
+
+      tableStartY = 540;
       headerHeight = 15;
       rowHeight = 13.5;
-    } else {
-      // Subsequent pages: Table starts cleanly under header/statement area (25 products per page)
-      tableStartY = 480;
-      headerHeight = 14;
-      rowHeight = 11.2;
     }
 
-    // 4. Products Table (regular font for rows, bold only for table header, transparent row backgrounds)
-    const tableWidth = 440;
-    const tableLeftX = (PAGE_WIDTH - tableWidth) / 2;
-    const hSize = isFirstPage ? 7.8 : 7.2;
-    const cellFontSize = isFirstPage ? 7.5 : 6.8;
+    // 5. Products Table: NO. | CODE | DESCRIPTION (centered compact layout)
+    const tableWidth = 370;
+    const tableLeftX = (PAGE_WIDTH - tableWidth) / 2; // 112.64 pt
+    const col1W = 35;  // NO.
+    const col2W = 120; // CODE
+    const col3W = tableWidth - col1W - col2W; // 215 pt DESCRIPTION
 
-    if (!isGso) {
-      // 2 Columns: NO. (width 50), NAME OF THE PRODUCTS (width 390)
-      const col1W = 50;
-      const col2W = tableWidth - col1W;
+    const hFontSize = 8.0;
+    const cellFontSize = 7.5;
 
-      // Header Fill
-      page.drawRectangle({
-        x: tableLeftX,
-        y: tableStartY - headerHeight,
-        width: tableWidth,
-        height: headerHeight,
-        color: cTableBorder
-      });
-
-      const h1 = 'NO.';
-      const h2 = 'NAME OF THE PRODUCTS';
-      page.drawText(h1, {
-        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(h1, hSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hSize) / 2 + 0.5,
-        size: hSize,
-        font: fontBold,
-        color: cWhite
-      });
-      page.drawText(h2, {
-        x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(h2, hSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hSize) / 2 + 0.5,
-        size: hSize,
-        font: fontBold,
-        color: cWhite
-      });
-
-      let rowY = tableStartY - headerHeight;
-      currentProducts.forEach((p) => {
-        globalProductIndex++;
-        rowY -= rowHeight;
-
-        // Row cell borders (transparent background)
-        page.drawRectangle({
-          x: tableLeftX,
-          y: rowY,
-          width: tableWidth,
-          height: rowHeight,
-          borderColor: cTableGrid,
-          borderWidth: 0.75
-        });
-
-        page.drawLine({
-          start: { x: tableLeftX + col1W, y: rowY },
-          end: { x: tableLeftX + col1W, y: rowY + rowHeight },
-          thickness: 0.75,
-          color: cTableGrid
-        });
-
-        const noStr = String(globalProductIndex);
-        page.drawText(noStr, {
-          x: tableLeftX + (col1W - fontRegular.widthOfTextAtSize(noStr, cellFontSize)) / 2,
-          y: rowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
-          font: fontRegular,
-          color: cDark
-        });
-
-        const nameStr = truncateToWidth(p.name, col2W - 18, fontRegular, cellFontSize);
-        page.drawText(nameStr, {
-          x: tableLeftX + col1W + 12,
-          y: rowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
-          font: fontRegular,
-          color: cDark
-        });
-      });
-
-      // Outer table border
-      page.drawRectangle({
-        x: tableLeftX,
-        y: rowY,
-        width: tableWidth,
-        height: tableStartY - rowY,
-        borderColor: cTableBorder,
-        borderWidth: 1.0
-      });
-
-      // Asterisks ONLY on final page below the last product
-      if (isLastPage) {
-        const asterisks = '****************';
-        const astW = fontRegular.widthOfTextAtSize(asterisks, 8.5);
-        page.drawText(asterisks, {
-          x: (PAGE_WIDTH - astW) / 2,
-          y: rowY - 9,
-          size: 8.5,
-          font: fontRegular,
-          color: cDark
-        });
-      }
-    } else {
-      // 3 Columns: NO. (width 40), DESCRIPTION (width 290), CODE (width 110)
-      const col1W = 40;
-      const col2W = 290;
-      const col3W = tableWidth - col1W - col2W;
-
-      page.drawRectangle({
-        x: tableLeftX,
-        y: tableStartY - headerHeight,
-        width: tableWidth,
-        height: headerHeight,
-        color: cTableBorder
-      });
-
-      const h1 = 'NO.';
-      const h2 = 'DESCRIPTION';
-      const h3 = 'CODE';
-      page.drawText(h1, {
-        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(h1, hSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hSize) / 2 + 0.5,
-        size: hSize,
-        font: fontBold,
-        color: cWhite
-      });
-      page.drawText(h2, {
-        x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(h2, hSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hSize) / 2 + 0.5,
-        size: hSize,
-        font: fontBold,
-        color: cWhite
-      });
-      page.drawText(h3, {
-        x: tableLeftX + col1W + col2W + (col3W - fontBold.widthOfTextAtSize(h3, hSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hSize) / 2 + 0.5,
-        size: hSize,
-        font: fontBold,
-        color: cWhite
-      });
-
-      let rowY = tableStartY - headerHeight;
-      currentProducts.forEach((p) => {
-        globalProductIndex++;
-        rowY -= rowHeight;
-
-        // Row cell borders (transparent background)
-        page.drawRectangle({
-          x: tableLeftX,
-          y: rowY,
-          width: tableWidth,
-          height: rowHeight,
-          borderColor: cTableGrid,
-          borderWidth: 0.75
-        });
-
-        page.drawLine({
-          start: { x: tableLeftX + col1W, y: rowY },
-          end: { x: tableLeftX + col1W, y: rowY + rowHeight },
-          thickness: 0.75,
-          color: cTableGrid
-        });
-        page.drawLine({
-          start: { x: tableLeftX + col1W + col2W, y: rowY },
-          end: { x: tableLeftX + col1W + col2W, y: rowY + rowHeight },
-          thickness: 0.75,
-          color: cTableGrid
-        });
-
-        const noStr = String(globalProductIndex);
-        page.drawText(noStr, {
-          x: tableLeftX + (col1W - fontRegular.widthOfTextAtSize(noStr, cellFontSize)) / 2,
-          y: rowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
-          font: fontRegular,
-          color: cDark
-        });
-
-        const descStr = truncateToWidth(p.name, col2W - 16, fontRegular, cellFontSize);
-        page.drawText(descStr, {
-          x: tableLeftX + col1W + 12,
-          y: rowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
-          font: fontRegular,
-          color: cDark
-        });
-
-        const codeStr = truncateToWidth(p.code, col3W - 10, fontRegular, cellFontSize);
-        page.drawText(codeStr, {
-          x: tableLeftX + col1W + col2W + (col3W - fontRegular.widthOfTextAtSize(codeStr, cellFontSize)) / 2,
-          y: rowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
-          font: fontRegular,
-          color: cDark
-        });
-      });
-
-      // Outer table border
-      page.drawRectangle({
-        x: tableLeftX,
-        y: rowY,
-        width: tableWidth,
-        height: tableStartY - rowY,
-        borderColor: cTableBorder,
-        borderWidth: 1.0
-      });
-
-      // Asterisks ONLY on final page below the last product
-      if (isLastPage) {
-        const asterisks = '****************';
-        const astW = fontRegular.widthOfTextAtSize(asterisks, 8.5);
-        page.drawText(asterisks, {
-          x: (PAGE_WIDTH - astW) / 2,
-          y: rowY - 9,
-          size: 8.5,
-          font: fontRegular,
-          color: cDark
-        });
-      }
-    }
-
-    // 5. QR Code
-    const qrSize = 52;
-    const qrX = 36;
-    const qrY = 46;
-
+    // Table Header Background (Solid Emerald Green)
     page.drawRectangle({
-      x: qrX - 2,
-      y: qrY - 2,
+      x: tableLeftX,
+      y: tableStartY - headerHeight,
+      width: tableWidth,
+      height: headerHeight,
+      color: cEmerald
+    });
+
+    // Table Header Text (Bold White)
+    const hNo = 'NO.';
+    const hCode = 'CODE';
+    const hDesc = 'DESCRIPTION';
+
+    page.drawText(hNo, {
+      x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
+      y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+      size: hFontSize,
+      font: fontBold,
+      color: cWhite
+    });
+
+    page.drawText(hCode, {
+      x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hCode, hFontSize)) / 2,
+      y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+      size: hFontSize,
+      font: fontBold,
+      color: cWhite
+    });
+
+    page.drawText(hDesc, {
+      x: tableLeftX + col1W + col2W + (col3W - fontBold.widthOfTextAtSize(hDesc, hFontSize)) / 2,
+      y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+      size: hFontSize,
+      font: fontBold,
+      color: cWhite
+    });
+
+    // White vertical dividers in header
+    page.drawLine({
+      start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
+      end: { x: tableLeftX + col1W, y: tableStartY },
+      thickness: 0.75,
+      color: cWhite
+    });
+    page.drawLine({
+      start: { x: tableLeftX + col1W + col2W, y: tableStartY - headerHeight },
+      end: { x: tableLeftX + col1W + col2W, y: tableStartY },
+      thickness: 0.75,
+      color: cWhite
+    });
+
+    // Table Rows
+    let curRowY = tableStartY - headerHeight;
+    currentProducts.forEach((p) => {
+      globalProductIndex++;
+      curRowY -= rowHeight;
+
+      // Solid white cell background for 100% MAXIMUM VISIBILITY
+      page.drawRectangle({
+        x: tableLeftX,
+        y: curRowY,
+        width: tableWidth,
+        height: rowHeight,
+        color: cWhite,
+        borderColor: cTableGrid,
+        borderWidth: 0.65
+      });
+
+      // Vertical column dividers
+      page.drawLine({
+        start: { x: tableLeftX + col1W, y: curRowY },
+        end: { x: tableLeftX + col1W, y: curRowY + rowHeight },
+        thickness: 0.65,
+        color: cTableGrid
+      });
+      page.drawLine({
+        start: { x: tableLeftX + col1W + col2W, y: curRowY },
+        end: { x: tableLeftX + col1W + col2W, y: curRowY + rowHeight },
+        thickness: 0.65,
+        color: cTableGrid
+      });
+
+      // Cell 1: Number (centered)
+      const noStr = String(globalProductIndex);
+      page.drawText(noStr, {
+        x: tableLeftX + (col1W - fontRegular.widthOfTextAtSize(noStr, cellFontSize)) / 2,
+        y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
+        size: cellFontSize,
+        font: fontRegular,
+        color: cDark
+      });
+
+      // Cell 2: Product Code (centered)
+      const codeStr = truncateToWidth(p.code, col2W - 10, fontRegular, cellFontSize);
+      page.drawText(codeStr, {
+        x: tableLeftX + col1W + (col2W - fontRegular.widthOfTextAtSize(codeStr, cellFontSize)) / 2,
+        y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
+        size: cellFontSize,
+        font: fontRegular,
+        color: cDark
+      });
+
+      // Cell 3: Product Description / Name (left-aligned with padding)
+      const descStr = truncateToWidth(p.name, col3W - 16, fontRegular, cellFontSize);
+      page.drawText(descStr, {
+        x: tableLeftX + col1W + col2W + 10,
+        y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
+        size: cellFontSize,
+        font: fontRegular,
+        color: cDark
+      });
+    });
+
+    // Outer table border
+    page.drawRectangle({
+      x: tableLeftX,
+      y: curRowY,
+      width: tableWidth,
+      height: tableStartY - curRowY,
+      borderColor: cEmerald,
+      borderWidth: 0.85
+    });
+
+    // Centered Asterisks directly below table on final page
+    if (isLastPage) {
+      const asterisks = '********************';
+      const astW = fontRegular.widthOfTextAtSize(asterisks, 8.5);
+      page.drawText(asterisks, {
+        x: (PAGE_WIDTH - astW) / 2,
+        y: curRowY - 10,
+        size: 8.5,
+        font: fontRegular,
+        color: cDark
+      });
+    }
+
+    // 6. Signatures (Transparent PNG overlays above CEO and Mufti titles)
+    if (amirSigImg) {
+      page.drawImage(amirSigImg, {
+        x: 34,
+        y: 154,
+        width: 78,
+        height: 35
+      });
+    }
+
+    if (muftiSigImg) {
+      page.drawImage(muftiSigImg, {
+        x: 418,
+        y: 154,
+        width: 95,
+        height: 35
+      });
+    }
+
+    // 7. QR Code (Bottom Left)
+    const qrSize = 52;
+    page.drawRectangle({
+      x: 34,
+      y: 44,
       width: qrSize + 4,
       height: qrSize + 4,
       color: cWhite
     });
     page.drawImage(qrImage, {
-      x: qrX,
-      y: qrY,
+      x: 36,
+      y: 46,
       width: qrSize,
       height: qrSize
     });
 
-    // 6. Dynamic Page Numbering: "Page X of Y"
+    // 8. Dynamic Page Numbering: "Page X of Y"
     const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
     const pageNoW = fontOblique.widthOfTextAtSize(pageNoStr, 7.5);
     page.drawText(pageNoStr, {
       x: PAGE_WIDTH - 45 - pageNoW,
-      y: 72,
+      y: 68.5,
       size: 7.5,
       font: fontOblique,
-      color: cSlate
+      color: cDark
     });
 
-    // 7. Document Metadata Footer
-    const footerW = fontRegular.widthOfTextAtSize(scheme.docFooter, 6.2);
-    page.drawText(scheme.docFooter, {
+    // 9. QR Verification Notice
+    const verifyText = 'TO VERIFY THE CONTENTS OF THIS DOCUMENT, PLEASE SCAN THE QR CODE';
+    const verifyW = fontBold.widthOfTextAtSize(verifyText, 7.5);
+    page.drawText(verifyText, {
+      x: (PAGE_WIDTH - verifyW) / 2,
+      y: 34.2,
+      size: 7.5,
+      font: fontBold,
+      color: cDark
+    });
+
+    // 10. Document Control Footer
+    const footerText = scheme.docFooter || 'Doc: Halal Certificate';
+    const footerW = fontRegular.widthOfTextAtSize(footerText, 6.5);
+    page.drawText(footerText, {
       x: (PAGE_WIDTH - footerW) / 2,
-      y: 12,
-      size: 6.2,
+      y: 10.94,
+      size: 6.5,
       font: fontRegular,
-      color: cMuted
+      color: cDark
     });
   }
 
@@ -845,7 +795,7 @@ export async function generateCertificate(certData) {
 }
 
 /**
- * Builds HTML representation for web previews.
+ * Builds HTML representation for web previews matching the exact official template.
  */
 export async function buildCertificateHtml(certData) {
   const {
@@ -869,16 +819,17 @@ export async function buildCertificateHtml(certData) {
     verificationUrl
   } = certData;
 
-  const resolvedName = companyName || businessName || 'Halal Certified Client';
-  const resolvedAddress = companyAddress || businessAddress || '—';
-  const resolvedMfgAddress = manufacturingAddress || manufacturerAddress || resolvedAddress || 'Same as above';
-  const resolvedScope = scope || scopeOfCertification || 'Halal Food and Consumer Products Certification';
+  const resolvedName = (companyName || businessName || 'Halal Certified Client').toUpperCase();
+  const resolvedAddress = (companyAddress || businessAddress || '—').toUpperCase();
+  const resolvedMfgAddress = (manufacturingAddress || manufacturerAddress || resolvedAddress || 'SAME AS ABOVE').toUpperCase();
+  const resolvedScope = (scope || scopeOfCertification || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase();
 
   const normalizedScheme = normalizeCertificateType(certificateType);
-  const config = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
+  const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
+  const isGso = scheme.templateType === 'gso';
 
   const qrUrl = verificationUrl || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificateNumber}`;
-  const qrBase64 = await generateQRCode(qrUrl);
+  const qrBase64 = await QRCode.toDataURL(qrUrl, { margin: 0, width: 250 });
 
   const formattedIssue = formatDate(issueDate);
   const formattedExpiry = formatDate(expiryDate);
@@ -887,7 +838,17 @@ export async function buildCertificateHtml(certData) {
   const formattedOrigCycle = formatDate(originalCycleStartDate || issueDate);
 
   const rawProducts = (products && products.length > 0) ? products : productCategories;
-  const isGso = config.templateType === 'gso';
+  const productList = (rawProducts && rawProducts.length > 0)
+    ? rawProducts.map((p, idx) => {
+        if (typeof p === 'string') return { code: `PRD-${String(idx + 1).padStart(2, '0')}`, name: p };
+        return {
+          code: p.code || p.product_code || p.brand || `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: p.name || p.product_name || p.description || `Product ${idx + 1}`
+        };
+      })
+    : [{ code: 'PRD-01', name: 'Certified Halal Products' }];
+
+  const declarationText = scheme.declarationLines.join(' ');
 
   return `
     <!DOCTYPE html>
@@ -900,28 +861,120 @@ export async function buildCertificateHtml(certData) {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
           width: 210mm;
-          height: 297mm;
-          margin: 0;
-          padding: 0;
+          min-height: 297mm;
+          margin: 0 auto;
+          padding: 24mm 16mm;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-          position: relative;
           color: #111827;
           background: #ffffff;
+          position: relative;
         }
-        .cert-no-container { text-align: center; margin-top: 180px; }
-        .cert-no-label { font-size: 8.5pt; font-weight: 400; color: #0b7c47; }
-        .cert-no-value { font-size: 8.5pt; font-weight: 400; color: #111827; }
+        .cert-header { text-align: center; margin-bottom: 12px; }
+        .cert-title { font-size: 20pt; font-weight: 700; color: #0b7c47; margin-top: 6px; }
+        .cert-no { font-size: 8.5pt; margin-top: 4px; }
+        .cert-no-label { color: #0b7c47; }
+        .dates-row { display: flex; justify-content: space-between; font-size: 8pt; margin-top: 8px; }
+        .dates-row-center { text-align: center; font-size: 8pt; margin-top: 4px; }
+        .date-label { color: #0b7c47; }
+        .declaration { font-size: 8.2pt; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 8pt; }
+        .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; }
+        .info-label { width: 35%; color: #111827; vertical-align: top; }
+        .info-val { width: 65%; color: #111827; }
+        .products-table-container { display: flex; justify-content: center; margin-top: 10px; }
+        .products-table { width: 370pt; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 7.5pt; background: #ffffff; }
+        .products-table th { background: #0b7c47; color: #ffffff; padding: 5px; font-weight: 700; border: 1px solid #ffffff; }
+        .products-table td { padding: 4px 6px; border: 1px solid #c2decb; color: #111827; background: #ffffff; }
+        .asterisks { text-align: center; margin: 8px 0; font-size: 8pt; letter-spacing: 2px; }
+        .footer-signatures { display: flex; justify-content: space-between; margin-top: 24px; font-size: 8pt; }
+        .footer-meta { display: flex; align-items: center; margin-top: 20px; font-size: 7pt; border-top: 1px solid #7cb594; padding-top: 8px; }
+        .footer-qr { width: 52px; height: 52px; margin-right: 12px; }
+        .footer-text { flex: 1; text-align: center; }
+        .doc-control { text-align: center; font-size: 6.5pt; color: #64748b; margin-top: 10px; }
       </style>
     </head>
     <body>
-      <div class="cert-no-container">
-        <span class="cert-no-label">Certificate No.:</span>
-        <span class="cert-no-value">${certificateNumber}</span>
+      <div class="cert-header">
+        <div class="cert-title">Halal Certificate</div>
+        <div class="cert-no">
+          <span class="cert-no-label">Certificate No.:</span>
+          <strong>${certificateNumber}</strong>
+        </div>
       </div>
-      <div style="text-align: center; margin-top: 20px;">
-        <p>${resolvedName}</p>
-        <p>${resolvedAddress}</p>
+
+      <div class="dates-row">
+        <div><span class="date-label">Issue Date:</span> ${formattedIssue}</div>
+        <div><span class="date-label">${isGso ? 'Current Cycle Start Date:' : 'Certification Start Date:'}</span> ${isGso ? formattedCurrentCycle : formattedCertStart}</div>
+        <div><span class="date-label">Expiry Date:</span> ${formattedExpiry}</div>
       </div>
+      ${isGso ? `<div class="dates-row-center"><span class="date-label">Original Cycle Start Date:</span> ${formattedOrigCycle}</div>` : ''}
+
+      <div class="declaration">
+        ${declarationText}
+      </div>
+
+      <table class="info-table">
+        <tr>
+          <td class="info-label">COMPANY NAME:</td>
+          <td class="info-val">${resolvedName}</td>
+        </tr>
+        <tr>
+          <td class="info-label">COMPANY ADDRESS:</td>
+          <td class="info-val">${resolvedAddress}</td>
+        </tr>
+        <tr>
+          <td class="info-label">MANUFACTURING FACILITY(IES)<br>ADDRESS (IF DIFFERENT):</td>
+          <td class="info-val">${resolvedMfgAddress}</td>
+        </tr>
+        <tr>
+          <td class="info-label">PRODUCT CATEGORY:</td>
+          <td class="info-val">${resolvedScope}</td>
+        </tr>
+      </table>
+
+      <div class="products-table-container">
+        <table class="products-table">
+          <thead>
+            <tr>
+              <th style="width: 35pt; text-align: center;">NO.</th>
+              <th style="width: 120pt; text-align: center;">CODE</th>
+              <th style="width: 215pt; text-align: center;">DESCRIPTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productList.map((p, idx) => `
+              <tr>
+                <td style="text-align: center;">${idx + 1}</td>
+                <td style="text-align: center;">${p.code}</td>
+                <td>${p.name}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="asterisks">********************</div>
+
+      <div class="footer-signatures">
+        <div style="text-align: left;">
+          <div style="color: #0b7c47; font-weight: 700;">Dr Amir Masoom</div>
+          <div>CEO</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="color: #0b7c47; font-weight: 700;">Mufti Abdulkadir Barkatulla</div>
+          <div>Head of Islamic Scholars' Board</div>
+        </div>
+      </div>
+
+      <div class="footer-meta">
+        <img src="${qrBase64}" class="footer-qr" alt="QR Code" />
+        <div class="footer-text">
+          <div>Halal Food Authority Ltd. Company Registration Number: 6273989. VAT Number: 912380938</div>
+          <div>Address: Unit 15, Linen House, 253 Kilburn Lane, Queen's Park, London W10 4BQ</div>
+          <div>Telephone: +44 (0) 208 4467 127 Email: info@halalfoodauthority.com</div>
+          <div style="font-weight: 700; margin-top: 4px;">TO VERIFY THE CONTENTS OF THIS DOCUMENT, PLEASE SCAN THE QR CODE</div>
+        </div>
+      </div>
+      <div class="doc-control">${scheme.docFooter}</div>
     </body>
     </html>
   `;
