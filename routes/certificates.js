@@ -210,6 +210,175 @@ router.get('/direct-history', authenticateToken, requireDirectCertificatePermiss
   }
 });
 
+// GET /api/certificates/:id/site-products (Get all products belonging to the client and site for certificate selection)
+router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cert = await Certificate.findById(req.params.id)
+      .populate('site_id')
+      .populate('application_id');
+
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    // 1. Resolve client ID and user
+    const clientId = cert.client_id || cert.application_id?.client_id;
+    let clientUser = null;
+    if (clientId) {
+      clientUser = await User.findById(clientId).select('company_name full_name email phone address country').lean();
+    }
+
+    // 2. Resolve site ID and site document
+    let siteId = cert.site_id?._id || cert.site_id || cert.application_id?.site_id;
+    let siteDoc = (cert.site_id && cert.site_id.name) ? cert.site_id : null;
+
+    if (!siteDoc && siteId && mongoose.isValidObjectId(siteId)) {
+      siteDoc = await Site.findById(siteId).lean();
+    }
+
+    // If siteId still not found, check ApplicationLogsheet for this application
+    if (!siteId && cert.application_id) {
+      const logsheet = await ApplicationLogsheet.findOne({
+        application_id: cert.application_id?._id || cert.application_id
+      }).select('site_id site_name manufacturing_address').lean();
+      if (logsheet?.site_id) {
+        siteId = logsheet.site_id;
+        if (!siteDoc && mongoose.isValidObjectId(siteId)) {
+          siteDoc = await Site.findById(siteId).lean();
+        }
+      }
+    }
+
+    // 3. Query Product collection for this client & site
+    const orClauses = [];
+
+    // Products matching this client
+    if (clientId) {
+      const clientIds = [clientId.toString()];
+      if (mongoose.isValidObjectId(clientId)) {
+        clientIds.push(new mongoose.Types.ObjectId(clientId.toString()));
+      }
+
+      // If siteId is present, match client AND site
+      if (siteId) {
+        const siteIds = [siteId.toString()];
+        if (mongoose.isValidObjectId(siteId)) {
+          siteIds.push(new mongoose.Types.ObjectId(siteId.toString()));
+        }
+        orClauses.push({ client_id: { $in: clientIds }, site_id: { $in: siteIds } });
+      } else {
+        orClauses.push({ client_id: { $in: clientIds } });
+      }
+    }
+
+    // Also include any products explicitly linked to this certificate
+    if (cert._id) {
+      orClauses.push({ certificate_id: cert._id.toString() });
+    }
+    if (cert.certificate_number) {
+      orClauses.push({ certificate_id: cert.certificate_number });
+    }
+
+    let dbProducts = [];
+    if (orClauses.length > 0) {
+      dbProducts = await Product.find({ $or: orClauses })
+        .populate('site_id', 'name est_name trading_name')
+        .sort({ created_at: -1 })
+        .lean();
+    }
+
+    // 4. Fetch products from Application if available
+    let appProducts = [];
+    if (cert.application_id?.products && Array.isArray(cert.application_id.products)) {
+      appProducts = cert.application_id.products;
+    } else if (cert.application_id) {
+      const app = await Application.findById(cert.application_id?._id || cert.application_id).select('products site_id site_name').lean();
+      if (app?.products && Array.isArray(app.products)) {
+        appProducts = app.products;
+      }
+    }
+
+    // 5. Fetch products from ApplicationLogsheet
+    let logsheetProducts = [];
+    if (cert.application_id) {
+      const logsheets = await ApplicationLogsheet.find({
+        application_id: cert.application_id?._id || cert.application_id
+      }).select('products_list').lean();
+      logsheets.forEach(l => {
+        if (Array.isArray(l.products_list)) {
+          logsheetProducts.push(...l.products_list);
+        }
+      });
+    }
+
+    // 6. Build unified product catalog
+    const productMap = new Map();
+
+    const addProduct = (p, source = 'site_product') => {
+      const name = (p.name || p.title || p.product_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+
+      if (!productMap.has(key)) {
+        productMap.set(key, {
+          id: p._id ? p._id.toString() : (p.id || `gen_${Math.random().toString(36).substr(2, 9)}`),
+          name,
+          code: p.code || p.barcode || '',
+          category: p.category || 'Halal Certified',
+          product_type: p.product_type || 'Processed',
+          description: p.description || '',
+          barcode: p.barcode || p.code || '',
+          source,
+          status: p.status || 'active',
+          site_id: p.site_id || siteId || null
+        });
+      } else {
+        const existing = productMap.get(key);
+        if (!existing.code && (p.code || p.barcode)) existing.code = p.code || p.barcode;
+        if (!existing.category && p.category) existing.category = p.category;
+        if (!existing.description && p.description) existing.description = p.description;
+      }
+    };
+
+    // Add in order: Database products, Logsheet, Application, Certificate details
+    dbProducts.forEach(p => addProduct(p, 'site_inventory'));
+    logsheetProducts.forEach(p => addProduct(p, 'logsheet'));
+    appProducts.forEach(p => addProduct(p, 'application'));
+
+    if (Array.isArray(cert.product_details)) {
+      cert.product_details.forEach(p => addProduct(p, 'certificate'));
+    }
+    if (Array.isArray(cert.products_covered)) {
+      cert.products_covered.forEach(p => {
+        if (typeof p === 'string') addProduct({ name: p }, 'certificate');
+        else if (typeof p === 'object') addProduct(p, 'certificate');
+      });
+    }
+
+    const allSiteProducts = Array.from(productMap.values());
+
+    res.json({
+      success: true,
+      client: {
+        id: clientId,
+        company_name: cert.company_name || clientUser?.company_name || clientUser?.full_name || 'Client Company',
+        email: clientUser?.email || '',
+        address: cert.company_address || clientUser?.address || ''
+      },
+      site: siteDoc ? {
+        id: siteDoc._id,
+        name: siteDoc.name || siteDoc.trading_name || siteDoc.est_name || 'Manufacturing Site',
+        address: siteDoc.address_1 || siteDoc.address || cert.manufacturing_address || ''
+      } : (siteId ? { id: siteId, name: cert.application_id?.site_name || 'Manufacturing Site', address: cert.manufacturing_address || '' } : null),
+      site_id: siteId,
+      products: allSiteProducts,
+      current_selected_details: cert.product_details || [],
+      current_selected_names: cert.products_covered || []
+    });
+  } catch (err) {
+    console.error('Error fetching certificate site products:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET single certificate
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
@@ -235,7 +404,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
       clientUser = await User.findById(data.client_id).select('-password');
     }
 
-    res.json({ data, client: clientUser });
+    // Resolve site details if not populated directly on certificate
+    let siteData = data.site_id;
+    if (!siteData && data.application_id?.site_id) {
+      const sId = data.application_id.site_id;
+      if (mongoose.isValidObjectId(sId)) {
+        siteData = await Site.findById(sId);
+      }
+    }
+
+    res.json({ data, client: clientUser, site: siteData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
