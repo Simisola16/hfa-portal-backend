@@ -585,9 +585,11 @@ export async function generateCertificate(certData) {
     pdfDoc.addPage(page);
 
     // 1. Certificate Number (rendered next to pre-printed "Certificate No.:")
+    const certNoX = isGso ? 264.0 : 278.0;
+    const certNoY = isGso ? 634.0 : 636.0;
     page.drawText(sanitizedCertNo, {
-      x: 263.98,
-      y: 633.5,
+      x: certNoX,
+      y: certNoY,
       size: 10.0,
       font: fontRegular,
       color: cDark
@@ -596,18 +598,24 @@ export async function generateCertificate(certData) {
     // 2. Dates Block (Font size strictly 10.0 to match the pre-printed labels exactly!)
     const dateFontSize = 10.0;
     if (!isGso) {
-      // Non-GSO: Issue Date (left), Certification Start Date (center), Expiry Date (right)
-      page.drawText(formattedIssue, { x: 108.23, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedCertStart, { x: 310.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedExpiry, { x: 466.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC):
+      // Issue Date: label at x: 51.69 -> value at x: 116.0
+      // Certification Start Date: label at x: 210.0 -> value at x: 338.0
+      // Expiry Date: label at x: 418.63 -> value at x: 488.0
+      const dateY = 607.21;
+      page.drawText(formattedIssue, { x: 116.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedCertStart, { x: 338.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 488.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
     } else {
-      // GSO: Row 1: Issue Date (left), Current Cycle Start Date (center), Expiry Date (right)
-      page.drawText(formattedIssue, { x: 108.23, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedCurrentCycle, { x: 310.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
-      page.drawText(formattedExpiry, { x: 466.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      // GSO (GSO Meat, GSO Non-Meat):
+      // Row 1: Issue Date (left: 110.0), Current Cycle Start Date (center: 310.0), Expiry Date (right: 468.0)
+      const dateY = 611.28;
+      page.drawText(formattedIssue, { x: 110.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedCurrentCycle, { x: 310.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 468.0, y: dateY, size: dateFontSize, font: fontRegular, color: cDark });
 
-      // Row 2: Original Cycle Start Date (center)
-      page.drawText(formattedOrigCycle, { x: 309.84, y: 589.55, size: dateFontSize, font: fontRegular, color: cDark });
+      // Row 2: Original Cycle Start Date (center: 311.0, y: 589.55)
+      page.drawText(formattedOrigCycle, { x: 311.0, y: 589.55, size: dateFontSize, font: fontRegular, color: cDark });
     }
 
     const isUnlockedBase = scheme.basePdf && scheme.basePdf.includes('unlocked');
@@ -649,11 +657,16 @@ export async function generateCertificate(certData) {
       const valStartX = 191.04;
       const maxValW = 350;
 
+      const nameY = isGso ? 475.0 : 495.0;
+      const addrY = isGso ? 442.0 : 461.0;
+      const mfgY = isGso ? 398.0 : 404.0;
+      const scopeY = isGso ? 361.0 : 378.0;
+
       // Company Name
       const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, 8.5, 1);
       page.drawText(nameLines[0] || '—', {
         x: valStartX,
-        y: 479.98,
+        y: nameY,
         size: 8.5,
         font: fontRegular,
         color: cDark
@@ -664,7 +677,7 @@ export async function generateCertificate(certData) {
         const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, 8.5, 1);
         page.drawText(addrLines[0], {
           x: valStartX,
-          y: 447.04,
+          y: addrY,
           size: 8.5,
           font: fontRegular,
           color: cDark
@@ -676,7 +689,7 @@ export async function generateCertificate(certData) {
         const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, 8.5, 1);
         page.drawText(mfgLines[0], {
           x: valStartX,
-          y: 402.82,
+          y: mfgY,
           size: 8.5,
           font: fontRegular,
           color: cDark
@@ -686,13 +699,13 @@ export async function generateCertificate(certData) {
       // Product Category / Scope
       const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, 7.5, 2);
       if (scopeLines.length > 1) {
-        page.drawText(scopeLines[0], { x: valStartX, y: 370.0, size: 7.5, font: fontRegular, color: cDark });
-        page.drawText(scopeLines[1], { x: valStartX, y: 360.5, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[0], { x: valStartX, y: scopeY + 4.5, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[1], { x: valStartX, y: scopeY - 5.0, size: 7.5, font: fontRegular, color: cDark });
       } else {
-        page.drawText(scopeLines[0] || '—', { x: valStartX, y: 365.81, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeY, size: 7.5, font: fontRegular, color: cDark });
       }
 
-      tableStartY = 316;
+      tableStartY = isGso ? 294.0 : 296.0;
       headerHeight = 0; // Header is already pre-printed on page 1 of master templates
     } else {
       // Subsequent continuation pages: Clean continuation panel for annex
