@@ -14,28 +14,48 @@ async function renderTest(browser, name, data) {
   const pdfBuf = await generateCertificate(data);
   const b64 = pdfBuf.toString('base64');
   const page = await browser.newPage({ viewport: { width: 1200, height: 1700 } });
+  
+  // Get total pages
   const html = `
     <!DOCTYPE html><html><head>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    </head><body style="margin:0;padding:0;"><canvas id="c"></canvas><script>
+    </head><body style="margin:0;padding:0;"><div id="container"></div><script>
     const pdfData = atob("${b64}");
-    const u = new Uint8Array(pdfData.length);
-    for (let i=0; i<pdfData.length; i++) u[i] = pdfData.charCodeAt(i);
-    pdfjsLib.getDocument({data: u}).promise.then(doc => doc.getPage(1)).then(p => {
+    window.renderPage = async function(pageNum) {
+      if (!window._doc) {
+        const u = new Uint8Array(pdfData.length);
+        for (let i=0; i<pdfData.length; i++) u[i] = pdfData.charCodeAt(i);
+        window._doc = await pdfjsLib.getDocument({data: u}).promise;
+        window._numPages = window._doc.numPages;
+      }
+      const p = await window._doc.getPage(pageNum);
       const v = p.getViewport({scale: 2.0});
+      const container = document.getElementById('container');
+      container.innerHTML = '<canvas id="c"></canvas>';
       const c = document.getElementById('c');
       c.width = v.width; c.height = v.height;
-      return p.render({canvasContext: c.getContext('2d'), viewport: v}).promise;
-    }).then(() => { window._done = true; }).catch(err => { window._err = err.message; });
+      await p.render({canvasContext: c.getContext('2d'), viewport: v}).promise;
+      return true;
+    };
+    window.renderPage(1).then(() => { window._done = true; }).catch(err => { window._err = err.message; });
     </script></body></html>
   `;
   await page.setContent(html);
   await page.waitForFunction('window._done === true || window._err', { timeout: 30000 });
-  const c = await page.$('#c');
-  const outPng = path.join(scratchDir, `test_${name}.png`);
-  await c.screenshot({ path: outPng });
-  console.log(`Saved screenshot: test_${name}.png`);
+  const numPages = await page.evaluate(() => window._numPages || 1);
+  
+  for (let pNum = 1; pNum <= numPages; pNum++) {
+    if (pNum > 1) {
+      await page.evaluate(async (n) => { await window.renderPage(n); }, pNum);
+      await page.waitForTimeout(300);
+    }
+    const c = await page.$('#c');
+    const suffix = numPages > 1 ? `_p${pNum}` : '';
+    const outPng = path.join(scratchDir, `test_${name}${suffix}.png`);
+    await c.screenshot({ path: outPng });
+    console.log(`Saved screenshot: test_${name}${suffix}.png`);
+  }
   await page.close();
 }
 
@@ -83,23 +103,32 @@ async function run() {
     ]
   });
 
-  // Test Cosmetics with 4 products
-  await renderTest(browser, 'cosmetics_4prods', {
-    certificateType: 'Cosmetics',
-    certificateNumber: 'HFA-24-COS-0112',
-    companyName: 'LUMEN BEAUTY LABS UK LTD',
-    companyAddress: '10 HARLEY STREET, LONDON W1G 9PF',
-    manufacturingAddress: 'UNIT 2, COSMETIC PARK, MANCHESTER M1 7ED',
-    scope: 'HALAL CERTIFIED SKINCARE AND PERSONAL CARE FORMULATIONS',
-    productCategory: 'HALAL CERTIFIED SKINCARE AND PERSONAL CARE FORMULATIONS',
+  // Test GSO Meat with 12 products (multi-digit numbers & continuation page)
+  await renderTest(browser, 'gso_meat_12prods', {
+    certificateType: 'GSO MEAT',
+    certificateNumber: 'GSO-24-MEAT-0100',
+    companyName: 'INTERNATIONAL MEAT PROCESSORS GROUP PLC',
+    companyAddress: '124 INDUSTRIAL WAY, LONDON E14 5QQ',
+    manufacturingAddress: 'UNIT 4, MEAT PACKING ZONE, BIRMINGHAM B2 4AB',
+    scope: 'SLAUGHTERING, PROCESSING, DEBONING, PACKAGING AND DISTRIBUTION OF HALAL BEEF, LAMB AND POULTRY PRODUCTS',
+    productCategory: 'HALAL MEAT & POULTRY PRODUCTS',
     issueDate: '13-Sep-2026',
-    certificationStartDate: '13-Sep-2026',
+    currentCycleStartDate: '13-Sep-2026',
+    originalCycleStartDate: '13-Sep-2026',
     expiryDate: '12-Sep-2027',
     products: [
-      { name: 'Hydrating Botanical Facial Cleanser' },
-      { name: 'Pure Rosewater Hydrosol Toner' },
-      { name: 'Nourishing Shea Butter Body Lotion' },
-      { name: 'Rejuvenating Vitamin C Serum 30ml' }
+      { code: 'BF-PRM-101', name: 'Premium Angus Beef Striploin 200g' },
+      { code: 'BF-PRM-102', name: 'Halal Beef Ribeye Steak 250g' },
+      { code: 'BF-MIN-103', name: 'Lean Minced Beef 500g 5% Fat' },
+      { code: 'CK-BST-201', name: 'Fresh Chicken Breast Fillets 1kg' },
+      { code: 'CK-THG-202', name: 'Boneless Skinless Chicken Thighs 800g' },
+      { code: 'CK-DRM-203', name: 'Fresh Chicken Drumsticks Pack 1.2kg' },
+      { code: 'LM-CHP-301', name: 'Gourmet Lamb Loin Chops 450g' },
+      { code: 'LM-DC-302', name: 'Diced Boneless Lamb Shoulder 600g' },
+      { code: 'LM-LEG-303', name: 'Whole Halal Lamb Leg 2.2kg' },
+      { code: 'SG-BF-401', name: 'Artisan Halal Beef Sausages 400g' },
+      { code: 'SG-CK-402', name: 'Spicy Herb Halal Chicken Sausages 400g' },
+      { code: 'SG-LM-403', name: 'Merguez Halal Lamb Sausages 350g' }
     ]
   });
 

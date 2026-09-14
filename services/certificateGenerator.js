@@ -508,10 +508,10 @@ export async function generateCertificate(certData) {
     : [{ code: 'PRD-01', name: 'Certified Halal Products & Formulations' }];
 
   // Pagination capacity:
-  // Page 1 fits up to 9 products cleanly above the signatures and below the company info.
-  // Subsequent pages fit up to 24 products per page.
-  const PAGE1_LIMIT = 9;
-  const SUBSEQUENT_PAGE_LIMIT = 24;
+  // Page 1 fits up to 6 products cleanly above the signatures and below the company info.
+  // Subsequent pages fit up to 20 products per page in the dedicated annex container.
+  const PAGE1_LIMIT = 6;
+  const SUBSEQUENT_PAGE_LIMIT = 20;
 
   let pagesProducts = [];
   if (allProducts.length <= PAGE1_LIMIT) {
@@ -668,14 +668,11 @@ export async function generateCertificate(certData) {
       });
     }
 
-    let tableStartY = 0;
-    let headerHeight = 0;
-    let rowHeight = 15.0;
-
     if (isFirstPage) {
       // 4. Company & Category Info Block Values (Labels and lines are pre-printed on base template!)
-      const valStartX = 191.04;
-      const maxValW = 350;
+      const valStartX = 186.0;
+      const maxValW = 355;
+      const companyInfoFontSize = 8.5;
 
       // Exact PDF baseline coordinates: sitting directly on the pre-printed underline
       const nameY = isGso ? 474.50 : 494.71;
@@ -684,22 +681,22 @@ export async function generateCertificate(certData) {
       const scopeY = isGso ? 360.30 : 376.16;
 
       // Company Name
-      const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, 8.5, 1);
+      const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, companyInfoFontSize, 1);
       page.drawText(nameLines[0] || '—', {
         x: valStartX,
         y: nameY,
-        size: 8.5,
+        size: companyInfoFontSize,
         font: fontRegular,
         color: cDark
       });
 
       // Company Address (only if provided and not '-')
       if (resolvedAddress) {
-        const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, 8.5, 1);
+        const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, companyInfoFontSize, 1);
         page.drawText(addrLines[0], {
           x: valStartX,
           y: addrY,
-          size: 8.5,
+          size: companyInfoFontSize,
           font: fontRegular,
           color: cDark
         });
@@ -707,29 +704,31 @@ export async function generateCertificate(certData) {
 
       // Manufacturing Facility Address (only if provided, distinct, and not '-')
       if (resolvedMfgAddress) {
-        const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, 8.5, 1);
+        const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, companyInfoFontSize, 1);
         page.drawText(mfgLines[0], {
           x: valStartX,
           y: mfgY,
-          size: 8.5,
+          size: companyInfoFontSize,
           font: fontRegular,
           color: cDark
         });
       }
 
-      // Product Category / Scope
-      const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, 7.5, 2);
+      // Product Category / Scope (same font size 8.5 as Company Name and Address, aligned at valStartX)
+      const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, companyInfoFontSize, 2);
       if (scopeLines.length > 1) {
-        page.drawText(scopeLines[0], { x: valStartX, y: scopeY + 4.5, size: 7.5, font: fontRegular, color: cDark });
-        page.drawText(scopeLines[1], { x: valStartX, y: scopeY - 5.0, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[0], { x: valStartX, y: scopeY + 4.5, size: companyInfoFontSize, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[1], { x: valStartX, y: scopeY - 4.5, size: companyInfoFontSize, font: fontRegular, color: cDark });
       } else {
-        page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeY, size: 7.5, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeY, size: companyInfoFontSize, font: fontRegular, color: cDark });
       }
+    }
 
-      tableStartY = isGso ? 295.44 : 298.51;
-      rowHeight = isGso ? 15.0 : 15.6;
-      headerHeight = 0; // Header is already pre-printed on page 1 of master templates
-    } else {
+    const headerBottomY = isFirstPage ? (isGso ? 295.44 : 298.51) : 511.0;
+    const headerHeight = 15.0;
+    const rowHeight = isFirstPage ? (isGso ? 15.0 : 15.6) : 13.5;
+
+    if (!isFirstPage) {
       // Subsequent continuation pages: Clean continuation panel for annex
       page.drawRectangle({
         x: 45,
@@ -759,10 +758,6 @@ export async function generateCertificate(certData) {
         font: fontRegular,
         color: cDark
       });
-
-      tableStartY = 526;
-      headerHeight = 15;
-      rowHeight = 13.5;
     }
 
     // 5. Products Table Layout
@@ -771,69 +766,72 @@ export async function generateCertificate(certData) {
 
     if (isGso) {
       // 3-Column Table: NO. | CODE | DESCRIPTION
-      // Matches master unlocked template (width 272.87 pt, left: 160.74 pt)
-      const tableLeftX = isFirstPage ? 160.74 : (PAGE_WIDTH - 272.87) / 2;
-      const col1W = 23.87;
-      const col2W = 125.68;
-      const col3W = 123.32;
-      const tableWidth = col1W + col2W + col3W; // 272.87 pt (ends exactly at 433.86 pt)
+      const tableWidth = isFirstPage ? 272.87 : 460.0;
+      const tableLeftX = isFirstPage ? 160.74 : (PAGE_WIDTH - tableWidth) / 2;
+      
+      // Dynamic NO. column width: spacious for single or multi-digit numbers
+      const numDigits = String(allProducts.length).length;
+      const col1W = isFirstPage
+        ? Math.max(34.0, 20.0 + numDigits * 6.5)
+        : Math.max(40.0, 26.0 + numDigits * 7.0);
+      const col2W = isFirstPage ? 90.0 : 125.0; // CODE column (left-aligned)
+      const col3W = tableWidth - col1W - col2W; // DESCRIPTION column
 
-      if (!isFirstPage) {
-        // Draw Header on continuation pages
-        page.drawRectangle({
-          x: tableLeftX,
-          y: tableStartY - headerHeight,
-          width: tableWidth,
-          height: headerHeight,
-          color: cEmerald
-        });
+      // Draw Header (Both on Page 1 and continuation pages for 100% unified alignment)
+      page.drawRectangle({
+        x: tableLeftX,
+        y: headerBottomY,
+        width: tableWidth,
+        height: headerHeight,
+        color: cEmerald
+      });
 
-        // Header Text
-        const hNo = 'NO.';
-        const hCode = 'CODE';
-        const hDesc = 'DESCRIPTION';
+      // Header Text
+      const hNo = 'NO.';
+      const hCode = 'CODE';
+      const hDesc = 'DESCRIPTION';
+      const headerTextY = headerBottomY + (headerHeight - hFontSize) / 2 + 0.5;
 
-        page.drawText(hNo, {
-          x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
-          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-          size: hFontSize,
-          font: fontBold,
-          color: cWhite
-        });
+      page.drawText(hNo, {
+        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
+        y: headerTextY,
+        size: hFontSize,
+        font: fontBold,
+        color: cWhite
+      });
 
-        page.drawText(hCode, {
-          x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hCode, hFontSize)) / 2,
-          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-          size: hFontSize,
-          font: fontBold,
-          color: cWhite
-        });
+      page.drawText(hCode, {
+        x: tableLeftX + col1W + 6.0,
+        y: headerTextY,
+        size: hFontSize,
+        font: fontBold,
+        color: cWhite
+      });
 
-        page.drawText(hDesc, {
-          x: tableLeftX + col1W + col2W + (col3W - fontBold.widthOfTextAtSize(hDesc, hFontSize)) / 2,
-          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-          size: hFontSize,
-          font: fontBold,
-          color: cWhite
-        });
+      page.drawText(hDesc, {
+        x: tableLeftX + col1W + col2W + 6.0,
+        y: headerTextY,
+        size: hFontSize,
+        font: fontBold,
+        color: cWhite
+      });
 
-        // Header white vertical dividers
-        page.drawLine({
-          start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
-          end: { x: tableLeftX + col1W, y: tableStartY },
-          thickness: 0.75,
-          color: cWhite
-        });
-        page.drawLine({
-          start: { x: tableLeftX + col1W + col2W, y: tableStartY - headerHeight },
-          end: { x: tableLeftX + col1W + col2W, y: tableStartY },
-          thickness: 0.75,
-          color: cWhite
-        });
-      }
+      // Header white vertical dividers
+      page.drawLine({
+        start: { x: tableLeftX + col1W, y: headerBottomY },
+        end: { x: tableLeftX + col1W, y: headerBottomY + headerHeight },
+        thickness: 0.75,
+        color: cWhite
+      });
+      page.drawLine({
+        start: { x: tableLeftX + col1W + col2W, y: headerBottomY },
+        end: { x: tableLeftX + col1W + col2W, y: headerBottomY + headerHeight },
+        thickness: 0.75,
+        color: cWhite
+      });
 
-      // Table Rows (Transparent background matching master template)
-      let curRowY = tableStartY - headerHeight;
+      // Table Rows
+      let curRowY = headerBottomY;
       currentProducts.forEach((p) => {
         globalProductIndex++;
         curRowY -= rowHeight;
@@ -870,20 +868,20 @@ export async function generateCertificate(certData) {
           color: cDark
         });
 
-        // Cell 2: Product Code (centered)
-        const codeFit = fitText(p.code, col2W - 8, fontRegular, cellFontSize);
+        // Cell 2: Product Code (left-aligned with 6pt padding)
+        const codeFit = fitText(p.code, col2W - 12, fontRegular, cellFontSize);
         page.drawText(codeFit.text, {
-          x: tableLeftX + col1W + (col2W - fontRegular.widthOfTextAtSize(codeFit.text, codeFit.size)) / 2,
+          x: tableLeftX + col1W + 6.0,
           y: curRowY + (rowHeight - codeFit.size) / 2 + 0.5,
           size: codeFit.size,
           font: fontRegular,
           color: cDark
         });
 
-        // Cell 3: Product Description / Name (left-aligned with 5pt padding)
-        const descFit = fitText(p.name, col3W - 10, fontRegular, cellFontSize);
+        // Cell 3: Product Description / Name (left-aligned with 6pt padding)
+        const descFit = fitText(p.name, col3W - 12, fontRegular, cellFontSize);
         page.drawText(descFit.text, {
-          x: tableLeftX + col1W + col2W + 5,
+          x: tableLeftX + col1W + col2W + 6.0,
           y: curRowY + (rowHeight - descFit.size) / 2 + 0.5,
           size: descFit.size,
           font: fontRegular,
@@ -891,12 +889,12 @@ export async function generateCertificate(certData) {
         });
       });
 
-      // Outer table border
+      // Outer table border (covering entire table including header)
       page.drawRectangle({
         x: tableLeftX,
         y: curRowY,
         width: tableWidth,
-        height: (tableStartY - headerHeight) - curRowY,
+        height: (headerBottomY + headerHeight) - curRowY,
         borderColor: cTableGrid,
         borderWidth: 0.75
       });
@@ -915,53 +913,54 @@ export async function generateCertificate(certData) {
       }
     } else {
       // 2-Column Table: NO. | NAME OF THE PRODUCTS (for HFA Scheme, Cosmetics, SMIIC)
-      // Master unlocked template dimensions: width 146.62 pt, left: 218.39 pt (col1: 24.99 pt, col2: 121.63 pt)
-      const tableLeftX = isFirstPage ? 218.39 : (PAGE_WIDTH - 272.87) / 2;
-      const tableWidth = isFirstPage ? 146.62 : 272.87;
-      const col1W = isFirstPage ? 24.99 : 35.0;  // NO.
-      const col2W = tableWidth - col1W; // NAME OF THE PRODUCTS (121.63 pt on page 1)
+      const tableWidth = isFirstPage ? 146.62 : 460.0;
+      const tableLeftX = isFirstPage ? 218.39 : (PAGE_WIDTH - tableWidth) / 2;
+      const numDigits = String(allProducts.length).length;
+      const col1W = isFirstPage
+        ? Math.max(28.0, 16.0 + numDigits * 6.0)
+        : Math.max(40.0, 26.0 + numDigits * 7.0);
+      const col2W = tableWidth - col1W;
 
-      if (!isFirstPage) {
-        // Draw Header on continuation pages
-        page.drawRectangle({
-          x: tableLeftX,
-          y: tableStartY - headerHeight,
-          width: tableWidth,
-          height: headerHeight,
-          color: cEmerald
-        });
+      // Draw Header (Both on Page 1 and continuation pages for 100% unified alignment)
+      page.drawRectangle({
+        x: tableLeftX,
+        y: headerBottomY,
+        width: tableWidth,
+        height: headerHeight,
+        color: cEmerald
+      });
 
-        // Header Text
-        const hNo = 'NO.';
-        const hName = 'NAME OF THE PRODUCTS';
+      // Header Text
+      const hNo = 'NO.';
+      const hName = 'NAME OF THE PRODUCTS';
+      const headerTextY = headerBottomY + (headerHeight - hFontSize) / 2 + 0.5;
 
-        page.drawText(hNo, {
-          x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
-          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-          size: hFontSize,
-          font: fontBold,
-          color: cWhite
-        });
+      page.drawText(hNo, {
+        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
+        y: headerTextY,
+        size: hFontSize,
+        font: fontBold,
+        color: cWhite
+      });
 
-        page.drawText(hName, {
-          x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hName, hFontSize)) / 2,
-          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-          size: hFontSize,
-          font: fontBold,
-          color: cWhite
-        });
+      page.drawText(hName, {
+        x: tableLeftX + col1W + 6.0,
+        y: headerTextY,
+        size: hFontSize,
+        font: fontBold,
+        color: cWhite
+      });
 
-        // Header white vertical divider
-        page.drawLine({
-          start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
-          end: { x: tableLeftX + col1W, y: tableStartY },
-          thickness: 0.75,
-          color: cWhite
-        });
-      }
+      // Header white vertical divider
+      page.drawLine({
+        start: { x: tableLeftX + col1W, y: headerBottomY },
+        end: { x: tableLeftX + col1W, y: headerBottomY + headerHeight },
+        thickness: 0.75,
+        color: cWhite
+      });
 
-      // Table Rows (Transparent background matching master template)
-      let curRowY = tableStartY - headerHeight;
+      // Table Rows
+      let curRowY = headerBottomY;
       currentProducts.forEach((p) => {
         globalProductIndex++;
         curRowY -= rowHeight;
@@ -992,11 +991,10 @@ export async function generateCertificate(certData) {
           color: cDark
         });
 
-        // Cell 2: Product Name (left-aligned with padding)
-        const padLeft = isFirstPage ? 5 : 8;
-        const nameFit = fitText(p.name, col2W - (padLeft * 2), fontRegular, cellFontSize);
+        // Cell 2: Product Name (left-aligned with 6pt padding)
+        const nameFit = fitText(p.name, col2W - 12, fontRegular, cellFontSize);
         page.drawText(nameFit.text, {
-          x: tableLeftX + col1W + padLeft,
+          x: tableLeftX + col1W + 6.0,
           y: curRowY + (rowHeight - nameFit.size) / 2 + 0.5,
           size: nameFit.size,
           font: fontRegular,
@@ -1004,19 +1002,19 @@ export async function generateCertificate(certData) {
         });
       });
 
-      // Outer table border
+      // Outer table border (covering entire table including header)
       page.drawRectangle({
         x: tableLeftX,
         y: curRowY,
         width: tableWidth,
-        height: (tableStartY - headerHeight) - curRowY,
+        height: (headerBottomY + headerHeight) - curRowY,
         borderColor: cTableGrid,
         borderWidth: 0.75
       });
 
       // Centered Asterisks directly below table on final page
       if (isLastPage) {
-        const asterisks = '********************';
+        const asterisks = '****************';
         const astW = fontRegular.widthOfTextAtSize(asterisks, 8.5);
         page.drawText(asterisks, {
           x: (PAGE_WIDTH - astW) / 2,
