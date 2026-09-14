@@ -81,6 +81,26 @@ function truncateToWidth(text, maxWidth, font, size) {
 }
 
 /**
+ * Automatically fits text within maxWidth by dynamically scaling font size down to minSize before truncating.
+ */
+function fitText(text, maxWidth, font, baseSize, minSize = 5.8) {
+  if (!text) return { text: '', size: baseSize };
+  const str = sanitizeForPdf(text);
+  if (!str) return { text: '', size: baseSize };
+  try {
+    const naturalWidth = font.widthOfTextAtSize(str, baseSize);
+    if (naturalWidth <= maxWidth) return { text: str, size: baseSize };
+    const scaledSize = Math.max(minSize, (maxWidth / (naturalWidth / baseSize)));
+    if (font.widthOfTextAtSize(str, scaledSize) <= maxWidth) {
+      return { text: str, size: scaledSize };
+    }
+    return { text: truncateToWidth(str, maxWidth, font, minSize), size: minSize };
+  } catch (e) {
+    return { text: str, size: baseSize };
+  }
+}
+
+/**
  * Wraps text into multiple lines for pdf-lib table/metadata layout.
  */
 function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
@@ -657,10 +677,11 @@ export async function generateCertificate(certData) {
       const valStartX = 191.04;
       const maxValW = 350;
 
-      const nameY = isGso ? 475.0 : 495.0;
-      const addrY = isGso ? 442.0 : 461.0;
-      const mfgY = isGso ? 398.0 : 404.0;
-      const scopeY = isGso ? 361.0 : 378.0;
+      // Exact PDF baseline coordinates: sitting directly on the pre-printed underline
+      const nameY = isGso ? 474.50 : 494.71;
+      const addrY = isGso ? 434.33 : 452.98;
+      const mfgY = isGso ? 386.05 : 404.69;
+      const scopeY = isGso ? 360.30 : 376.16;
 
       // Company Name
       const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, 8.5, 1);
@@ -705,7 +726,7 @@ export async function generateCertificate(certData) {
         page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeY, size: 7.5, font: fontRegular, color: cDark });
       }
 
-      tableStartY = isGso ? 294.0 : 296.0;
+      tableStartY = isGso ? 295.44 : 298.51;
       rowHeight = isGso ? 15.0 : 15.6;
       headerHeight = 0; // Header is already pre-printed on page 1 of master templates
     } else {
@@ -750,12 +771,12 @@ export async function generateCertificate(certData) {
 
     if (isGso) {
       // 3-Column Table: NO. | CODE | DESCRIPTION
-      // Matches master unlocked template (width 350 pt, left: 160.87 pt)
-      const tableLeftX = 160.87;
-      const col1W = 23.75;
-      const col2W = 125.67;
-      const col3W = 200.58;
-      const tableWidth = col1W + col2W + col3W; // 350 pt
+      // Matches master unlocked template (width 272.87 pt, left: 160.74 pt)
+      const tableLeftX = isFirstPage ? 160.74 : (PAGE_WIDTH - 272.87) / 2;
+      const col1W = 23.87;
+      const col2W = 125.68;
+      const col3W = 123.32;
+      const tableWidth = col1W + col2W + col3W; // 272.87 pt (ends exactly at 433.86 pt)
 
       if (!isFirstPage) {
         // Draw Header on continuation pages
@@ -850,21 +871,21 @@ export async function generateCertificate(certData) {
         });
 
         // Cell 2: Product Code (centered)
-        const codeStr = truncateToWidth(p.code, col2W - 10, fontRegular, cellFontSize);
-        page.drawText(codeStr, {
-          x: tableLeftX + col1W + (col2W - fontRegular.widthOfTextAtSize(codeStr, cellFontSize)) / 2,
-          y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
+        const codeFit = fitText(p.code, col2W - 8, fontRegular, cellFontSize);
+        page.drawText(codeFit.text, {
+          x: tableLeftX + col1W + (col2W - fontRegular.widthOfTextAtSize(codeFit.text, codeFit.size)) / 2,
+          y: curRowY + (rowHeight - codeFit.size) / 2 + 0.5,
+          size: codeFit.size,
           font: fontRegular,
           color: cDark
         });
 
-        // Cell 3: Product Description / Name (left-aligned with 8pt padding)
-        const descStr = truncateToWidth(p.name, col3W - 16, fontRegular, cellFontSize);
-        page.drawText(descStr, {
-          x: tableLeftX + col1W + col2W + 8,
-          y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
+        // Cell 3: Product Description / Name (left-aligned with 5pt padding)
+        const descFit = fitText(p.name, col3W - 10, fontRegular, cellFontSize);
+        page.drawText(descFit.text, {
+          x: tableLeftX + col1W + col2W + 5,
+          y: curRowY + (rowHeight - descFit.size) / 2 + 0.5,
+          size: descFit.size,
           font: fontRegular,
           color: cDark
         });
@@ -894,11 +915,11 @@ export async function generateCertificate(certData) {
       }
     } else {
       // 2-Column Table: NO. | NAME OF THE PRODUCTS (for HFA Scheme, Cosmetics, SMIIC)
-      // Master unlocked template dimensions: width 147.1 pt, left: 218.44 pt (col1: 25.0 pt, col2: 122.1 pt)
-      const tableLeftX = isFirstPage ? 218.44 : (PAGE_WIDTH - 280) / 2;
-      const tableWidth = isFirstPage ? 147.1 : 280;
-      const col1W = isFirstPage ? 25.0 : 40.0;  // NO.
-      const col2W = tableWidth - col1W; // NAME OF THE PRODUCTS
+      // Master unlocked template dimensions: width 146.62 pt, left: 218.39 pt (col1: 24.99 pt, col2: 121.63 pt)
+      const tableLeftX = isFirstPage ? 218.39 : (PAGE_WIDTH - 272.87) / 2;
+      const tableWidth = isFirstPage ? 146.62 : 272.87;
+      const col1W = isFirstPage ? 24.99 : 35.0;  // NO.
+      const col2W = tableWidth - col1W; // NAME OF THE PRODUCTS (121.63 pt on page 1)
 
       if (!isFirstPage) {
         // Draw Header on continuation pages
@@ -972,12 +993,12 @@ export async function generateCertificate(certData) {
         });
 
         // Cell 2: Product Name (left-aligned with padding)
-        const padLeft = isFirstPage ? 6 : 10;
-        const nameStr = truncateToWidth(p.name, col2W - (padLeft * 2), fontRegular, cellFontSize);
-        page.drawText(nameStr, {
+        const padLeft = isFirstPage ? 5 : 8;
+        const nameFit = fitText(p.name, col2W - (padLeft * 2), fontRegular, cellFontSize);
+        page.drawText(nameFit.text, {
           x: tableLeftX + col1W + padLeft,
-          y: curRowY + (rowHeight - cellFontSize) / 2 + 0.5,
-          size: cellFontSize,
+          y: curRowY + (rowHeight - nameFit.size) / 2 + 0.5,
+          size: nameFit.size,
           font: fontRegular,
           color: cDark
         });

@@ -42,14 +42,15 @@ async function renderTest(browser, name, data) {
 async function run() {
   const browser = await chromium.launch();
 
-  // Test GSO Meat with 4 products matching user screenshot
+  // Test GSO Meat with 4 products matching user exact screenshot
   await renderTest(browser, 'gso_meat_4prods', {
     certificateType: 'GSO MEAT',
     certificateNumber: 'GSO-24-MEAT-0099',
-    companyName: 'PRIME HALAL FOODS LTD',
-    companyAddress: '12 INDUSTRIAL ESTATE, BIRMINGHAM B12 0JJ',
-    manufacturingAddress: '12 INDUSTRIAL ESTATE, BIRMINGHAM B12 0JJ',
-    scope: 'PRODUCTION AND PACKAGING OF HALAL BEEF, POULTRY AND SAUCES',
+    companyName: 'TEST',
+    companyAddress: 'UNITED KINGDOM (UK)',
+    manufacturingAddress: '',
+    scope: 'HALAL FOOD CERTIFICATION & PROCESSING OPERATIONS',
+    productCategory: 'HALAL FOOD CERTIFICATION & PROCESSING OPERATIONS',
     issueDate: '13-Sep-2026',
     currentCycleStartDate: '13-Sep-2026',
     originalCycleStartDate: '13-Sep-2026',
