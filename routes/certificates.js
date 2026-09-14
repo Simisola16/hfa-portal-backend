@@ -19,7 +19,7 @@ import { generateCertificate } from '../services/certificateGenerator.js';
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -1190,16 +1190,16 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     // 5. Handle Certificate File / Generation
+    const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
+    const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
+    const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
+    const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
+
     let certificate_url = null;
     if (req.file) {
       certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
-      const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
-      const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-      const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
-      const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
-      const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
-
       const certData = {
         certificateType: certificate_type || 'HFA Scheme',
         businessName: targetClient.company_name || targetClient.full_name || 'Valued Client',
@@ -1231,12 +1231,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     // 6. Save Certificate
-    const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
-    const parsedExpiryDate = expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    const parsedCertStartDate = certification_start_date ? new Date(certification_start_date) : parsedIssueDate;
-    const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
-    const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
-
     const certificate = new Certificate({
       certificate_number: certNumber,
       client_id: targetClientId,
