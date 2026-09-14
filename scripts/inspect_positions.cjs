@@ -27,12 +27,11 @@ async function inspect(filePath) {
 }
 
 async function main() {
-  await inspect('Template GSO Scheme (meat) Cert.pdf');
-  await inspect('GSO MEAT.pdf');
-  await inspect('Template HFA Scheme (Cosmetic) Cert 11 Oct 22.pdf');
-  await inspect('COSMETICS.pdf');
-  await inspect('HFA SCHEME.pdf');
-  await inspect('SMIIC.pdf');
+  await inspect('Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf');
+  await inspect('Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf');
+  await inspect('Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf');
+  await inspect('Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf');
+  await inspect('Template HFA Scheme (Cosmetic) Cert 11 Oct 22-unlocked 1.pdf');
 }
 
 main().catch(console.error);

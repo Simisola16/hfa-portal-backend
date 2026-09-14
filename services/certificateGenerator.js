@@ -170,32 +170,98 @@ export function formatDate(dateVal) {
  * - SMIIC: 3 dates, 2-column table [NO., NAME OF THE PRODUCTS], 3-line declaration
  */
 export const CERTIFICATE_SCHEMES = {
-  'HFA Scheme': {
-    name: 'HFA Scheme',
+  'HFA Scheme (meat)': {
+    name: 'HFA Scheme (meat)',
     templateType: 'hfa',
-    basePdf: 'HFA SCHEME.pdf',
-    docFooter: 'Doc: Halal Certificate (HFA Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
+    ]
+  },
+  'HFA SCHEME MEAT': {
+    name: 'HFA Scheme (meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
+    ]
+  },
+  'HFA Scheme Meat': {
+    name: 'HFA Scheme (meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
+    ]
+  },
+  'HFA Scheme (non-meat)': {
+    name: 'HFA Scheme (non-meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
       'Certification Requirements Manual HFP-1005-20/5.'
     ]
   },
-  'HFA SCHEME': {
-    name: 'HFA Scheme',
+  'HFA SCHEME NON MEAT': {
+    name: 'HFA Scheme (non-meat)',
     templateType: 'hfa',
-    basePdf: 'HFA SCHEME.pdf',
-    docFooter: 'Doc: Halal Certificate (HFA Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
       'Certification Requirements Manual HFP-1005-20/5.'
+    ]
+  },
+  'HFA Scheme Non-Meat': {
+    name: 'HFA Scheme (non-meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5.'
+    ]
+  },
+  'HFA Scheme': {
+    name: 'HFA Scheme (meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
+    ]
+  },
+  'HFA SCHEME': {
+    name: 'HFA Scheme (meat)',
+    templateType: 'hfa',
+    basePdf: 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf',
+    docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
     ]
   },
   'Cosmetics': {
     name: 'Cosmetics',
     templateType: 'hfa',
-    basePdf: 'COSMETICS.pdf',
+    basePdf: 'Template HFA Scheme (Cosmetic) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -205,7 +271,7 @@ export const CERTIFICATE_SCHEMES = {
   'COSMETICS': {
     name: 'Cosmetics',
     templateType: 'hfa',
-    basePdf: 'COSMETICS.pdf',
+    basePdf: 'Template HFA Scheme (Cosmetic) Cert 11 Oct 22-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -237,7 +303,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO meat': {
     name: 'GSO meat',
     templateType: 'gso',
-    basePdf: 'GSO MEAT.pdf',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -249,7 +315,19 @@ export const CERTIFICATE_SCHEMES = {
   'GSO MEAT': {
     name: 'GSO meat',
     templateType: 'gso',
-    basePdf: 'GSO MEAT.pdf',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
+    docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5, HMP-1105-21/2, and other relevant',
+      'standards including SMIIC -1:2019/UAE.S.993/UAE.S.2055-1:2015.'
+    ]
+  },
+  'GSO Meat': {
+    name: 'GSO meat',
+    templateType: 'gso',
+    basePdf: 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf',
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -261,7 +339,7 @@ export const CERTIFICATE_SCHEMES = {
   'GSO non-meat': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'GSO NON MEAT.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -272,7 +350,29 @@ export const CERTIFICATE_SCHEMES = {
   'GSO NON MEAT': {
     name: 'GSO non-meat',
     templateType: 'gso',
-    basePdf: 'GSO NON MEAT.pdf',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 and UAE.S.2055-1:2015.'
+    ]
+  },
+  'GSO Non-Meat': {
+    name: 'GSO non-meat',
+    templateType: 'gso',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
+    docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
+    declarationLines: [
+      'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5 and UAE.S.2055-1:2015.'
+    ]
+  },
+  'GSO Non Meat': {
+    name: 'GSO non-meat',
+    templateType: 'gso',
+    basePdf: 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf',
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
@@ -286,16 +386,32 @@ export const CERTIFICATE_SCHEMES = {
  * Normalize certificate type to one of the official schemes.
  */
 export function normalizeCertificateType(rawType) {
-  if (!rawType) return 'HFA Scheme';
+  if (!rawType) return 'HFA Scheme (meat)';
   const str = String(rawType).trim().toLowerCase();
   
   if (str === 'cosmetics' || str.includes('cosmetic')) return 'Cosmetics';
   if (str === 'smiic' || str.includes('smiic')) return 'Smiic';
-  if (str === 'gso meat' || (str.includes('gso') && str.includes('meat') && !str.includes('non'))) return 'GSO meat';
-  if (str === 'gso non-meat' || str === 'gso non meat' || (str.includes('gso') && (str.includes('non') || str.includes('food') || str.includes('uae')))) return 'GSO non-meat';
-  if (str === 'hfa scheme' || str.includes('hfa') || str.includes('annual') || str.includes('standard')) return 'HFA Scheme';
+
+  // GSO Meat vs Non-Meat
+  if (str.includes('gso')) {
+    if (str.includes('non') || str.includes('food') || str.includes('bakery')) {
+      return 'GSO non-meat';
+    }
+    return 'GSO meat';
+  }
+
+  // HFA Scheme Meat vs Non-Meat
+  if (str.includes('hfa') || str.includes('scheme') || str.includes('standard') || str.includes('annual')) {
+    if (str.includes('non')) {
+      return 'HFA Scheme (non-meat)';
+    }
+    if (str.includes('meat')) {
+      return 'HFA Scheme (meat)';
+    }
+    return 'HFA Scheme (meat)';
+  }
   
-  return CERTIFICATE_SCHEMES[rawType] ? rawType : 'HFA Scheme';
+  return CERTIFICATE_SCHEMES[rawType] ? rawType : 'HFA Scheme (meat)';
 }
 
 /**
@@ -471,35 +587,37 @@ export async function generateCertificate(certData) {
     // 1. Certificate Number (rendered next to pre-printed "Certificate No.:")
     page.drawText(sanitizedCertNo, {
       x: 263.98,
-      y: 632.91,
-      size: 9.0,
+      y: 633.5,
+      size: 10.0,
       font: fontRegular,
       color: cDark
     });
 
-    // 2. Dates Block
+    // 2. Dates Block (Font size strictly 10.0 to match the pre-printed labels exactly!)
+    const dateFontSize = 10.0;
     if (!isGso) {
       // Non-GSO: Issue Date (left), Certification Start Date (center), Expiry Date (right)
-      page.drawText(formattedIssue, { x: 108.2, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
-      page.drawText(formattedCertStart, { x: 310.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
-      page.drawText(formattedExpiry, { x: 466.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedIssue, { x: 108.23, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedCertStart, { x: 310.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 466.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
     } else {
       // GSO: Row 1: Issue Date (left), Current Cycle Start Date (center), Expiry Date (right)
-      page.drawText(formattedIssue, { x: 108.2, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
-      page.drawText(formattedCurrentCycle, { x: 310.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
-      page.drawText(formattedExpiry, { x: 466.5, y: 611.28, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedIssue, { x: 108.23, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedCurrentCycle, { x: 310.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
+      page.drawText(formattedExpiry, { x: 466.52, y: 611.28, size: dateFontSize, font: fontRegular, color: cDark });
 
       // Row 2: Original Cycle Start Date (center)
-      page.drawText(formattedOrigCycle, { x: 309.8, y: 589.55, size: 8.5, font: fontRegular, color: cDark });
+      page.drawText(formattedOrigCycle, { x: 309.84, y: 589.55, size: dateFontSize, font: fontRegular, color: cDark });
     }
 
-    // 3. Scheme-Specific Declaration Text (rendered centered for all schemes)
-    if (scheme.declarationLines && scheme.declarationLines.length > 0) {
+    const isUnlockedBase = scheme.basePdf && scheme.basePdf.includes('unlocked');
+
+    // 3. Scheme-Specific Declaration Text (drawn ONLY if base template is an old blank background)
+    if (!isUnlockedBase && scheme.declarationLines && scheme.declarationLines.length > 0) {
       const decLines = scheme.declarationLines.filter(Boolean);
       const decFontSize = 9.8;
       const decLineHeight = 14.4;
       
-      // Calculate top Y based on number of lines to center vertically in declaration zone (515 to 565)
       let startY = 561.36;
       if (decLines.length === 2) {
         startY = 554.0;
@@ -523,7 +641,7 @@ export async function generateCertificate(certData) {
     }
 
     let tableStartY = 0;
-    let headerHeight = 16;
+    let headerHeight = 0;
     let rowHeight = 16;
 
     if (isFirstPage) {
@@ -575,6 +693,7 @@ export async function generateCertificate(certData) {
       }
 
       tableStartY = 316;
+      headerHeight = 0; // Header is already pre-printed on page 1 of master templates
     } else {
       // Subsequent continuation pages: Clean continuation panel for annex
       page.drawRectangle({
@@ -612,70 +731,71 @@ export async function generateCertificate(certData) {
     }
 
     // 5. Products Table Layout
-    // GSO: 3 Columns [NO., CODE, DESCRIPTION]
-    // HFA / Cosmetics / SMIIC: 2 Columns [NO., NAME OF THE PRODUCTS]
     const hFontSize = 8.0;
     const cellFontSize = isFirstPage ? 7.5 : 7.0;
 
     if (isGso) {
       // 3-Column Table: NO. | CODE | DESCRIPTION
-      const tableWidth = 360;
-      const tableLeftX = (PAGE_WIDTH - tableWidth) / 2; // 117.64 pt
-      const col1W = 35;  // NO.
-      const col2W = 100; // CODE
-      const col3W = tableWidth - col1W - col2W; // 225 pt DESCRIPTION
+      // Matches master unlocked template (width 350 pt, left: 160.87 pt)
+      const tableLeftX = 160.87;
+      const col1W = 23.75;
+      const col2W = 125.67;
+      const col3W = 200.58;
+      const tableWidth = col1W + col2W + col3W; // 350 pt
 
-      // Header Background
-      page.drawRectangle({
-        x: tableLeftX,
-        y: tableStartY - headerHeight,
-        width: tableWidth,
-        height: headerHeight,
-        color: cEmerald
-      });
+      if (!isFirstPage) {
+        // Draw Header on continuation pages
+        page.drawRectangle({
+          x: tableLeftX,
+          y: tableStartY - headerHeight,
+          width: tableWidth,
+          height: headerHeight,
+          color: cEmerald
+        });
 
-      // Header Text
-      const hNo = 'NO.';
-      const hCode = 'CODE';
-      const hDesc = 'DESCRIPTION';
+        // Header Text
+        const hNo = 'NO.';
+        const hCode = 'CODE';
+        const hDesc = 'DESCRIPTION';
 
-      page.drawText(hNo, {
-        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-        size: hFontSize,
-        font: fontBold,
-        color: cWhite
-      });
+        page.drawText(hNo, {
+          x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
+          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+          size: hFontSize,
+          font: fontBold,
+          color: cWhite
+        });
 
-      page.drawText(hCode, {
-        x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hCode, hFontSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-        size: hFontSize,
-        font: fontBold,
-        color: cWhite
-      });
+        page.drawText(hCode, {
+          x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hCode, hFontSize)) / 2,
+          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+          size: hFontSize,
+          font: fontBold,
+          color: cWhite
+        });
 
-      page.drawText(hDesc, {
-        x: tableLeftX + col1W + col2W + (col3W - fontBold.widthOfTextAtSize(hDesc, hFontSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-        size: hFontSize,
-        font: fontBold,
-        color: cWhite
-      });
+        page.drawText(hDesc, {
+          x: tableLeftX + col1W + col2W + (col3W - fontBold.widthOfTextAtSize(hDesc, hFontSize)) / 2,
+          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+          size: hFontSize,
+          font: fontBold,
+          color: cWhite
+        });
 
-      // Header white vertical dividers
-      page.drawLine({
-        start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
-        end: { x: tableLeftX + col1W, y: tableStartY },
-        thickness: 0.75,
-        color: cWhite
-      });
-      page.drawLine({
-        start: { x: tableLeftX + col1W + col2W, y: tableStartY - headerHeight },
-        end: { x: tableLeftX + col1W + col2W, y: tableStartY },
-        thickness: 0.75,
-        color: cWhite
-      });
+        // Header white vertical dividers
+        page.drawLine({
+          start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
+          end: { x: tableLeftX + col1W, y: tableStartY },
+          thickness: 0.75,
+          color: cWhite
+        });
+        page.drawLine({
+          start: { x: tableLeftX + col1W + col2W, y: tableStartY - headerHeight },
+          end: { x: tableLeftX + col1W + col2W, y: tableStartY },
+          thickness: 0.75,
+          color: cWhite
+        });
+      }
 
       // Table Rows (Transparent background matching master template)
       let curRowY = tableStartY - headerHeight;
@@ -741,14 +861,14 @@ export async function generateCertificate(certData) {
         x: tableLeftX,
         y: curRowY,
         width: tableWidth,
-        height: tableStartY - curRowY,
+        height: (tableStartY - headerHeight) - curRowY,
         borderColor: cTableGrid,
         borderWidth: 0.75
       });
 
       // Centered Asterisks directly below table on final page
       if (isLastPage) {
-        const asterisks = '********************';
+        const asterisks = '****************';
         const astW = fontRegular.widthOfTextAtSize(asterisks, 8.5);
         page.drawText(asterisks, {
           x: (PAGE_WIDTH - astW) / 2,
@@ -765,42 +885,44 @@ export async function generateCertificate(certData) {
       const col1W = 40;  // NO.
       const col2W = tableWidth - col1W; // 240 pt NAME OF THE PRODUCTS
 
-      // Header Background
-      page.drawRectangle({
-        x: tableLeftX,
-        y: tableStartY - headerHeight,
-        width: tableWidth,
-        height: headerHeight,
-        color: cEmerald
-      });
+      if (!isFirstPage) {
+        // Draw Header on continuation pages
+        page.drawRectangle({
+          x: tableLeftX,
+          y: tableStartY - headerHeight,
+          width: tableWidth,
+          height: headerHeight,
+          color: cEmerald
+        });
 
-      // Header Text
-      const hNo = 'NO.';
-      const hName = 'NAME OF THE PRODUCTS';
+        // Header Text
+        const hNo = 'NO.';
+        const hName = 'NAME OF THE PRODUCTS';
 
-      page.drawText(hNo, {
-        x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-        size: hFontSize,
-        font: fontBold,
-        color: cWhite
-      });
+        page.drawText(hNo, {
+          x: tableLeftX + (col1W - fontBold.widthOfTextAtSize(hNo, hFontSize)) / 2,
+          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+          size: hFontSize,
+          font: fontBold,
+          color: cWhite
+        });
 
-      page.drawText(hName, {
-        x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hName, hFontSize)) / 2,
-        y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
-        size: hFontSize,
-        font: fontBold,
-        color: cWhite
-      });
+        page.drawText(hName, {
+          x: tableLeftX + col1W + (col2W - fontBold.widthOfTextAtSize(hName, hFontSize)) / 2,
+          y: tableStartY - headerHeight + (headerHeight - hFontSize) / 2 + 1,
+          size: hFontSize,
+          font: fontBold,
+          color: cWhite
+        });
 
-      // Header white vertical divider
-      page.drawLine({
-        start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
-        end: { x: tableLeftX + col1W, y: tableStartY },
-        thickness: 0.75,
-        color: cWhite
-      });
+        // Header white vertical divider
+        page.drawLine({
+          start: { x: tableLeftX + col1W, y: tableStartY - headerHeight },
+          end: { x: tableLeftX + col1W, y: tableStartY },
+          thickness: 0.75,
+          color: cWhite
+        });
+      }
 
       // Table Rows (Transparent background matching master template)
       let curRowY = tableStartY - headerHeight;
@@ -850,7 +972,7 @@ export async function generateCertificate(certData) {
         x: tableLeftX,
         y: curRowY,
         width: tableWidth,
-        height: tableStartY - curRowY,
+        height: (tableStartY - headerHeight) - curRowY,
         borderColor: cTableGrid,
         borderWidth: 0.75
       });
@@ -904,38 +1026,41 @@ export async function generateCertificate(certData) {
       height: qrSize
     });
 
-    // 8. Dynamic Page Numbering: "Page X of Y"
-    const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
-    const pageNoW = fontOblique.widthOfTextAtSize(pageNoStr, 7.5);
-    page.drawText(pageNoStr, {
-      x: PAGE_WIDTH - 45 - pageNoW,
-      y: 68.5,
-      size: 7.5,
-      font: fontOblique,
-      color: cDark
-    });
+    // 8. Dynamic Page Numbering: "Page X of Y" (drawn on multi-page certs or clean bases)
+    if (totalPages > 1 || !isUnlockedBase) {
+      const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
+      const pageNoW = fontOblique.widthOfTextAtSize(pageNoStr, 7.5);
+      page.drawText(pageNoStr, {
+        x: PAGE_WIDTH - 45 - pageNoW,
+        y: 68.5,
+        size: 7.5,
+        font: fontOblique,
+        color: cDark
+      });
+    }
 
-    // 9. QR Verification Notice
-    const verifyText = 'TO VERIFY THE CONTENTS OF THIS DOCUMENT, PLEASE SCAN THE QR CODE';
-    const verifyW = fontBold.widthOfTextAtSize(verifyText, 7.5);
-    page.drawText(verifyText, {
-      x: (PAGE_WIDTH - verifyW) / 2,
-      y: 34.2,
-      size: 7.5,
-      font: fontBold,
-      color: cDark
-    });
+    // 9. QR Verification Notice & Doc Footer (drawn if not already pre-printed on template)
+    if (!isUnlockedBase) {
+      const verifyText = 'TO VERIFY THE CONTENTS OF THIS DOCUMENT, PLEASE SCAN THE QR CODE';
+      const verifyW = fontBold.widthOfTextAtSize(verifyText, 7.5);
+      page.drawText(verifyText, {
+        x: (PAGE_WIDTH - verifyW) / 2,
+        y: 34.2,
+        size: 7.5,
+        font: fontBold,
+        color: cDark
+      });
 
-    // 10. Document Control Footer
-    const footerText = scheme.docFooter || 'Doc: Halal Certificate';
-    const footerW = fontRegular.widthOfTextAtSize(footerText, 6.5);
-    page.drawText(footerText, {
-      x: (PAGE_WIDTH - footerW) / 2,
-      y: 10.94,
-      size: 6.5,
-      font: fontRegular,
-      color: cDark
-    });
+      const footerText = scheme.docFooter || 'Doc: Halal Certificate';
+      const footerW = fontRegular.widthOfTextAtSize(footerText, 6.5);
+      page.drawText(footerText, {
+        x: (PAGE_WIDTH - footerW) / 2,
+        y: 10.94,
+        size: 6.5,
+        font: fontRegular,
+        color: cDark
+      });
+    }
   }
 
   const pdfBytes = await pdfDoc.save();

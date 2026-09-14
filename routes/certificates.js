@@ -318,9 +318,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let resolvedScheme = certificate_type;
     if (!resolvedScheme) {
       if (app?.category?.toLowerCase().includes('cosmetic')) resolvedScheme = 'Cosmetics';
-      else if (app?.category?.toLowerCase().includes('meat') && !app?.category?.toLowerCase().includes('non')) resolvedScheme = 'GSO meat';
+      else if (app?.category?.toLowerCase().includes('meat') && !app?.category?.toLowerCase().includes('non')) resolvedScheme = 'HFA Scheme (meat)';
       else if (app?.category?.toLowerCase().includes('gso') || app?.category?.toLowerCase().includes('uae')) resolvedScheme = 'GSO non-meat';
-      else resolvedScheme = 'HFA Scheme';
+      else resolvedScheme = 'HFA Scheme (meat)';
     }
 
     let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || 'Halal Certified Client';
@@ -782,10 +782,11 @@ async function buildCertDataFromApplication(application) {
   const certTypeCode = application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE');
   const certNumber = generateHfaId(companyForId, certTypeCode);
   
-  let scheme = 'HFA Scheme';
+  let scheme = 'HFA Scheme (meat)';
   if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
-  else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'GSO meat';
+  else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'HFA Scheme (meat)';
   else if (application?.category?.toLowerCase().includes('gso') || application?.category?.toLowerCase().includes('uae')) scheme = 'GSO non-meat';
+  else if (application?.category?.toLowerCase().includes('non-meat') || application?.category?.toLowerCase().includes('non meat')) scheme = 'HFA Scheme (non-meat)';
 
   const productCategories = (application.products || []).map((p, idx) => ({
     code: p.brand || p.code || `PRD-${String(idx + 1).padStart(2, '0')}`,
