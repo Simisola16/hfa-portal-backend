@@ -132,7 +132,7 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
         product_type,
         description,
         notes: productNotes,
-        status: p.status || 'active',
+        status: p.status || 'approved',
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -191,7 +191,7 @@ router.post('/', authenticateToken, async (req, res) => {
         site_id: siteIdObj,
         ingredients,
         barcode: barcode || '',
-        status: 'active'
+        status: 'approved'
       });
       const data = await product.save();
       return res.status(201).json({ data });
