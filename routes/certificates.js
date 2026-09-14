@@ -230,7 +230,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     let siteId = cert.site_id?._id || cert.site_id || cert.application_id?.site_id;
     let siteDoc = (cert.site_id && cert.site_id.name) ? cert.site_id : null;
 
-    if (!siteDoc && siteId && mongoose.isValidObjectId(siteId)) {
+    if (!siteDoc && siteId && mongoose.isValidObjectId(siteId.toString())) {
       siteDoc = await Site.findById(siteId).lean();
     }
 
@@ -241,7 +241,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       }).select('site_id site_name manufacturing_address').lean();
       if (logsheet?.site_id) {
         siteId = logsheet.site_id;
-        if (!siteDoc && mongoose.isValidObjectId(siteId)) {
+        if (!siteDoc && mongoose.isValidObjectId(siteId.toString())) {
           siteDoc = await Site.findById(siteId).lean();
         }
       }
@@ -249,53 +249,74 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
 
     // If still no siteDoc, try to find site by client_id (Site.client_id is a String)
     if (!siteDoc && clientId) {
-      const clientIdStr = clientId.toString();
-      siteDoc = await Site.findOne({ client_id: clientIdStr }).lean();
+      siteDoc = await Site.findOne({ client_id: clientId.toString() }).lean();
       if (siteDoc && !siteId) {
         siteId = siteDoc._id;
       }
     }
 
-    // 3. Resolve site_id to both ObjectId and String forms for robust querying
-    //    Application.site_id is a String; Product.site_id is an ObjectId
-    let siteObjectId = null;
-    const siteIdStr = siteId ? siteId.toString() : null;
-    if (siteIdStr && mongoose.isValidObjectId(siteIdStr)) {
-      try { siteObjectId = new mongoose.Types.ObjectId(siteIdStr); } catch (_) {}
+    // 3. Resolve site_id and client_id representations for robust querying
+    const siteIds = [];
+    if (siteId) {
+      const sStr = siteId.toString();
+      siteIds.push(sStr);
+      if (mongoose.isValidObjectId(sStr)) {
+        siteIds.push(new mongoose.Types.ObjectId(sStr));
+      }
+    }
+    if (siteDoc?._id) {
+      const sDocStr = siteDoc._id.toString();
+      if (!siteIds.includes(sDocStr)) siteIds.push(sDocStr);
+      if (mongoose.isValidObjectId(sDocStr)) {
+        const sDocObj = new mongoose.Types.ObjectId(sDocStr);
+        if (!siteIds.some(i => i instanceof mongoose.Types.ObjectId && i.equals(sDocObj))) {
+          siteIds.push(sDocObj);
+        }
+      }
     }
 
-    // Client ID representations
-    const clientIdStr = clientId ? clientId.toString() : null;
-    let clientObjectId = null;
-    if (clientIdStr && mongoose.isValidObjectId(clientIdStr)) {
-      try { clientObjectId = new mongoose.Types.ObjectId(clientIdStr); } catch (_) {}
+    const clientIds = [];
+    if (clientId) {
+      const cStr = clientId.toString();
+      clientIds.push(cStr);
+      if (mongoose.isValidObjectId(cStr)) {
+        clientIds.push(new mongoose.Types.ObjectId(cStr));
+      }
     }
 
     let dbProducts = [];
     const seenProductIds = new Set();
 
-    // Strategy A: Query by site_id (most specific — ObjectId match on Product.site_id)
-    if (siteObjectId || siteIdStr) {
-      const siteQuery = siteObjectId ? { site_id: siteObjectId } : { site_id: siteIdStr };
-      const siteScopedProducts = await Product.find(siteQuery)
+    // Strategy A: Query Product collection by site_id (matches both ObjectId and String)
+    if (siteIds.length > 0) {
+      const siteScopedProducts = await Product.find({
+        $or: [
+          { site_id: { $in: siteIds } },
+          { 'site_id._id': { $in: siteIds } }
+        ]
+      })
         .populate('site_id', 'name est_name trading_name')
         .sort({ created_at: -1 })
         .lean();
+
       siteScopedProducts.forEach(p => {
         seenProductIds.add(p._id.toString());
         dbProducts.push(p);
       });
     }
 
-    // Strategy B: Query by client_id — catches products not yet assigned to a site
-    if (clientIdStr) {
-      const clientOrClauses = [];
-      if (clientObjectId) clientOrClauses.push({ client_id: clientObjectId });
-      clientOrClauses.push({ client_id: clientIdStr });
-      const clientScopedProducts = await Product.find({ $or: clientOrClauses })
+    // Strategy B: Query Product collection by client_id (matches ObjectId, String, and object representations)
+    if (clientIds.length > 0) {
+      const clientScopedProducts = await Product.find({
+        $or: [
+          { client_id: { $in: clientIds } },
+          { 'client_id._id': { $in: clientIds } }
+        ]
+      })
         .populate('site_id', 'name est_name trading_name')
         .sort({ created_at: -1 })
         .lean();
+
       clientScopedProducts.forEach(p => {
         if (!seenProductIds.has(p._id.toString())) {
           seenProductIds.add(p._id.toString());
@@ -321,34 +342,97 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       });
     }
 
-    // 4. Fetch products from Application if available
+    // 4. Fetch products from Application(s)
     let appProducts = [];
-    if (cert.application_id?.products && Array.isArray(cert.application_id.products)) {
-      appProducts = cert.application_id.products;
-    } else if (cert.application_id) {
-      const app = await Application.findById(cert.application_id?._id || cert.application_id).select('products site_id site_name').lean();
-      if (app?.products && Array.isArray(app.products)) {
-        appProducts = app.products;
+    const appIdsToQuery = [];
+    if (cert.application_id) {
+      const appIdVal = cert.application_id?._id || cert.application_id;
+      appIdsToQuery.push(appIdVal.toString());
+      if (mongoose.isValidObjectId(appIdVal.toString())) {
+        appIdsToQuery.push(new mongoose.Types.ObjectId(appIdVal.toString()));
       }
     }
 
-    // 5. Fetch products from ApplicationLogsheet
-    let logsheetProducts = [];
-    if (cert.application_id) {
-      const logsheets = await ApplicationLogsheet.find({
-        application_id: cert.application_id?._id || cert.application_id
-      }).select('products_list').lean();
-      logsheets.forEach(l => {
-        if (Array.isArray(l.products_list)) {
-          logsheetProducts.push(...l.products_list);
+    // Direct products on populated cert.application_id
+    if (cert.application_id?.products && Array.isArray(cert.application_id.products)) {
+      appProducts.push(...cert.application_id.products);
+    }
+
+    // Search applications by application_id, site_id, or client_id
+    const appOrClauses = [];
+    if (appIdsToQuery.length > 0) appOrClauses.push({ _id: { $in: appIdsToQuery } });
+    if (siteIds.length > 0) appOrClauses.push({ site_id: { $in: siteIds.map(s => s.toString()) } });
+    if (clientIds.length > 0) appOrClauses.push({ client_id: { $in: clientIds } });
+
+    if (appOrClauses.length > 0) {
+      const matchedApps = await Application.find({ $or: appOrClauses })
+        .select('products site_id site_name establishment_name')
+        .lean();
+      matchedApps.forEach(a => {
+        if (Array.isArray(a.products)) {
+          appProducts.push(...a.products);
         }
       });
     }
 
-    // 6. Build unified product catalog
+    // 5. Fetch products from ApplicationLogsheet
+    let logsheetProducts = [];
+    const logsheetOrClauses = [];
+    if (appIdsToQuery.length > 0) logsheetOrClauses.push({ application_id: { $in: appIdsToQuery } });
+    if (siteIds.length > 0) logsheetOrClauses.push({ site_id: { $in: siteIds } });
+    if (clientIds.length > 0) logsheetOrClauses.push({ client_id: { $in: clientIds } });
+
+    if (logsheetOrClauses.length > 0) {
+      const logsheets = await ApplicationLogsheet.find({ $or: logsheetOrClauses })
+        .select('products_list product_name')
+        .lean();
+      logsheets.forEach(l => {
+        if (Array.isArray(l.products_list)) {
+          logsheetProducts.push(...l.products_list);
+        }
+        if (l.product_name) {
+          logsheetProducts.push({ name: l.product_name });
+        }
+      });
+    }
+
+    // 6. Check AddOnApplication for products
+    try {
+      const AddOnApplication = mongoose.model('AddOnApplication');
+      const addOnOr = [];
+      if (clientIds.length > 0) addOnOr.push({ client_id: { $in: clientIds } });
+      if (siteIds.length > 0) addOnOr.push({ site_id: { $in: siteIds } });
+      if (addOnOr.length > 0) {
+        const addOns = await AddOnApplication.find({ $or: addOnOr }).select('products').lean();
+        addOns.forEach(ao => {
+          if (Array.isArray(ao.products)) {
+            logsheetProducts.push(...ao.products);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 7. Check InitialProductApplication
+    try {
+      const InitialProductApplication = mongoose.model('InitialProductApplication');
+      const ipOr = [];
+      if (clientIds.length > 0) ipOr.push({ client_id: { $in: clientIds } });
+      if (siteIds.length > 0) ipOr.push({ site_id: { $in: siteIds } });
+      if (ipOr.length > 0) {
+        const ips = await InitialProductApplication.find({ $or: ipOr }).select('product').lean();
+        ips.forEach(ip => {
+          if (ip.product?.name) {
+            logsheetProducts.push(ip.product);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 8. Build unified product catalog (deduplicated by normalized name)
     const productMap = new Map();
 
     const addProduct = (p, source = 'site_product') => {
+      if (!p) return;
       const name = (p.name || p.title || p.product_name || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
@@ -359,7 +443,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
           name,
           code: p.code || p.barcode || '',
           category: p.category || 'Halal Certified',
-          product_type: p.product_type || 'Processed',
+          product_type: p.product_type || p.type || 'Processed',
           description: p.description || '',
           barcode: p.barcode || p.code || '',
           source,
@@ -371,10 +455,11 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
         if (!existing.code && (p.code || p.barcode)) existing.code = p.code || p.barcode;
         if (!existing.category && p.category) existing.category = p.category;
         if (!existing.description && p.description) existing.description = p.description;
+        if (!existing.barcode && p.barcode) existing.barcode = p.barcode;
       }
     };
 
-    // Add in order: Database products, Logsheet, Application, Certificate details
+    // Add in priority order: Database products, Logsheet, Application, Certificate details
     dbProducts.forEach(p => addProduct(p, 'site_inventory'));
     logsheetProducts.forEach(p => addProduct(p, 'logsheet'));
     appProducts.forEach(p => addProduct(p, 'application'));
@@ -390,6 +475,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     }
 
     const allSiteProducts = Array.from(productMap.values());
+
 
     res.json({
       success: true,
