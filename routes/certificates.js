@@ -247,42 +247,78 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       }
     }
 
-    // 3. Query Product collection for this client & site
-    const orClauses = [];
-
-    // Products matching this client
-    if (clientId) {
-      const clientIds = [clientId.toString()];
-      if (mongoose.isValidObjectId(clientId)) {
-        clientIds.push(new mongoose.Types.ObjectId(clientId.toString()));
-      }
-
-      // If siteId is present, match client AND site
-      if (siteId) {
-        const siteIds = [siteId.toString()];
-        if (mongoose.isValidObjectId(siteId)) {
-          siteIds.push(new mongoose.Types.ObjectId(siteId.toString()));
-        }
-        orClauses.push({ client_id: { $in: clientIds }, site_id: { $in: siteIds } });
-      } else {
-        orClauses.push({ client_id: { $in: clientIds } });
+    // If still no siteDoc, try to find site by client_id (Site.client_id is a String)
+    if (!siteDoc && clientId) {
+      const clientIdStr = clientId.toString();
+      siteDoc = await Site.findOne({ client_id: clientIdStr }).lean();
+      if (siteDoc && !siteId) {
+        siteId = siteDoc._id;
       }
     }
 
-    // Also include any products explicitly linked to this certificate
-    if (cert._id) {
-      orClauses.push({ certificate_id: cert._id.toString() });
+    // 3. Resolve site_id to both ObjectId and String forms for robust querying
+    //    Application.site_id is a String; Product.site_id is an ObjectId
+    let siteObjectId = null;
+    const siteIdStr = siteId ? siteId.toString() : null;
+    if (siteIdStr && mongoose.isValidObjectId(siteIdStr)) {
+      try { siteObjectId = new mongoose.Types.ObjectId(siteIdStr); } catch (_) {}
     }
-    if (cert.certificate_number) {
-      orClauses.push({ certificate_id: cert.certificate_number });
+
+    // Client ID representations
+    const clientIdStr = clientId ? clientId.toString() : null;
+    let clientObjectId = null;
+    if (clientIdStr && mongoose.isValidObjectId(clientIdStr)) {
+      try { clientObjectId = new mongoose.Types.ObjectId(clientIdStr); } catch (_) {}
     }
 
     let dbProducts = [];
-    if (orClauses.length > 0) {
-      dbProducts = await Product.find({ $or: orClauses })
+    const seenProductIds = new Set();
+
+    // Strategy A: Query by site_id (most specific — ObjectId match on Product.site_id)
+    if (siteObjectId || siteIdStr) {
+      const siteQuery = siteObjectId ? { site_id: siteObjectId } : { site_id: siteIdStr };
+      const siteScopedProducts = await Product.find(siteQuery)
         .populate('site_id', 'name est_name trading_name')
         .sort({ created_at: -1 })
         .lean();
+      siteScopedProducts.forEach(p => {
+        seenProductIds.add(p._id.toString());
+        dbProducts.push(p);
+      });
+    }
+
+    // Strategy B: Query by client_id — catches products not yet assigned to a site
+    if (clientIdStr) {
+      const clientOrClauses = [];
+      if (clientObjectId) clientOrClauses.push({ client_id: clientObjectId });
+      clientOrClauses.push({ client_id: clientIdStr });
+      const clientScopedProducts = await Product.find({ $or: clientOrClauses })
+        .populate('site_id', 'name est_name trading_name')
+        .sort({ created_at: -1 })
+        .lean();
+      clientScopedProducts.forEach(p => {
+        if (!seenProductIds.has(p._id.toString())) {
+          seenProductIds.add(p._id.toString());
+          dbProducts.push(p);
+        }
+      });
+    }
+
+    // Strategy C: Products explicitly linked to this certificate
+    const certOrClauses = [];
+    if (cert._id) certOrClauses.push({ certificate_id: cert._id.toString() });
+    if (cert.certificate_number) certOrClauses.push({ certificate_id: cert.certificate_number });
+    if (certOrClauses.length > 0) {
+      const certLinked = await Product.find({ $or: certOrClauses })
+        .populate('site_id', 'name est_name trading_name')
+        .sort({ created_at: -1 })
+        .lean();
+      certLinked.forEach(p => {
+        if (!seenProductIds.has(p._id.toString())) {
+          seenProductIds.add(p._id.toString());
+          dbProducts.push(p);
+        }
+      });
     }
 
     // 4. Fetch products from Application if available
