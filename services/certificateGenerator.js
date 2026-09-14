@@ -401,7 +401,7 @@ export async function generateCertificate(certData) {
   const cEmerald = rgb(11 / 255, 124 / 255, 71 / 255); // #0b7c47 Emerald Green
   const cDark = rgb(17 / 255, 24 / 255, 39 / 255);     // #111827 Deep Black/Charcoal
   const cWhite = rgb(1, 1, 1);
-  const cTableGrid = rgb(194 / 255, 222 / 255, 203 / 255); // Light mint border
+  const cTableGrid = rgb(89 / 255, 91 / 255, 97 / 255); // Subtle slate gray grid stroke [89, 91, 97]
   const cGrayText = rgb(71 / 255, 85 / 255, 105 / 255);
 
   const sanitizedCertNo = sanitizeForPdf(certificateNumber || certData.certificate_number);
@@ -677,34 +677,31 @@ export async function generateCertificate(certData) {
         color: cWhite
       });
 
-      // Table Rows
+      // Table Rows (Transparent background matching master template)
       let curRowY = tableStartY - headerHeight;
       currentProducts.forEach((p) => {
         globalProductIndex++;
         curRowY -= rowHeight;
 
-        // Solid white background with mint border
-        page.drawRectangle({
-          x: tableLeftX,
-          y: curRowY,
-          width: tableWidth,
-          height: rowHeight,
-          color: cWhite,
-          borderColor: cTableGrid,
-          borderWidth: 0.65
+        // Horizontal bottom row divider
+        page.drawLine({
+          start: { x: tableLeftX, y: curRowY },
+          end: { x: tableLeftX + tableWidth, y: curRowY },
+          thickness: 0.5,
+          color: cTableGrid
         });
 
         // Vertical column dividers
         page.drawLine({
           start: { x: tableLeftX + col1W, y: curRowY },
           end: { x: tableLeftX + col1W, y: curRowY + rowHeight },
-          thickness: 0.65,
+          thickness: 0.5,
           color: cTableGrid
         });
         page.drawLine({
           start: { x: tableLeftX + col1W + col2W, y: curRowY },
           end: { x: tableLeftX + col1W + col2W, y: curRowY + rowHeight },
-          thickness: 0.65,
+          thickness: 0.5,
           color: cTableGrid
         });
 
@@ -745,8 +742,8 @@ export async function generateCertificate(certData) {
         y: curRowY,
         width: tableWidth,
         height: tableStartY - curRowY,
-        borderColor: cEmerald,
-        borderWidth: 0.85
+        borderColor: cTableGrid,
+        borderWidth: 0.75
       });
 
       // Centered Asterisks directly below table on final page
@@ -805,28 +802,25 @@ export async function generateCertificate(certData) {
         color: cWhite
       });
 
-      // Table Rows
+      // Table Rows (Transparent background matching master template)
       let curRowY = tableStartY - headerHeight;
       currentProducts.forEach((p) => {
         globalProductIndex++;
         curRowY -= rowHeight;
 
-        // Solid white background with mint border
-        page.drawRectangle({
-          x: tableLeftX,
-          y: curRowY,
-          width: tableWidth,
-          height: rowHeight,
-          color: cWhite,
-          borderColor: cTableGrid,
-          borderWidth: 0.65
+        // Horizontal bottom row divider
+        page.drawLine({
+          start: { x: tableLeftX, y: curRowY },
+          end: { x: tableLeftX + tableWidth, y: curRowY },
+          thickness: 0.5,
+          color: cTableGrid
         });
 
         // Vertical column divider
         page.drawLine({
           start: { x: tableLeftX + col1W, y: curRowY },
           end: { x: tableLeftX + col1W, y: curRowY + rowHeight },
-          thickness: 0.65,
+          thickness: 0.5,
           color: cTableGrid
         });
 
@@ -857,8 +851,8 @@ export async function generateCertificate(certData) {
         y: curRowY,
         width: tableWidth,
         height: tableStartY - curRowY,
-        borderColor: cEmerald,
-        borderWidth: 0.85
+        borderColor: cTableGrid,
+        borderWidth: 0.75
       });
 
       // Centered Asterisks directly below table on final page
@@ -1037,9 +1031,9 @@ export async function buildCertificateHtml(certData) {
         .info-label { width: 35%; color: #111827; vertical-align: top; }
         .info-val { width: 65%; color: #111827; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; }
-        .products-table { width: ${isGso ? '360pt' : '280pt'}; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 7.5pt; background: #ffffff; }
-        .products-table th { background: #0b7c47; color: #ffffff; padding: 5px; font-weight: 700; border: 1px solid #ffffff; }
-        .products-table td { padding: 4px 6px; border: 1px solid #c2decb; color: #111827; background: #ffffff; }
+        .products-table { width: ${isGso ? '360pt' : '280pt'}; border-collapse: collapse; border: 1px solid #595b61; font-size: 7.5pt; background: transparent; }
+        .products-table th { background: #0b7c47; color: #ffffff; padding: 5px; font-weight: 700; border: 1px solid #595b61; }
+        .products-table td { padding: 4px 6px; border: 1px solid #595b61; color: #111827; background: transparent; }
         .asterisks { text-align: center; margin: 8px 0; font-size: 8pt; letter-spacing: 2px; }
         .footer-signatures { display: flex; justify-content: space-between; margin-top: 24px; font-size: 8pt; }
         .footer-meta { display: flex; align-items: center; margin-top: 20px; font-size: 7pt; border-top: 1px solid #7cb594; padding-top: 8px; }
