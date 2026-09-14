@@ -1064,7 +1064,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       // Auto-create an active Certificate for this client
       const clientUser = await User.findById(app.client_id);
       const companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
-      const certNumber = generateHfaId(companyForId);
+      const certNumber = generateHfaId(companyForId, 'AD');
       cert = new Certificate({
         certificate_number: certNumber,
         client_id: app.client_id,

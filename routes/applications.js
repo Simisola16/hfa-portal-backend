@@ -283,7 +283,8 @@ router.post('/', authenticateToken, upload.fields([
     }
 
     const companyForId = req.body.establishment_name || req.body.site_name || req.user.company_name || req.user.full_name || 'HFA';
-    const appNumber = generateHfaId(companyForId);
+    const appTypeCode = application_type === 'surveillance' ? 'SU' : (application_type === 'renewal' ? 'RE' : 'NE');
+    const appNumber = generateHfaId(companyForId, appTypeCode);
     
     // Parse products if they come as a JSON string
     let products = [];
@@ -708,7 +709,8 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
         const existingCert = await Certificate.findOne({ application_id: data._id, status: { $in: ['active', 'under_review'] } });
         if (!existingCert) {
           const companyForId = client ? (client.company_name || client.full_name) : data.establishment_name;
-          const certNumber = generateHfaId(companyForId);
+          const certTypeCode = data.application_type === 'renewal' ? 'RE' : (data.application_type === 'surveillance' ? 'SU' : 'NE');
+          const certNumber = generateHfaId(companyForId, certTypeCode);
           
           const productCategories = (data.products || []).map(p => ({
             code: p.brand || 'GEN',
@@ -886,7 +888,7 @@ router.post('/renew', authenticateToken, upload.fields([
     };
 
     const companyForId = originalApp?.establishment_name || req.user.company_name || req.user.full_name || 'HFA';
-    const appNumber = generateHfaId(companyForId);
+    const appNumber = generateHfaId(companyForId, 'RE');
     const emailVal = (contact_email && contact_email.trim()) || originalApp?.primary_email || originalApp?.company_email || req.user.email || '';
     const phoneVal = (contact_phone && contact_phone.trim()) || originalApp?.primary_work_tel || originalApp?.primary_mobile || req.user.phone || '';
 

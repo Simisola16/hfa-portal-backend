@@ -1,7 +1,9 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import AddOnApplication from '../models/AddOnApplication.js';
 import User from '../models/User.js';
+import Site from '../models/Site.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
@@ -15,6 +17,9 @@ router.get('/', authenticateToken, async (req, res) => {
     let query = { status: { $ne: 'pending' } };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
+    } else {
+      if (req.query.client_id) query.client_id = req.query.client_id;
+      if (req.query.site_id) query.site_id = req.query.site_id;
     }
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
@@ -52,6 +57,101 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Direct Batch Product Creation (Admin / Superadmin)
+router.post('/direct-batch', authenticateToken, async (req, res) => {
+  try {
+    const allowedRoles = ['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'scheme_manager', 'certificate_officer', 'audit_manager'];
+    const userRole = req.user.role;
+    const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [userRole].filter(Boolean);
+    const hasAccess = userRole === 'superadmin' || userRoles.includes('superadmin') || userRoles.some(r => allowedRoles.includes(r));
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Unauthorized: Only admins and authorized staff can directly create products.' });
+    }
+
+    const { client_id, site_id, products, send_notification, notes } = req.body;
+
+    if (!client_id) {
+      return res.status(400).json({ error: 'Client / Company ID is required.' });
+    }
+
+    if (!mongoose.isValidObjectId(client_id)) {
+      return res.status(400).json({ error: 'Invalid client company ID format.' });
+    }
+
+    if (site_id && !mongoose.isValidObjectId(site_id)) {
+      return res.status(400).json({ error: 'Invalid facility site ID format.' });
+    }
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'At least one product is required.' });
+    }
+
+    const client = await User.findById(client_id).lean();
+    if (!client) {
+      return res.status(404).json({ error: 'Selected client company not found.' });
+    }
+
+    let site = null;
+    if (site_id) {
+      site = await Site.findById(site_id).lean();
+    }
+
+    const docsToInsert = products.map((p, index) => {
+      const name = p.name ? p.name.trim() : '';
+      if (!name) return null;
+
+      const code = p.code && p.code.trim() ? p.code.trim() : `PRD-${String(index + 1).padStart(2, '0')}`;
+      const category = p.category && p.category.trim() ? p.category.trim() : 'General Food Products';
+      const product_type = p.product_type && p.product_type.trim() ? p.product_type.trim() : 'Processed';
+      const description = p.description ? p.description.trim() : '';
+      const productNotes = p.notes ? p.notes.trim() : (notes || 'Directly registered by administrator');
+
+      return {
+        client_id,
+        site_id: site_id || undefined,
+        name,
+        code,
+        barcode: code,
+        category,
+        product_type,
+        description,
+        notes: productNotes,
+        status: p.status || 'active',
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+    }).filter(Boolean);
+
+    if (docsToInsert.length === 0) {
+      return res.status(400).json({ error: 'Please specify at least one product with a valid name.' });
+    }
+
+    const created = await Product.insertMany(docsToInsert);
+
+    // Optional Notification to client
+    if (send_notification !== false) {
+      const siteDisplay = site ? (site.name || site.est_name || 'facility site') : 'your facility site';
+      await createNotification(
+        client_id,
+        'New Certified Products Added 📦',
+        `${created.length} new product${created.length > 1 ? 's have' : ' has'} been directly registered and assigned to ${siteDisplay}.`,
+        'success',
+        '/products'
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully registered and assigned ${created.length} product(s).`,
+      count: created.length,
+      data: created
+    });
+  } catch (err) {
+    console.error('Error in /api/products/direct-batch:', err);
+    res.status(500).json({ error: err.message || 'Failed to directly create products.' });
   }
 });
 

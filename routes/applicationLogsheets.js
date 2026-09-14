@@ -7,7 +7,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
-import { generateHfaId } from '../lib/idGenerator.js';
+import { generateHfaId, normalizeHfaTypeCode } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -238,7 +238,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       resolvedClientId = existingUser._id;
     }
 
-    const directRef = generateHfaId(company_name || 'DL');
+    const directRef = generateHfaId(company_name || 'DL', normalizeHfaTypeCode(logsheet_type || 'NE'));
 
     const logsheet = new ApplicationLogsheet({
       source_type: 'direct',

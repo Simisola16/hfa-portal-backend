@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { generateHfaId } from '../lib/idGenerator.js';
 
 const addOnProductSchema = new mongoose.Schema({
   sn: { type: Number }, // auto-numbered on save
@@ -22,6 +23,7 @@ const productResponseSchema = new mongoose.Schema({
 }, { _id: false });
 
 const addOnApplicationSchema = new mongoose.Schema({
+  application_number: { type: String },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', required: false },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
@@ -107,10 +109,14 @@ const addOnApplicationSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Auto-number products on save
+// Auto-number products and generate application_number on save
 addOnApplicationSchema.pre('save', function(next) {
   if (this.products && this.products.length > 0) {
     this.products.forEach((p, i) => { p.sn = i + 1; });
+  }
+  if (!this.application_number) {
+    const comp = this.contact_name || 'HFA';
+    this.application_number = generateHfaId(comp, 'AD');
   }
   next();
 });

@@ -274,7 +274,12 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
-    const certNo = certificate_number || generateHfaId(companyForId);
+    const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
+      ? 'SU'
+      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+        ? 'RE'
+        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
+    const certNo = certificate_number || generateHfaId(companyForId, certTypeCode);
 
     let parsedProducts = [];
     if (Array.isArray(products_covered)) {
@@ -774,7 +779,8 @@ async function buildCertDataFromApplication(application) {
   const User = (await import('../models/User.js')).default;
   const client = await User.findById(application.client_id);
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
-  const certNumber = generateHfaId(companyForId);
+  const certTypeCode = application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE');
+  const certNumber = generateHfaId(companyForId, certTypeCode);
   
   let scheme = 'HFA Scheme';
   if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
@@ -1129,9 +1135,14 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     // 3. Resolve Certificate Number
     const companyForId = targetClient?.company_name || targetClient?.full_name || new_client_company || 'HFA';
+    const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
+      ? 'SU'
+      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+        ? 'RE'
+        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
     const certNumber = (certificate_number && certificate_number.trim())
       ? certificate_number.trim()
-      : generateHfaId(companyForId);
+      : generateHfaId(companyForId, certTypeCode);
 
     const existingCertWithNo = await Certificate.findOne({ certificate_number: certNumber });
     if (existingCertWithNo) {
