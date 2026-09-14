@@ -4,3 +4,5 @@ node_modules/
 *.log
 
 .vercel
+**/sql-server-export/**
+/**/sql-server-export/
