@@ -681,32 +681,35 @@ export async function generateCertificate(certData) {
       const companyInfoFontSize = 9.5;
 
       // Exact PDF baseline coordinates per template scheme
-      let nameY, addrY1, addrY2, mfgY1, mfgY2, scopeY1, scopeY2;
+      let nameY, addrY1, addrY2, mfgY1, mfgY2, scopeY1, scopeY2, scopeSingleY;
       if (isGsoMeat) {
-        nameY = 472.00;
-        addrY1 = 447.00;
-        addrY2 = 431.50;
-        mfgY1 = 398.00;
-        mfgY2 = 383.50;
-        scopeY1 = 357.50;
-        scopeY2 = 342.50;
+        nameY = 478.00;
+        addrY1 = 448.00;
+        addrY2 = 432.00;
+        mfgY1 = 403.00;
+        mfgY2 = 388.00;
+        scopeSingleY = 365.00;
+        scopeY1 = 369.00;
+        scopeY2 = 356.00;
       } else if (isGsoNonMeat) {
-        nameY = 501.00;
-        addrY1 = 475.00;
-        addrY2 = 460.00;
-        mfgY1 = 427.00;
-        mfgY2 = 412.00;
-        scopeY1 = 385.50;
-        scopeY2 = 370.50;
+        nameY = 507.00;
+        addrY1 = 477.00;
+        addrY2 = 461.00;
+        mfgY1 = 433.00;
+        mfgY2 = 417.00;
+        scopeSingleY = 394.00;
+        scopeY1 = 398.00;
+        scopeY2 = 385.00;
       } else {
         // HFA Scheme Meat, HFA Scheme Non-Meat, Cosmetics, SMIIC
-        nameY = 492.00;
-        addrY1 = 466.00;
-        addrY2 = 450.00;
-        mfgY1 = 417.00;
-        mfgY2 = 401.50;
-        scopeY1 = 373.00;
-        scopeY2 = 358.00;
+        nameY = 498.00;
+        addrY1 = 468.00;
+        addrY2 = 452.00;
+        mfgY1 = 423.00;
+        mfgY2 = 407.00;
+        scopeSingleY = 381.00;
+        scopeY1 = 385.00;
+        scopeY2 = 372.00;
       }
 
       // Company Name (Prominent bold font, size 9.5pt)
@@ -747,7 +750,7 @@ export async function generateCertificate(certData) {
         page.drawText(scopeLines[0], { x: valStartX, y: scopeY1, size: companyInfoFontSize, font: fontBold, color: cDark });
         page.drawText(scopeLines[1], { x: valStartX, y: scopeY2, size: companyInfoFontSize, font: fontBold, color: cDark });
       } else {
-        page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeY1, size: companyInfoFontSize, font: fontBold, color: cDark });
+        page.drawText(scopeLines[0] || '—', { x: valStartX, y: scopeSingleY, size: companyInfoFontSize, font: fontBold, color: cDark });
       }
     }
 
