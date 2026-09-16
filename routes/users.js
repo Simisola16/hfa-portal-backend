@@ -188,7 +188,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate } = req.body;
+  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate, is_support_manager } = req.body;
   
   if (!email?.trim()) {
     return res.status(400).json({ error: 'Email address is required.' });
@@ -207,7 +207,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     assignedRoles = ['food_tech'];
   }
 
-  const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+  const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
   const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
 
   try {
@@ -230,6 +230,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       role: primaryRole,
       roles: assignedRoles,
       can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || primaryRole === 'certificate_officer' || assignedRoles.includes('superadmin') || assignedRoles.includes('certificate_officer')),
+      is_support_manager: Boolean(is_support_manager || primaryRole === 'superadmin' || primaryRole === 'support_manager' || assignedRoles.includes('superadmin') || assignedRoles.includes('support_manager')),
       username: username?.trim() || undefined,
       is_verified: true,
       is_active: true
@@ -269,7 +270,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate } = req.body;
+    const { role, roles, can_issue_direct_certificate, is_support_manager } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(Boolean);
@@ -279,7 +280,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       assignedRoles = ['food_tech'];
     }
 
-    const rolePriority = ['superadmin', 'admin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+    const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
     const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
 
     const updateObj = {
@@ -288,8 +289,16 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     };
     if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
       updateObj.can_issue_direct_certificate = true;
-    } else if (can_issue_direct_certificate !== undefined) {
-      updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+      updateObj.is_support_manager = true;
+    } else {
+      if (can_issue_direct_certificate !== undefined) {
+        updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+      }
+      if (is_support_manager !== undefined) {
+        updateObj.is_support_manager = Boolean(is_support_manager);
+      } else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) {
+        updateObj.is_support_manager = true;
+      }
     }
 
     const data = await User.findByIdAndUpdate(req.params.id, updateObj, { new: true });
@@ -329,6 +338,41 @@ router.put('/:id/direct-cert-permission', authenticateToken, requireSuperAdmin, 
     const resData = user.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Direct Certificate privilege ${user.can_issue_direct_certificate ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/:id/support-manager-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { is_support_manager } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.is_support_manager = Boolean(is_support_manager);
+    await user.save();
+
+    if (user.is_support_manager) {
+      await createNotification(
+        user._id,
+        'Privilege Granted: Support Manager 🎧',
+        'Superadmin has granted you the Support Manager privilege. You can now receive live client support requests and assign tickets to staff.',
+        'success',
+        '/tickets'
+      );
+    } else {
+      await createNotification(
+        user._id,
+        'Privilege Revoked: Support Manager',
+        'Your Support Manager privilege has been revoked by Superadmin.',
+        'warning',
+        '/dashboard'
+      );
+    }
+
+    const resData = user.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Support Manager privilege ${user.is_support_manager ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

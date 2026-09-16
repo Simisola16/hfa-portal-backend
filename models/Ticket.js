@@ -21,6 +21,7 @@ const ticketSchema = new mongoose.Schema({
   department: { type: String, default: 'General' },
   priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
   status: { type: String, enum: ['open', 'in_progress', 'resolved', 'closed'], default: 'open' },
+  source: { type: String, enum: ['portal', 'chat_widget'], default: 'portal' },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   attachments: [{

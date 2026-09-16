@@ -309,7 +309,8 @@ router.post('/admin/login', async (req, res) => {
         username: user.username,
         full_name: user.full_name,
         role: user.role,
-        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin')
+        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin'),
+        is_support_manager: Boolean(user.is_support_manager || user.role === 'superadmin' || user.role === 'support_manager' || (Array.isArray(user.roles) && user.roles.includes('support_manager')))
       },
       profile: {
         id: user._id,
@@ -317,7 +318,8 @@ router.post('/admin/login', async (req, res) => {
         username: user.username,
         full_name: user.full_name,
         role: user.role,
-        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin')
+        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin'),
+        is_support_manager: Boolean(user.is_support_manager || user.role === 'superadmin' || user.role === 'support_manager' || (Array.isArray(user.roles) && user.roles.includes('support_manager')))
       }
     });
   } catch (err) {

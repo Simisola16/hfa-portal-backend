@@ -24,6 +24,7 @@ const userSchema = new mongoose.Schema({
       'audit_manager', 
       'food_tech_manager', 
       'food_tech', 
+      'support_manager',
       'superadmin'
     ], 
     default: 'client' 
@@ -32,6 +33,7 @@ const userSchema = new mongoose.Schema({
   parent_client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   client_role: { type: String, enum: ['admin', 'editor', 'viewer', 'owner'], default: 'viewer' },
   can_issue_direct_certificate: { type: Boolean, default: false },
+  is_support_manager: { type: Boolean, default: false },
   is_active: { type: Boolean, default: true },
   is_verified: { type: Boolean, default: false },
   verification_token: String,
