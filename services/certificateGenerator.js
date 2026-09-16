@@ -812,15 +812,6 @@ export async function generateCertificate(certData) {
       const col2W = 122.0;
       const col3W = tableWidth - col1W - col2W; // 345.0 pt
 
-      // Draw solid clean white body background for rows to mask any background artifact
-      page.drawRectangle({
-        x: tableLeftX,
-        y: headerBottomY - currentProducts.length * rowHeight,
-        width: tableWidth,
-        height: currentProducts.length * rowHeight,
-        color: cWhite
-      });
-
       // Draw Header Background (Emerald Green)
       page.drawRectangle({
         x: tableLeftX,
@@ -959,15 +950,6 @@ export async function generateCertificate(certData) {
       // 2-Column Table: NO. | NAME OF THE PRODUCTS (for HFA Scheme, Cosmetics, SMIIC)
       const col1W = 40.0;
       const col2W = tableWidth - col1W; // 465.0 pt
-
-      // Draw solid clean white body background for rows to mask any background artifact
-      page.drawRectangle({
-        x: tableLeftX,
-        y: headerBottomY - currentProducts.length * rowHeight,
-        width: tableWidth,
-        height: currentProducts.length * rowHeight,
-        color: cWhite
-      });
 
       // Draw Header Background (Emerald Green)
       page.drawRectangle({
@@ -1247,9 +1229,9 @@ export async function buildCertificateHtml(certData) {
         .info-label { width: 35%; color: #111827; vertical-align: top; font-weight: 600; }
         .info-val { width: 65%; color: #111827; font-weight: 700; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; width: 100%; }
-        .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: #ffffff; }
+        .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: transparent; }
         .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #0b7c47; }
-        .products-table td { padding: 6px 8px; border: 1px solid #4b5563; color: #111827; background: #ffffff; }
+        .products-table td { padding: 6px 8px; border: 1px solid #4b5563; color: #111827; background: transparent; }
         .asterisks { text-align: center; margin: 10px 0; font-size: 9.5pt; font-weight: 700; letter-spacing: 2px; }
         .footer-signatures { display: flex; justify-content: space-between; margin-top: 24px; font-size: 8.5pt; }
         .footer-meta { display: flex; align-items: center; margin-top: 20px; font-size: 7.5pt; border-top: 1px solid #7cb594; padding-top: 8px; }
