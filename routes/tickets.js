@@ -6,10 +6,11 @@ import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitToUser, emitToAdmins } from '../lib/socket.js';
+import { generateSupportAiResponse } from '../lib/supportAi.js';
 
 const router = express.Router();
 
-const STAFF_ROLES = ['admin', 'superadmin', 'scheme_manager', 'food_tech_manager', 'food_tech', 'certificate_officer', 'accountant', 'audit_manager', 'staff'];
+const STAFF_ROLES = ['admin', 'superadmin', 'support_manager', 'scheme_manager', 'food_tech_manager', 'food_tech', 'certificate_officer', 'accountant', 'audit_manager', 'staff'];
 
 const isStaffUser = (user) => {
   if (!user) return false;
@@ -117,6 +118,99 @@ router.get('/:id', authenticateToken, async (req, res) => {
     res.json({ data: ticket });
   } catch (err) {
     console.error('Error fetching ticket:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tickets/ai-chat - Interactive AI Support Assistant
+router.post('/ai-chat', authenticateToken, async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty.' });
+    }
+    const response = generateSupportAiResponse(message, history || []);
+    res.json({ data: response });
+  } catch (err) {
+    console.error('Error in AI support chat:', err);
+    res.status(500).json({ error: 'Failed to process AI chat query' });
+  }
+});
+
+// POST /api/tickets/request-human - Client requests a real person / human agent
+router.post('/request-human', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id.toString();
+    const { department, description, priority, application_id } = req.body;
+
+    if (!description || !description.trim()) {
+      return res.status(400).json({ error: 'Please provide a description of your issue.' });
+    }
+
+    const dept = department || 'General Support';
+    const ticketCount = await Ticket.countDocuments();
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const ticket_number = `TKT-${String(ticketCount + 1).padStart(4, '0')}${randomSuffix}`;
+
+    const ticket = new Ticket({
+      ticket_number,
+      user_id: userId,
+      subject: `Human Agent Request: ${dept}`,
+      message: description.trim(),
+      department: dept,
+      priority: priority || 'medium',
+      status: 'open',
+      source: 'chat_widget',
+      application_id: (application_id && mongoose.Types.ObjectId.isValid(application_id)) ? application_id : null,
+      responses: [],
+      created_at: new Date(),
+      updated_at: new Date()
+    });
+
+    const saved = await ticket.save();
+    const populated = await populateTicketsSafely(saved);
+
+    // Find all users who have the Support Manager privilege or Superadmin
+    const supportManagers = await User.find({
+      $or: [
+        { is_support_manager: true },
+        { role: 'support_manager' },
+        { roles: 'support_manager' },
+        { role: 'superadmin' },
+        { roles: 'superadmin' }
+      ],
+      is_active: true
+    });
+
+    const clientName = req.user.company_name || req.user.full_name || 'Client';
+
+    // Dispatch direct notification to each Support Manager
+    for (const sm of supportManagers) {
+      await createNotification(
+        sm._id,
+        '🚨 Human Support Requested',
+        `${clientName} requested human support for ${dept}: "${description.trim().slice(0, 65)}..."`,
+        'warning',
+        '/tickets'
+      );
+      emitToUser(sm._id, 'support_manager_alert', {
+        ticket: populated,
+        clientName,
+        department: dept,
+        description: description.trim()
+      });
+    }
+
+    // Broadcast standard real-time events to all staff and client
+    emitToAdmins('ticket_created', populated);
+    emitToUser(userId, 'ticket_created', populated);
+
+    res.status(201).json({
+      data: populated,
+      message: 'Support request dispatched. An HFA Support Manager has been notified to assign an agent to your case.'
+    });
+  } catch (err) {
+    console.error('Error requesting human agent:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -301,11 +395,18 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       if (status === 'closed') ticket.closed_at = new Date();
     }
 
+    let newlyAssignedStaffId = null;
+
     if (isStaff) {
       if (priority) ticket.priority = priority;
       if (department) ticket.department = department;
       if (assigned_to !== undefined) {
-        ticket.assigned_to = (assigned_to && mongoose.Types.ObjectId.isValid(assigned_to)) ? assigned_to : null;
+        const prevAssigned = ticket.assigned_to ? ticket.assigned_to.toString() : null;
+        const nextAssigned = (assigned_to && mongoose.Types.ObjectId.isValid(assigned_to)) ? assigned_to.toString() : null;
+        ticket.assigned_to = nextAssigned ? new mongoose.Types.ObjectId(nextAssigned) : null;
+        if (nextAssigned && nextAssigned !== prevAssigned) {
+          newlyAssignedStaffId = nextAssigned;
+        }
       }
     }
 
@@ -313,6 +414,23 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     await ticket.save();
 
     const populated = await populateTicketsSafely(ticket);
+
+    // If an admin was just assigned, dispatch a notification and socket event to them
+    if (newlyAssignedStaffId) {
+      const clientName = (populated.user && (populated.user.company_name || populated.user.full_name)) || 'Client';
+      await createNotification(
+        newlyAssignedStaffId,
+        'Support Ticket Assigned 🎫',
+        `Support Manager assigned you to Ticket ${ticket.ticket_number} (${clientName}) for ${ticket.department}.`,
+        'info',
+        '/tickets'
+      );
+      emitToUser(newlyAssignedStaffId, 'ticket_assigned', {
+        ticketId: ticket._id,
+        ticket: populated,
+        ticketNumber: ticket.ticket_number
+      });
+    }
 
     // Notify client if status changed
     if (status && mongoose.Types.ObjectId.isValid(ticket.user_id)) {
@@ -333,6 +451,24 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     res.json({ data: populated });
   } catch (err) {
     console.error('Error updating ticket status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/tickets/active-chat - Get current user's latest active chat widget ticket
+router.get('/active-chat', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id.toString();
+    const ticket = await Ticket.findOne({
+      user_id: userId,
+      status: { $in: ['open', 'in_progress'] }
+    }).sort({ updated_at: -1, created_at: -1 }).lean();
+
+    if (!ticket) return res.json({ data: null });
+    const populated = await populateTicketsSafely(ticket);
+    res.json({ data: populated });
+  } catch (err) {
+    console.error('Error fetching active chat ticket:', err);
     res.status(500).json({ error: err.message });
   }
 });
