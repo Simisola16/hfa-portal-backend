@@ -1,14 +1,16 @@
 import express from 'express';
 import ExportCertificate from '../models/ExportCertificate.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+
 const router = express.Router();
 
+// GET /api/exports - list all (admin sees all, client sees own)
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = req.user._id;
-    }
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role) ||
+                    (Array.isArray(req.user.roles) && req.user.roles.some(r => ['admin', 'superadmin'].includes(r)));
+
+    const query = isAdmin ? {} : { client_id: (req.user._id || req.user.id).toString() };
     const data = await ExportCertificate.find(query).sort({ created_at: -1 });
     res.json({ data });
   } catch (err) {
@@ -16,12 +18,40 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/exports - client creates a new export certificate request
 router.post('/', authenticateToken, async (req, res) => {
   try {
+    const {
+      destination_country,
+      shipment_date,
+      products,
+      consignee_name,
+      consignee_address,
+      notes,
+      application_number,
+      consignment_details,
+    } = req.body;
+
+    // Auto-generate a reference number
+    const count = await ExportCertificate.countDocuments();
+    const reference_number = `EXP-${String(count + 1).padStart(4, '0')}`;
+
     const exportCert = new ExportCertificate({
-      ...req.body,
-      client_id: req.user._id
+      client_id: (req.user._id || req.user.id).toString(),
+      reference_number,
+      destination_country,
+      shipment_date: shipment_date ? new Date(shipment_date) : undefined,
+      products,
+      consignee_name,
+      consignee_address,
+      notes,
+      application_number,
+      consignment_details,
+      status: 'pending',
+      created_at: new Date(),
+      updated_at: new Date(),
     });
+
     const data = await exportCert.save();
     res.status(201).json({ data });
   } catch (err) {
@@ -29,15 +59,38 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+// PUT /api/exports/:id/status  - admin approve / reject
+router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const data = await ExportCertificate.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const { status, notes } = req.body;
+    const data = await ExportCertificate.findByIdAndUpdate(
+      req.params.id,
+      { status, admin_notes: notes, updated_at: new Date() },
+      { new: true }
+    );
+    if (!data) return res.status(404).json({ error: 'Export certificate not found' });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// PUT /api/exports/:id - general update (admin)
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const data = await ExportCertificate.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, updated_at: new Date() },
+      { new: true }
+    );
+    if (!data) return res.status(404).json({ error: 'Export certificate not found' });
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/exports/:id - admin delete
 router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     await ExportCertificate.findByIdAndDelete(req.params.id);
