@@ -1227,10 +1227,11 @@ export async function buildCertificateHtml(certData) {
         .dates-row-center { text-align: center; font-size: 8pt; margin-top: 4px; }
         .date-label { color: #0b7c47; }
         .declaration { font-size: 8.2pt; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
-        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt; }
-        .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; }
-        .info-label { width: 35%; color: #111827; vertical-align: top; font-weight: 600; }
-        .info-val { width: 65%; color: #111827; font-weight: 700; }
+        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 9.5pt; }
+        .info-table tr { border-bottom: 1px solid #7cb594; }
+        .info-table td { padding: 7px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
+        .info-label { width: 35%; min-width: 260px; color: #111827; vertical-align: top; font-weight: 700; text-align: left; padding-right: 12px; }
+        .info-val { width: 65%; color: #111827; font-weight: 700; vertical-align: top; text-align: left; word-break: break-word; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; width: 100%; }
         .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: transparent; }
         .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #0b7c47; }
@@ -1264,22 +1265,28 @@ export async function buildCertificateHtml(certData) {
       </div>
 
       <table class="info-table">
-        <tr>
-          <td class="info-label">COMPANY NAME:</td>
-          <td class="info-val">${resolvedName}</td>
-        </tr>
-        <tr>
-          <td class="info-label">COMPANY ADDRESS:</td>
-          <td class="info-val">${resolvedAddress}</td>
-        </tr>
-        <tr>
-          <td class="info-label">MANUFACTURING FACILITY(IES)<br>ADDRESS (IF DIFFERENT):</td>
-          <td class="info-val">${resolvedMfgAddress}</td>
-        </tr>
-        <tr>
-          <td class="info-label">PRODUCT CATEGORY:</td>
-          <td class="info-val">${resolvedScope}</td>
-        </tr>
+        <colgroup>
+          <col style="width: 35%; min-width: 260px;" />
+          <col style="width: 65%;" />
+        </colgroup>
+        <tbody>
+          <tr>
+            <td class="info-label">COMPANY NAME:</td>
+            <td class="info-val">${resolvedName}</td>
+          </tr>
+          <tr>
+            <td class="info-label">COMPANY ADDRESS:</td>
+            <td class="info-val">${resolvedAddress}</td>
+          </tr>
+          <tr>
+            <td class="info-label">MANUFACTURING FACILITY(IES)<br>ADDRESS (IF DIFFERENT):</td>
+            <td class="info-val">${resolvedMfgAddress}</td>
+          </tr>
+          <tr>
+            <td class="info-label">PRODUCT CATEGORY:</td>
+            <td class="info-val">${resolvedScope}</td>
+          </tr>
+        </tbody>
       </table>
 
       <div class="products-table-container">
@@ -1333,3 +1340,6 @@ export async function buildCertificateHtml(certData) {
     </html>
   `;
 }
+
+export const generateHtmlCertificate = buildCertificateHtml;
+

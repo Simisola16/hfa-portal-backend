@@ -223,31 +223,42 @@ export async function renderCertificateHtml(certData) {
           left: 6.5%;
           width: 87%;
           z-index: 10;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
         }
-        .info-row {
-          display: flex;
-          align-items: flex-start;
+        .info-table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
           font-size: 8.0pt;
-          line-height: 1.35;
+        }
+        .info-table tr {
           border-bottom: 1px solid #7cb594;
-          padding-bottom: 2px;
+        }
+        .info-table td {
+          padding: 3px 0;
+          border-bottom: 1px solid #7cb594;
+          vertical-align: top;
+          line-height: 1.35;
+          box-sizing: border-box;
         }
         .info-label {
-          width: 32%;
+          width: 35%;
+          min-width: 260px;
           font-weight: 700;
           color: #111827;
           letter-spacing: 0.01em;
           text-transform: uppercase;
-          flex-shrink: 0;
+          vertical-align: top;
+          padding-right: 12px;
+          text-align: left;
         }
         .info-val {
-          width: 68%;
+          width: 65%;
           font-weight: 700;
           color: #0f172a;
           text-transform: uppercase;
+          vertical-align: top;
+          text-align: left;
+          word-break: break-word;
         }
 
         /* Products Table */
@@ -387,22 +398,30 @@ export async function renderCertificateHtml(certData) {
 
       <!-- Company & Facility Details -->
       <div class="info-block">
-        <div class="info-row">
-          <div class="info-label">COMPANY NAME:</div>
-          <div class="info-val">${companyName}</div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">COMPANY ADDRESS:</div>
-          <div class="info-val">${companyAddress}</div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):</div>
-          <div class="info-val">${manufacturingAddress || 'Same as above'}</div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">PRODUCT CATEGORY:</div>
-          <div class="info-val">${scope}</div>
-        </div>
+        <table class="info-table">
+          <colgroup>
+            <col style="width: 35%; min-width: 260px;" />
+            <col style="width: 65%;" />
+          </colgroup>
+          <tbody>
+            <tr>
+              <td class="info-label">COMPANY NAME:</td>
+              <td class="info-val">${companyName}</td>
+            </tr>
+            <tr>
+              <td class="info-label">COMPANY ADDRESS:</td>
+              <td class="info-val">${companyAddress}</td>
+            </tr>
+            <tr>
+              <td class="info-label">MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):</td>
+              <td class="info-val">${manufacturingAddress || 'SAME AS ABOVE'}</td>
+            </tr>
+            <tr>
+              <td class="info-label">PRODUCT CATEGORY:</td>
+              <td class="info-val">${scope}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- Products Table -->
