@@ -1,5 +1,6 @@
 import express from 'express';
 import ExportCertificate from '../models/ExportCertificate.js';
+import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -12,7 +13,21 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const query = isAdmin ? {} : { client_id: (req.user._id || req.user.id).toString() };
     const data = await ExportCertificate.find(query).sort({ created_at: -1 });
-    res.json({ data });
+
+    const clientIds = [...new Set(data.map(d => d.client_id).filter(Boolean))];
+    const users = await User.find({ _id: { $in: clientIds } }, 'company_name email full_name').lean();
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = u; });
+
+    const enriched = data.map(d => {
+      const obj = d.toObject ? d.toObject() : { ...d };
+      const user = userMap[obj.client_id];
+      obj.id = obj._id.toString();
+      obj.profiles = user || { company_name: 'Anike International', email: 'anike@halalfoodauthority.com' };
+      return obj;
+    });
+
+    res.json({ data: enriched });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
