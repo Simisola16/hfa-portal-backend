@@ -556,13 +556,43 @@ export async function generateCertificate(certData) {
   const formattedCurrentCycle = formatDate(currentCycleStartDate || certData.current_cycle_start_date || issueDate || certData.issue_date);
   const formattedOrigCycle = formatDate(originalCycleStartDate || certData.original_cycle_start_date || issueDate || certData.issue_date);
 
-  const rawCompanyAddr = (companyAddress || businessAddress || certData.company_address || '').trim();
+  const rawCompanyAddr = (
+    companyAddress ||
+    businessAddress ||
+    certData.company_address ||
+    certData.companyAddress ||
+    certData.registered_address ||
+    certData.address ||
+    (certData.application_id && certData.application_id.establishment_address) ||
+    ''
+  ).trim();
   const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
-  const resolvedAddress = isCompanyAddrEmpty ? '' : sanitizeForPdf(rawCompanyAddr.toUpperCase());
+  const resolvedAddress = isCompanyAddrEmpty ? '—' : sanitizeForPdf(rawCompanyAddr.toUpperCase());
 
-  const rawMfg = (manufacturingAddress || manufacturerAddress || certData.manufacturing_address || certData.manufacturer_address || '').trim();
-  const isMfgEmpty = !rawMfg || rawMfg === '-' || rawMfg === '—' || rawMfg.toUpperCase() === 'N/A' || rawMfg.toUpperCase() === rawCompanyAddr.toUpperCase() || rawMfg.toUpperCase() === 'SAME AS ABOVE';
-  const resolvedMfgAddress = isMfgEmpty ? '' : sanitizeForPdf(rawMfg.toUpperCase());
+  const rawMfg = (
+    manufacturingAddress ||
+    manufacturerAddress ||
+    certData.manufacturing_address ||
+    certData.manufacturer_address ||
+    certData.manufacturing_facility_address ||
+    certData.facility_address ||
+    certData.facilityAddress ||
+    certData.manufacturingFacility ||
+    certData.manufacturing_facility ||
+    certData.site_address ||
+    (certData.site_id && (certData.site_id.address || certData.site_id.address_1)) ||
+    (certData.application_id && (certData.application_id.manufacturer_address || certData.application_id.site_address)) ||
+    ''
+  ).trim();
+
+  let resolvedMfgAddress = '';
+  if (rawMfg && rawMfg !== '-' && rawMfg !== '—' && rawMfg.toUpperCase() !== 'N/A') {
+    resolvedMfgAddress = sanitizeForPdf(rawMfg.toUpperCase());
+  } else if (!isCompanyAddrEmpty) {
+    resolvedMfgAddress = 'SAME AS ABOVE';
+  } else {
+    resolvedMfgAddress = 'SAME AS ABOVE';
+  }
 
   const resolvedName = sanitizeForPdf((companyName || businessName || certData.company_name || 'Halal Certified Client').toUpperCase());
   const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase());
@@ -742,14 +772,14 @@ export async function generateCertificate(certData) {
         }
       }
 
-      // Manufacturing Facility Address (only if provided, distinct, and not '-')
-      if (resolvedMfgAddress) {
+      // Manufacturing Facility Address (Prominent bold font, size 9.5pt, aligned at valStartX)
+      if (resolvedMfgAddress && resolvedMfgAddress !== '—') {
         const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontBold, companyInfoFontSize, 2);
         if (mfgLines.length > 1) {
           page.drawText(mfgLines[0], { x: valStartX, y: mfgY1, size: companyInfoFontSize, font: fontBold, color: cDark });
           page.drawText(mfgLines[1], { x: valStartX, y: mfgY2, size: companyInfoFontSize, font: fontBold, color: cDark });
         } else {
-          page.drawText(mfgLines[0], { x: valStartX, y: mfgY2, size: companyInfoFontSize, font: fontBold, color: cDark });
+          page.drawText(mfgLines[0], { x: valStartX, y: mfgY1, size: companyInfoFontSize, font: fontBold, color: cDark });
         }
       }
 
@@ -1178,12 +1208,45 @@ export async function buildCertificateHtml(certData) {
     verificationUrl
   } = certData;
 
-  const resolvedName = (companyName || businessName || 'Halal Certified Client').toUpperCase();
-  const resolvedAddress = (companyAddress || businessAddress || '—').toUpperCase();
-  const resolvedMfgAddress = (manufacturingAddress || manufacturerAddress || resolvedAddress || 'SAME AS ABOVE').toUpperCase();
-  const resolvedScope = (scope || scopeOfCertification || productCategory || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase();
+  const rawCompanyAddr = (
+    companyAddress ||
+    businessAddress ||
+    certData.company_address ||
+    certData.companyAddress ||
+    certData.registered_address ||
+    certData.address ||
+    ''
+  ).trim();
+  const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
+  const resolvedAddress = isCompanyAddrEmpty ? '—' : rawCompanyAddr.toUpperCase();
 
-  const normalizedScheme = normalizeCertificateType(certificateType);
+  const rawMfg = (
+    manufacturingAddress ||
+    manufacturerAddress ||
+    certData.manufacturing_address ||
+    certData.manufacturer_address ||
+    certData.manufacturing_facility_address ||
+    certData.facility_address ||
+    certData.facilityAddress ||
+    certData.manufacturingFacility ||
+    certData.manufacturing_facility ||
+    certData.site_address ||
+    ''
+  ).trim();
+
+  let resolvedMfgAddress = '';
+  if (rawMfg && rawMfg !== '-' && rawMfg !== '—' && rawMfg.toUpperCase() !== 'N/A') {
+    resolvedMfgAddress = rawMfg.toUpperCase();
+  } else if (!isCompanyAddrEmpty) {
+    resolvedMfgAddress = 'SAME AS ABOVE';
+  } else {
+    resolvedMfgAddress = 'SAME AS ABOVE';
+  }
+
+  const resolvedName = (companyName || businessName || certData.company_name || 'Halal Certified Client').toUpperCase();
+  const resolvedScope = (scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase();
+
+  const normalizedScheme = normalizeCertificateType(certificateType || certData.certificate_type);
   const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
   const isGso = scheme.templateType === 'gso';
 
@@ -1238,9 +1301,9 @@ export async function buildCertificateHtml(certData) {
         .declaration { font-size: 8.2pt; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
         .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 9.5pt; }
         .info-table tr { border-bottom: 1px solid #7cb594; }
-        .info-table td { padding: 7px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
-        .info-label { width: 35%; min-width: 260px; color: #111827; vertical-align: top; font-weight: 700; text-align: left; padding-right: 12px; }
-        .info-val { width: 65%; color: #111827; font-weight: 700; vertical-align: top; text-align: left; word-break: break-word; }
+        .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
+        .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: 700; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
+        .info-val { color: #111827; font-weight: 700; vertical-align: top; text-align: left; word-break: break-word; padding: 6px 0; margin: 0; box-sizing: border-box; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; width: 100%; }
         .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: transparent; }
         .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #0b7c47; }
@@ -1275,8 +1338,8 @@ export async function buildCertificateHtml(certData) {
 
       <table class="info-table">
         <colgroup>
-          <col style="width: 35%; min-width: 260px;" />
-          <col style="width: 65%;" />
+          <col style="width: 280px; min-width: 280px; max-width: 280px;" />
+          <col style="width: auto;" />
         </colgroup>
         <tbody>
           <tr>
