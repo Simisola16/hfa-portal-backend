@@ -1017,6 +1017,22 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
     const finalData = await app.save();
     emitAddOnUpdate(finalData, 'ready_for_certificate');
 
+    // Update associated logsheet status to 'Waiting For Certificate' so it appears in the Waiting for Certificate logsheet view
+    try {
+      await ApplicationLogsheet.updateMany(
+        {
+          $or: [
+            { addon_application_id: app._id },
+            { application_id: app._id },
+            { source_type: 'addon_application', addon_application_id: app._id }
+          ]
+        },
+        { $set: { status: 'Waiting For Certificate', updated_at: new Date() } }
+      );
+    } catch (logsheetErr) {
+      console.error('[AddOn] Failed to sync logsheet status:', logsheetErr.message);
+    }
+
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
@@ -1143,6 +1159,22 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     await pushHistory(app, 'completed', `Completed. Certificate ${cert.certificate_number} product list updated.`, req.user._id);
     const data = await app.save();
     emitAddOnUpdate(data, 'completed');
+
+    // Mark associated logsheet as 'Completed'
+    try {
+      await ApplicationLogsheet.updateMany(
+        {
+          $or: [
+            { addon_application_id: app._id },
+            { application_id: app._id },
+            { source_type: 'addon_application', addon_application_id: app._id }
+          ]
+        },
+        { $set: { status: 'Completed', updated_at: new Date() } }
+      );
+    } catch (logsheetErr) {
+      console.error('[AddOn] Failed to mark logsheet completed:', logsheetErr.message);
+    }
 
     // Regenerate PDF async
     regenerateCertPdf(cert);
