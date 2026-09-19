@@ -13,6 +13,7 @@ import { getIO, emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import dotenv from 'dotenv';
+import { getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -903,7 +904,7 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
 
     // Notify signatories
     const addresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
-    const loginUrl = `${process.env.ADMIN_URL || 'http://localhost:5175'}/login`;
+    const loginUrl = `${getAdminUrl()}/login`;
     if (addresses.length > 0) {
       for (const addr of addresses) {
         try {
@@ -1016,7 +1017,7 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
               ]
             });
             const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
-            const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
+            const adminBaseUrl = getAdminUrl();
             for (const mgr of recipients) {
               if (mgr.email) {
                 await resend.emails.send({

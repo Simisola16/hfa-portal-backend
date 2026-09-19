@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
+import { getClientUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -598,7 +599,7 @@ export async function generateCertificate(certData) {
   const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase());
 
   // Generate QR Code PNG
-  const qrUrl = verificationUrl || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${sanitizedCertNo}`;
+  const qrUrl = verificationUrl || `${getClientUrl()}/verify/${sanitizedCertNo}`;
   const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
     type: 'png',
     margin: 0,
@@ -1250,7 +1251,7 @@ export async function buildCertificateHtml(certData) {
   const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['HFA Scheme'];
   const isGso = scheme.templateType === 'gso';
 
-  const qrUrl = verificationUrl || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificateNumber}`;
+  const qrUrl = verificationUrl || `${getClientUrl()}/verify/${certificateNumber}`;
   const qrBase64 = await QRCode.toDataURL(qrUrl, { margin: 0, width: 250 });
 
   const formattedIssue = formatDate(issueDate);

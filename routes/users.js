@@ -6,6 +6,7 @@ import Certificate from '../models/Certificate.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
+import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -90,7 +91,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 
     // Send Welcome / Credentials email to newly created subuser
     try {
-      const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+      const clientPortalUrl = getClientUrl();
       const roleLabel = role ? (role.charAt(0).toUpperCase() + role.slice(1)) : 'Viewer';
       await resend.emails.send({
         from: emailFrom,

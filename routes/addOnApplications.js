@@ -14,6 +14,7 @@ import { generateCertificate } from '../services/certificateGenerator.js';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
+import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -103,7 +104,7 @@ async function regenerateCertPdf(certificate) {
       productCategories,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${certificate.certificate_number}`
+      verificationUrl: `${getClientUrl()}/verify/${certificate.certificate_number}`
     };
 
     const pdfBuffer = await generateCertificate(certData);
@@ -655,7 +656,7 @@ const handleRequestMoreInfoRoute = async (req, res) => {
               Please log in to your portal and update your product responses or upload your reply documents accordingly.
             </p>
             <div style="margin-top: 24px;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
+              <a href="${getClientUrl()}/addon-applications/${app._id}/approval-form" style="display: inline-block; padding: 12px 24px; background-color: #ea580c; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700;">
                 Open Product Approval Form
               </a>
             </div>
@@ -900,7 +901,7 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
 
     // Send signatory email notifications (reuse LOGSHEET_SIGNATORY_EMAILS pattern)
     const addresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
-    const loginUrl = `${process.env.ADMIN_URL || 'http://localhost:5175'}/login`;
+    const loginUrl = `${getAdminUrl()}/login`;
     if (addresses.length > 0) {
       for (const addr of addresses) {
         try {

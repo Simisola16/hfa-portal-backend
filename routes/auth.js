@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
+import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -102,8 +103,8 @@ router.post('/register', async (req, res) => {
 
     await user.save();
 
-    // Build the verification link using the production URL (always)
-    const clientUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+    // Build the verification link using getClientUrl (safely resolves to https://hfaportal.company)
+    const clientUrl = getClientUrl();
     const verificationUrl = `${clientUrl}/verify-email?token=${verificationToken}`;
 
     // In development when no Resend key is set, log the link and return it
@@ -217,7 +218,7 @@ router.post('/resend-verification', async (req, res) => {
     user.verification_token_expiry = newExpiry;
     await user.save();
 
-    const clientUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+    const clientUrl = getClientUrl();
     const verificationUrl = `${clientUrl}/verify-email?token=${newToken}`;
 
     if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
@@ -394,7 +395,7 @@ router.post('/forgot-password', async (req, res) => {
     user.reset_password_expiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    const resetUrl = `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${getClientUrl()}/reset-password?token=${resetToken}`;
 
     try {
       await resend.emails.send({
