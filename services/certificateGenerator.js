@@ -486,26 +486,35 @@ export async function generateCertificate(certData) {
           ? certData.products_covered
           : [];
 
-  const allProducts = (rawProducts && rawProducts.length > 0)
-    ? rawProducts.map((p, idx) => {
-        let code = '';
-        let name = '';
-        if (typeof p === 'string') {
-          code = `PRD-${String(idx + 1).padStart(2, '0')}`;
-          name = p;
-        } else if (p && typeof p === 'object') {
-          code = p.code || p.product_code || p.brand || `PRD-${String(idx + 1).padStart(2, '0')}`;
-          name = p.name || p.product_name || p.title || p.description || `Product ${idx + 1}`;
-        } else {
-          code = `PRD-${String(idx + 1).padStart(2, '0')}`;
-          name = `Product ${idx + 1}`;
-        }
-        return {
+  const seenProductNames = new Set();
+  const allProducts = [];
+  if (rawProducts && rawProducts.length > 0) {
+    rawProducts.forEach((p, idx) => {
+      let code = '';
+      let name = '';
+      if (typeof p === 'string') {
+        code = `PRD-${String(idx + 1).padStart(2, '0')}`;
+        name = p.trim();
+      } else if (p && typeof p === 'object') {
+        code = p.code || p.product_code || p.brand || `PRD-${String(idx + 1).padStart(2, '0')}`;
+        name = (p.name || p.product_name || p.title || p.description || `Product ${idx + 1}`).trim();
+      } else {
+        code = `PRD-${String(idx + 1).padStart(2, '0')}`;
+        name = `Product ${idx + 1}`;
+      }
+      const key = name.toLowerCase();
+      if (name && !seenProductNames.has(key)) {
+        seenProductNames.add(key);
+        allProducts.push({
           code: sanitizeForPdf(code),
           name: sanitizeForPdf(name)
-        };
-      })
-    : [{ code: 'PRD-01', name: 'Certified Halal Products & Formulations' }];
+        });
+      }
+    });
+  }
+  if (allProducts.length === 0) {
+    allProducts.push({ code: 'PRD-01', name: 'Certified Halal Products & Formulations' });
+  }
 
   // Pagination capacity:
   // Page 1 fits up to 6 products cleanly above the signatures and below the company info.

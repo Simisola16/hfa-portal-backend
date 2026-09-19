@@ -330,7 +330,7 @@ async function seedAnike() {
         issueDate: new Date('2025-12-17'),
         expiryDate: new Date('2026-12-27'),
         cycleStartDate: new Date('2025-12-24'),
-        verificationUrl: `https://hfa-portal.vercel.app/verify/${encodeURIComponent(certNo)}`
+        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${encodeURIComponent(certNo)}`
       });
 
       const filename = `${certNo.replace(/[\/\\:]/g, '_')}.pdf`;

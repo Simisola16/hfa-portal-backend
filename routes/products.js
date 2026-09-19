@@ -30,8 +30,23 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
+    // Deduplicate products by client_id + name + code
+    const uniqueProducts = [];
+    const seenProductKeys = new Set();
+    for (const p of products) {
+      const cIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : 'global';
+      const nameStr = (p.name || '').trim().toLowerCase();
+      const codeStr = (p.code || p.barcode || '').trim().toLowerCase();
+      if (!nameStr) continue;
+      const key = `${cIdStr}:${nameStr}:${codeStr}`;
+      if (!seenProductKeys.has(key)) {
+        seenProductKeys.add(key);
+        uniqueProducts.push(p);
+      }
+    }
+
     // Enrich with client user information
-    const userIds = [...new Set(products.map(p => {
+    const userIds = [...new Set(uniqueProducts.map(p => {
       if (!p.client_id) return null;
       if (typeof p.client_id === 'object' && p.client_id._id) return p.client_id._id.toString();
       return p.client_id.toString();
@@ -41,7 +56,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const userMap = {};
     users.forEach(u => { userMap[u._id.toString()] = u; });
 
-    const data = products.map(p => {
+    const data = uniqueProducts.map(p => {
       const clientIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : null;
       const clientObj = (p.client_id && typeof p.client_id === 'object' && p.client_id.company_name) 
         ? p.client_id 

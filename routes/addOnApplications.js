@@ -103,7 +103,7 @@ async function regenerateCertPdf(certificate) {
       productCategories,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certificate.certificate_number}`
+      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${certificate.certificate_number}`
     };
 
     const pdfBuffer = await generateCertificate(certData);
