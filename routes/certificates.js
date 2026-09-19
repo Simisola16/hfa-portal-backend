@@ -1318,7 +1318,33 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     }
 
     if (!certificate.certificate_url) {
-      return res.status(404).json({ error: 'Certificate file URL is not available' });
+      try {
+        const productsList = Array.isArray(certificate.product_details) && certificate.product_details.length > 0
+          ? certificate.product_details.map(p => ({ code: p.code || '', name: p.name || '' }))
+          : (Array.isArray(certificate.products_covered) ? certificate.products_covered.map(p => ({ code: '', name: p })) : []);
+
+        const pdfBuffer = await generateCertificate({
+          businessName: certificate.company_name || 'Anike International',
+          businessAddress: certificate.company_address || '28 Woods Road, Peckham',
+          manufacturerAddress: certificate.manufacturing_address || '3 Watcombe Road',
+          certificateNumber: certificate.certificate_number,
+          scopeOfCertification: certificate.scope || 'Food and General processing',
+          scheme: certificate.certificate_type || 'GSO non-meat',
+          productCategories: productsList,
+          issueDate: certificate.issue_date || new Date(),
+          expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          cycleStartDate: certificate.current_cycle_start_date || certificate.issue_date,
+          verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${encodeURIComponent(certificate.certificate_number)}`
+        });
+
+        const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
+        const uploadedUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+        certificate.certificate_url = uploadedUrl;
+        await certificate.save();
+      } catch (genErr) {
+        console.error('On-demand PDF generation error:', genErr.message);
+        return res.status(404).json({ error: 'Certificate file URL is not available and generation failed.' });
+      }
     }
 
     // Redirect to the internal GridFS file endpoint or direct link
