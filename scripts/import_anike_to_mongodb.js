@@ -13,6 +13,8 @@ import Certificate from '../models/Certificate.js';
 import Product from '../models/Product.js';
 import Application from '../models/Application.js';
 import ExportCertificate from '../models/ExportCertificate.js';
+import { generateCertificate } from '../services/certificateGenerator.js';
+import { uploadToGridFS } from '../lib/gridfs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -310,6 +312,39 @@ async function seedAnike() {
     console.log(`\n4️⃣ Processing Halal Certificate...`);
     const certNo = 'AN-BU/QR251217134523';
     const linkedApp = appMap['M2-0429/1900000181009'] || appMap['M2-0429/190000076'];
+
+    let certificateUrl = null;
+    try {
+      console.log('   📄 Generating official Certificate PDF for Anike International...');
+      const pdfBuffer = await generateCertificate({
+        businessName: companyName,
+        businessAddress: '28 Woods Road, Peckham, London SE15 2SW',
+        manufacturerAddress: '3 Watcombe Road',
+        certificateNumber: certNo,
+        scopeOfCertification: 'Food and General processing',
+        scheme: 'GSO non-meat',
+        productCategories: [
+          { code: '8987899', name: 'biscui' },
+          { code: '898754545', name: 'RICE' }
+        ],
+        issueDate: new Date('2025-12-17'),
+        expiryDate: new Date('2026-12-27'),
+        cycleStartDate: new Date('2025-12-24'),
+        verificationUrl: `https://hfa-portal.vercel.app/verify/${encodeURIComponent(certNo)}`
+      });
+
+      const filename = `${certNo.replace(/[\/\\:]/g, '_')}.pdf`;
+      certificateUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+      console.log(`   ✅ Certificate PDF uploaded to GridFS: ${certificateUrl}`);
+    } catch (pdfErr) {
+      console.warn('   ⚠️ Note on PDF generation:', pdfErr.message);
+    }
+
+    const existingCert = await Certificate.findOne({ certificate_number: certNo });
+    if (!certificateUrl && existingCert?.certificate_url) {
+      certificateUrl = existingCert.certificate_url;
+    }
+
     const certDoc = {
       certificate_number: certNo,
       client_id: userIdStr,
@@ -323,6 +358,7 @@ async function seedAnike() {
       expiry_date: new Date('2026-12-27'),
       current_cycle_start_date: new Date('2025-12-24'),
       status: 'active',
+      certificate_url: certificateUrl,
       products_covered: ['biscui', 'RICE'],
       product_details: [
         { name: 'biscui', code: '8987899', category: 'K' },
@@ -337,7 +373,7 @@ async function seedAnike() {
       { $set: certDoc },
       { upsert: true, new: true }
     );
-    console.log(`   ✅ Saved Certificate: ${certNo} (GSO non-meat) - Active until 2026-12-27`);
+    console.log(`   ✅ Saved Certificate: ${certNo} (GSO non-meat) - URL: ${certificateUrl || 'None'}`);
 
     // 5. Products
     console.log(`\n5️⃣ Processing Products...`);
