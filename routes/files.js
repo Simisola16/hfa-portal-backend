@@ -19,10 +19,17 @@ router.get('/:id', async (req, res) => {
 
     const file = files[0];
 
-    // Force browser to download PDFs, but let images render inline
-    const disposition = file.contentType && file.contentType.startsWith('image/') ? 'inline' : 'attachment';
-    res.set('Content-Type', file.contentType);
+    // Allow browser to render PDFs and images inline in iframes and preview windows
+    const isDownload = req.query.download === 'true' || req.query.download === '1';
+    const isInlineType = file.contentType && (
+      file.contentType.startsWith('image/') || 
+      file.contentType === 'application/pdf' || 
+      file.contentType.includes('pdf')
+    );
+    const disposition = (!isDownload && isInlineType) ? 'inline' : 'attachment';
+    res.set('Content-Type', file.contentType || 'application/pdf');
     res.set('Content-Disposition', `${disposition}; filename="${file.filename}"`);
+    res.set('Accept-Ranges', 'bytes');
 
     const readStream = gfs.openDownloadStream(fileId);
     readStream.pipe(res);
