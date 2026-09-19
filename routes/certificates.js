@@ -15,6 +15,7 @@ import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
+import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -278,7 +279,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       certificationStartDate: certification_start_date ? new Date(certification_start_date) : (issue_date ? new Date(issue_date) : new Date()),
       currentCycleStartDate: current_cycle_start_date ? new Date(current_cycle_start_date) : (issue_date ? new Date(issue_date) : new Date()),
       originalCycleStartDate: original_cycle_start_date ? new Date(original_cycle_start_date) : (issue_date ? new Date(issue_date) : new Date()),
-      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNo}`
+      verificationUrl: `${getClientUrl()}/verify/${certNo}`
     });
 
     const filename = `${certNo}-preview.pdf`;
@@ -747,7 +748,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           certificationStartDate: certification_start_date || issue_date || new Date(),
           currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
           originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
-          verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNo}`
+          verificationUrl: `${getClientUrl()}/verify/${certNo}`
         });
         const filename = `${certNo}.pdf`;
         certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
@@ -1115,7 +1116,7 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
       certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
       currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
       originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
-      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${cert.certificate_number}`
+      verificationUrl: `${getClientUrl()}/verify/${cert.certificate_number}`
     });
 
     const filename = `${cert.certificate_number}.pdf`;
@@ -1223,7 +1224,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
         certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
         currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
         originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
-        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${cert.certificate_number}`
+        verificationUrl: `${getClientUrl()}/verify/${cert.certificate_number}`
       });
       const filename = `${cert.certificate_number}.pdf`;
       cert.certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
@@ -1297,7 +1298,7 @@ async function buildCertDataFromApplication(application) {
     certificationStartDate: issueDate,
     currentCycleStartDate: issueDate,
     originalCycleStartDate: issueDate,
-    verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
+    verificationUrl: `${getClientUrl()}/verify/${certNumber}`
   };
 }
 
@@ -1464,7 +1465,7 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
       currentCycleStartDate: certificate.current_cycle_start_date || certificate.issue_date || new Date(),
       originalCycleStartDate: certificate.original_cycle_start_date || certificate.issue_date || new Date(),
-      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certificate.certificate_number}`
+      verificationUrl: `${getClientUrl()}/verify/${certificate.certificate_number}`
     };
 
     const pdfBuffer = await generateCertificate(certData);
@@ -1518,7 +1519,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
           issueDate: certificate.issue_date || new Date(),
           expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           cycleStartDate: certificate.current_cycle_start_date || certificate.issue_date,
-          verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${encodeURIComponent(certificate.certificate_number)}`
+          verificationUrl: `${getClientUrl()}/verify/${encodeURIComponent(certificate.certificate_number)}`
         });
 
         const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
@@ -1760,7 +1761,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         certificationStartDate: parsedCertStartDate,
         currentCycleStartDate: parsedCurrentCycle,
         originalCycleStartDate: parsedOrigCycle,
-        verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${certNumber}`
+        verificationUrl: `${getClientUrl()}/verify/${certNumber}`
       };
 
       try {
@@ -1894,7 +1895,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Certified Products:</strong> ${createdProductDocs.length} product(s) registered</p>
                   <p style="margin:4px 0;color:#166534;font-size:14px"><strong>Expiry Date:</strong> ${parsedExpiryDate.toLocaleDateString('en-GB')}</p>
                 </div>
-                <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/certificates" style="display:inline-block;background:linear-gradient(135deg,#15803d,#166534);color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View & Download Certificate</a>
+                <a href="${getClientUrl()}/certificates" style="display:inline-block;background:linear-gradient(135deg,#15803d,#166534);color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View & Download Certificate</a>
               </div>
             </div>
           `,

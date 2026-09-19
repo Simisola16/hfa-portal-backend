@@ -9,6 +9,7 @@ import User from '../models/User.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
+import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -124,7 +125,7 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
     try {
       const clientUser = await User.findById(data.client_id);
       if (clientUser && clientUser.email) {
-        const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+        const clientPortalUrl = getClientUrl();
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
@@ -255,7 +256,7 @@ router.put('/:id', authenticateToken, upload.fields([
       // Send email notifications to HFA admin list (Phase 9 corrected variable)
       const adminAddresses = getAdminNotificationEmails();
       if (adminAddresses.length > 0) {
-        const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+        const adminUrl = getAdminUrl();
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
             <div style="background: linear-gradient(135deg, #0e7490, #0891b2); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
@@ -372,7 +373,7 @@ router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('fin
     try {
       const clientUser = await User.findById(agreement.client_id);
       if (clientUser && clientUser.email) {
-        const clientPortalUrl = process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173';
+        const clientPortalUrl = getClientUrl();
         const appNumber = updatedApp ? updatedApp.application_number : 'N/A';
         await resend.emails.send({
           from: emailFrom,
