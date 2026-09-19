@@ -1701,6 +1701,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       seenProdNames.add(lowerName);
 
       cleanProducts.push({
+        _sourceId: typeof p === 'object' ? (p._sourceId || p._id || p.id || null) : null,
         name,
         code: typeof p === 'object' ? (p.code || p.barcode || `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`) : `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`,
         category: typeof p === 'object' ? (p.category || 'General Food') : 'General Food',
@@ -1797,24 +1798,50 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       }
     );
 
-    // 7. Save Created Products to Product collection linked to certificate
+    // 7. Save / Link Products in Product collection linked to certificate
     const createdProductDocs = [];
     for (const prod of cleanProducts) {
-      const newProd = new Product({
-        client_id: targetClientId,
-        site_id: targetSiteId || undefined,
-        certificate_id: savedCert._id.toString(),
-        name: prod.name,
-        code: prod.code || '',
-        barcode: prod.barcode || '',
-        category: prod.category || '',
-        product_type: prod.product_type || '',
-        description: prod.description || '',
-        ingredients: prod.ingredients || [],
-        status: 'active'
-      });
-      const savedProd = await newProd.save();
-      createdProductDocs.push(savedProd);
+      let existingProd = null;
+      const prodId = prod._sourceId;
+      if (prodId && mongoose.isValidObjectId(prodId)) {
+        existingProd = await Product.findOne({ _id: prodId, client_id: targetClientId });
+      }
+      if (!existingProd && prod.name) {
+        existingProd = await Product.findOne({
+          client_id: targetClientId,
+          name: { $regex: new RegExp(`^${prod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        });
+      }
+
+      if (existingProd) {
+        existingProd.certificate_id = savedCert._id.toString();
+        if (targetSiteId) existingProd.site_id = targetSiteId;
+        existingProd.status = 'active';
+        if (prod.code) existingProd.code = prod.code;
+        if (prod.barcode) existingProd.barcode = prod.barcode;
+        if (prod.category) existingProd.category = prod.category;
+        if (prod.product_type) existingProd.product_type = prod.product_type;
+        if (prod.description) existingProd.description = prod.description;
+        if (prod.ingredients && prod.ingredients.length > 0) existingProd.ingredients = prod.ingredients;
+        const updated = await existingProd.save();
+        createdProductDocs.push(updated);
+      } else {
+        const newProd = new Product({
+          client_id: targetClientId,
+          site_id: targetSiteId || undefined,
+          certificate_id: savedCert._id.toString(),
+          name: prod.name,
+          code: prod.code || '',
+          barcode: prod.barcode || '',
+          category: prod.category || '',
+          product_type: prod.product_type || '',
+          description: prod.description || '',
+          ingredients: prod.ingredients || [],
+          status: 'active'
+        });
+        const savedProd = await newProd.save();
+        createdProductDocs.push(savedProd);
+      }
     }
 
     // 8. Send In-App Notification and Email
