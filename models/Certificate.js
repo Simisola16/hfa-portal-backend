@@ -23,6 +23,7 @@ const certificateSchema = new mongoose.Schema({
     description: String,
     barcode: String
   }],
+  product_table_columns: { type: Number, enum: [1, 2, 3], default: 2 },
   certificate_url: String,
   status: { 
     type: String, 

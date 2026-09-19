@@ -253,18 +253,21 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     const cleanProducts = parsedProducts.map((p, idx) => ({
       code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
       name: typeof p === 'string' ? p.trim() : (p.name || '').trim(),
-      description: typeof p === 'object' ? (p.description || p.name || '') : ''
+      description: typeof p === 'object' ? (p.description || p.name || '') : '',
+      category: typeof p === 'object' ? (p.category || 'Halal Certified') : 'Halal Certified'
     })).filter(p => p.name);
 
     if (cleanProducts.length === 0) {
-      cleanProducts.push({ code: 'PRD-01', name: 'Certified Halal Products & Schedule', description: 'Certified Halal Products' });
+      cleanProducts.push({ code: 'PRD-01', name: 'Certified Halal Products & Schedule', description: 'Certified Halal Products', category: 'Halal Certified' });
     }
 
     const certNo = (certificate_number && certificate_number.trim()) || 'HFA-PREVIEW-001';
     const effectiveScope = product_category || scope || 'Halal Food and Consumer Products Certification';
+    const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+    const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
     const pdfBuffer = await generateCertificate({
-      certificateType: certificate_type || 'HFA Scheme (meat)',
+      certificateType: certificate_type || 'GSO MEAT',
       businessName: company_name || 'Valued Halal Client',
       businessAddress: company_address || 'Registered Business Address',
       manufacturerAddress: manufacturing_address || company_address || 'Manufacturing Facility Address',
@@ -273,6 +276,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       productCategory: effectiveScope,
       productCategories: cleanProducts,
       products: cleanProducts,
+      productTableColumns: resolvedTableCols,
       issueDate: issue_date ? new Date(issue_date) : new Date(),
       expiryDate: expiry_date ? new Date(expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       certificationStartDate: certification_start_date ? new Date(certification_start_date) : (issue_date ? new Date(issue_date) : new Date()),
@@ -1091,6 +1095,9 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
     if (product_details && Array.isArray(product_details)) {
       cert.product_details = product_details;
     }
+    if (req.body.product_table_columns) {
+      cert.product_table_columns = Number(req.body.product_table_columns);
+    }
 
     const prods = (cert.product_details && cert.product_details.length > 0)
       ? cert.product_details
@@ -1110,6 +1117,7 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
       productCategory: cert.scope,
       productCategories: prods,
       products: prods,
+      productTableColumns: cert.product_table_columns || 2,
       issueDate: cert.issue_date || new Date(),
       expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
@@ -1218,6 +1226,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
         productCategory: cert.scope,
         productCategories: prods,
         products: prods,
+        productTableColumns: cert.product_table_columns || 2,
         issueDate: cert.issue_date || new Date(),
         expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
@@ -1409,6 +1418,7 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
     if (certification_start_date) certificate.certification_start_date = certification_start_date;
     if (current_cycle_start_date) certificate.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) certificate.original_cycle_start_date = original_cycle_start_date;
+    if (req.body.product_table_columns) certificate.product_table_columns = Number(req.body.product_table_columns);
 
     let parsedProducts = certificate.products_covered || [];
     if (products_covered) {
@@ -1459,6 +1469,7 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       scopeOfCertification: resolvedScope,
       productCategories: prods,
       products: prods,
+      productTableColumns: certificate.product_table_columns || 2,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
@@ -1741,8 +1752,11 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
       const effectiveBusinessName = company_name_override || targetClient.company_name || targetClient.full_name || 'Valued Client';
       const effectiveScope = product_category || scope_of_certification || 'Halal Food Certification';
+      const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+      const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
+
       const certData = {
-        certificateType: certificate_type || 'HFA Scheme',
+        certificateType: certificate_type || 'GSO MEAT',
         businessName: effectiveBusinessName,
         businessAddress: businessAddress,
         manufacturerAddress: manufacturerAddr,
@@ -1750,11 +1764,12 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         scopeOfCertification: effectiveScope,
         productCategory: effectiveScope,
         productCategories: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
-          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
         products: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
-          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
+          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
+        productTableColumns: resolvedTableCols,
         issueDate: parsedIssueDate,
         expiryDate: parsedExpiryDate,
         certificationStartDate: parsedCertStartDate,
@@ -1772,12 +1787,15 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       }
     }
 
+    const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+    const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : 2;
+
     // 6. Save Certificate
     const certificate = new Certificate({
       certificate_number: certNumber,
       client_id: targetClientId,
       site_id: targetSiteId || undefined,
-      certificate_type: certificate_type || 'HFA Scheme',
+      certificate_type: certificate_type || 'GSO MEAT',
       company_name: effectiveBusinessName,
       company_address: businessAddress,
       manufacturing_address: manufacturerAddr,
@@ -1789,6 +1807,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       original_cycle_start_date: parsedOrigCycle,
       products_covered: productsCoveredNames,
       product_details: cleanProducts,
+      product_table_columns: resolvedTableCols,
       certificate_url,
       status: status || 'active',
       is_direct_issuance: true,
