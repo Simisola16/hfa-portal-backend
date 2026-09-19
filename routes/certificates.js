@@ -220,6 +220,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       company_address,
       manufacturing_address,
       scope,
+      product_category,
       issue_date,
       expiry_date,
       certification_start_date,
@@ -260,6 +261,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     }
 
     const certNo = (certificate_number && certificate_number.trim()) || 'HFA-PREVIEW-001';
+    const effectiveScope = product_category || scope || 'Halal Food and Consumer Products Certification';
 
     const pdfBuffer = await generateCertificate({
       certificateType: certificate_type || 'HFA Scheme (meat)',
@@ -267,7 +269,8 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       businessAddress: company_address || 'Registered Business Address',
       manufacturerAddress: manufacturing_address || company_address || 'Manufacturing Facility Address',
       certificateNumber: certNo,
-      scopeOfCertification: scope || 'Halal Food and Consumer Products Certification',
+      scopeOfCertification: effectiveScope,
+      productCategory: effectiveScope,
       productCategories: cleanProducts,
       products: cleanProducts,
       issueDate: issue_date ? new Date(issue_date) : new Date(),
@@ -1057,6 +1060,7 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
       company_address,
       manufacturing_address,
       scope,
+      product_category,
       issue_date,
       expiry_date,
       certification_start_date,
@@ -1073,7 +1077,8 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
     if (company_name) cert.company_name = company_name;
     if (company_address) cert.company_address = company_address;
     if (manufacturing_address) cert.manufacturing_address = manufacturing_address;
-    if (scope) cert.scope = scope;
+    if (product_category) cert.scope = product_category;
+    else if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
     if (certification_start_date) cert.certification_start_date = certification_start_date;
@@ -1102,6 +1107,7 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
       manufacturerAddress: cert.manufacturing_address || 'Same as above',
       certificateNumber: cert.certificate_number,
       scopeOfCertification: cert.scope || 'Halal Food Certification',
+      productCategory: cert.scope,
       productCategories: prods,
       products: prods,
       issueDate: cert.issue_date || new Date(),
@@ -1141,6 +1147,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       company_address,
       manufacturing_address,
       scope,
+      product_category,
       issue_date,
       expiry_date,
       certification_start_date,
@@ -1159,7 +1166,8 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
     if (company_name) cert.company_name = company_name;
     if (company_address) cert.company_address = company_address;
     if (manufacturing_address) cert.manufacturing_address = manufacturing_address;
-    if (scope) cert.scope = scope;
+    if (product_category) cert.scope = product_category;
+    else if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
     if (certification_start_date) cert.certification_start_date = certification_start_date;
@@ -1207,6 +1215,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
         manufacturerAddress: cert.manufacturing_address || 'Same as above',
         certificateNumber: cert.certificate_number,
         scopeOfCertification: cert.scope || 'Halal Food Certification',
+        productCategory: cert.scope,
         productCategories: prods,
         products: prods,
         issueDate: cert.issue_date || new Date(),
@@ -1544,6 +1553,8 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       client_id,
       new_client_name,
       new_client_company,
+      company_name_override,
+      product_category,
       new_client_email,
       new_client_phone,
       new_client_address,
@@ -1728,13 +1739,16 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     if (req.file) {
       certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
+      const effectiveBusinessName = company_name_override || targetClient.company_name || targetClient.full_name || 'Valued Client';
+      const effectiveScope = product_category || scope_of_certification || 'Halal Food Certification';
       const certData = {
         certificateType: certificate_type || 'HFA Scheme',
-        businessName: targetClient.company_name || targetClient.full_name || 'Valued Client',
+        businessName: effectiveBusinessName,
         businessAddress: businessAddress,
         manufacturerAddress: manufacturerAddr,
         certificateNumber: certNumber,
-        scopeOfCertification: scope_of_certification || 'Halal Food Certification',
+        scopeOfCertification: effectiveScope,
+        productCategory: effectiveScope,
         productCategories: cleanProducts.length > 0
           ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name }))
           : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products' }],
@@ -1764,6 +1778,10 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       client_id: targetClientId,
       site_id: targetSiteId || undefined,
       certificate_type: certificate_type || 'HFA Scheme',
+      company_name: effectiveBusinessName,
+      company_address: businessAddress,
+      manufacturing_address: manufacturerAddr,
+      scope: effectiveScope,
       issue_date: parsedIssueDate,
       expiry_date: parsedExpiryDate,
       certification_start_date: parsedCertStartDate,
