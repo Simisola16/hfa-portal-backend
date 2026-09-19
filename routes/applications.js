@@ -762,7 +762,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
             expiryDate: data.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
               ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
               : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${certNumber}`
+            verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${certNumber}`
           };
 
           const pdfBuffer = await generateCertificate(certData);

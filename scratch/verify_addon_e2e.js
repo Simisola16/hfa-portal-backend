@@ -315,7 +315,7 @@ async function runWalkthrough() {
       productCategories,
       issueDate: cert.issue_date,
       expiryDate: cert.expiry_date,
-      verificationUrl: `https://hfa-portal.vercel.app/verify/${cert.certificate_number}`
+      verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${cert.certificate_number}`
     });
     console.log(`PDF Generator executed successfully: generated ${pdfBuffer.length} bytes PDF buffer.`);
     console.log(`PDF Generation Check: ✅ PASSED`);

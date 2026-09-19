@@ -565,6 +565,15 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       review_notes
     } = req.body;
 
+    let resolvedSiteId = site_id || null;
+    if (!resolvedSiteId && application_id) {
+      const appForSite = await Application.findById(application_id).select('site_id');
+      if (appForSite?.site_id) resolvedSiteId = appForSite.site_id;
+    }
+    if (!resolvedSiteId) {
+      return res.status(400).json({ error: 'Site selection is compulsory. A certificate must be issued for a specific site.' });
+    }
+
     let companyForId = company_name || 'HFA';
     let cUser = null;
     if (client_id) {
@@ -673,7 +682,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     if (certificate) {
       certificate.certificate_number = certNo;
       certificate.client_id = client_id || certificate.client_id;
-      certificate.site_id = site_id || certificate.site_id;
+      certificate.site_id = resolvedSiteId || certificate.site_id;
       certificate.certificate_type = resolvedScheme;
       certificate.company_name = resolvedCompanyName;
       certificate.company_address = resolvedCompanyAddress;
@@ -695,7 +704,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         certificate_number: certNo,
         client_id,
         application_id,
-        site_id,
+        site_id: resolvedSiteId,
         certificate_type: resolvedScheme,
         company_name: resolvedCompanyName,
         company_address: resolvedCompanyAddress,
@@ -1334,7 +1343,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
           issueDate: certificate.issue_date || new Date(),
           expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           cycleStartDate: certificate.current_cycle_start_date || certificate.issue_date,
-          verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'https://hfa-portal.vercel.app'}/verify/${encodeURIComponent(certificate.certificate_number)}`
+          verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${encodeURIComponent(certificate.certificate_number)}`
         });
 
         const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
@@ -1484,6 +1493,10 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       targetSiteId = savedSite._id;
     }
 
+    if (!targetSiteId) {
+      return res.status(400).json({ error: 'Site selection is compulsory. A certificate must be issued for a specific site.' });
+    }
+
     // 3. Resolve Certificate Number
     const companyForId = targetClient?.company_name || targetClient?.full_name || new_client_company || 'HFA';
     const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
@@ -1512,15 +1525,25 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       parsedProducts = products;
     }
 
-    const cleanProducts = parsedProducts.map((p, idx) => ({
-      name: typeof p === 'string' ? p.trim() : (p.name || '').trim(),
-      code: typeof p === 'object' ? (p.code || p.barcode || `GEN-${String(idx + 1).padStart(2, '0')}`) : `GEN-${String(idx + 1).padStart(2, '0')}`,
-      category: typeof p === 'object' ? (p.category || 'General Food') : 'General Food',
-      product_type: typeof p === 'object' ? (p.product_type || 'Processed') : 'Processed',
-      barcode: typeof p === 'object' ? (p.barcode || '') : '',
-      description: typeof p === 'object' ? (p.description || '') : '',
-      ingredients: typeof p === 'object' ? (Array.isArray(p.ingredients) ? p.ingredients : (p.ingredients ? [p.ingredients] : [])) : []
-    })).filter(p => p.name);
+    const cleanProducts = [];
+    const seenProdNames = new Set();
+    for (const p of parsedProducts) {
+      const name = typeof p === 'string' ? p.trim() : (p.name || '').trim();
+      if (!name) continue;
+      const lowerName = name.toLowerCase();
+      if (seenProdNames.has(lowerName)) continue;
+      seenProdNames.add(lowerName);
+
+      cleanProducts.push({
+        name,
+        code: typeof p === 'object' ? (p.code || p.barcode || `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`) : `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`,
+        category: typeof p === 'object' ? (p.category || 'General Food') : 'General Food',
+        product_type: typeof p === 'object' ? (p.product_type || 'Processed') : 'Processed',
+        barcode: typeof p === 'object' ? (p.barcode || '') : '',
+        description: typeof p === 'object' ? (p.description || '') : '',
+        ingredients: typeof p === 'object' ? (Array.isArray(p.ingredients) ? p.ingredients : (p.ingredients ? [p.ingredients] : [])) : []
+      });
+    }
 
     const productsCoveredNames = cleanProducts.map(p => p.name);
     if (productsCoveredNames.length === 0) {
