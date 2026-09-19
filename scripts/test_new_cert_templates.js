@@ -234,31 +234,36 @@ export async function renderCertificateHtml(certData) {
           border-bottom: 1px solid #7cb594;
         }
         .info-table td {
-          padding: 3px 0;
+          padding: 6px 0;
           border-bottom: 1px solid #7cb594;
           vertical-align: top;
-          line-height: 1.35;
+          line-height: 1.4;
           box-sizing: border-box;
         }
         .info-label {
-          width: 35%;
-          min-width: 260px;
+          width: 280px;
+          min-width: 280px;
+          max-width: 280px;
           font-weight: 700;
           color: #111827;
           letter-spacing: 0.01em;
           text-transform: uppercase;
           vertical-align: top;
-          padding-right: 12px;
+          padding: 6px 14px 6px 0;
+          margin: 0;
           text-align: left;
+          box-sizing: border-box;
         }
         .info-val {
-          width: 65%;
           font-weight: 700;
           color: #0f172a;
           text-transform: uppercase;
           vertical-align: top;
           text-align: left;
           word-break: break-word;
+          padding: 6px 0;
+          margin: 0;
+          box-sizing: border-box;
         }
 
         /* Products Table */
@@ -400,8 +405,8 @@ export async function renderCertificateHtml(certData) {
       <div class="info-block">
         <table class="info-table">
           <colgroup>
-            <col style="width: 35%; min-width: 260px;" />
-            <col style="width: 65%;" />
+            <col style="width: 280px; min-width: 280px; max-width: 280px;" />
+            <col style="width: auto;" />
           </colgroup>
           <tbody>
             <tr>
