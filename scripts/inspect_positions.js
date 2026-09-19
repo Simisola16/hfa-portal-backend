@@ -66,12 +66,11 @@ async function inspect(browser, filePath) {
 
 async function main() {
   const browser = await chromium.launch();
-  await inspect(browser, 'Template GSO Scheme (meat) Cert.pdf');
-  await inspect(browser, 'GSO MEAT.pdf');
-  await inspect(browser, 'Template HFA Scheme (Cosmetic) Cert 11 Oct 22.pdf');
-  await inspect(browser, 'COSMETICS.pdf');
-  await inspect(browser, 'HFA SCHEME.pdf');
-  await inspect(browser, 'SMIIC.pdf');
+  await inspect(browser, 'Template GSO Scheme (meat) Cert-unlocked (1) 1.pdf');
+  await inspect(browser, 'Template GSO Scheme (Non-meat) Cert-unlocked 1.pdf');
+  await inspect(browser, 'Template HFA Scheme (meat) Cert 11 Oct 22-unlocked.pdf');
+  await inspect(browser, 'Template HFA Scheme (Non-meat) Cert 11 Oct 22-unlocked.pdf');
+  await inspect(browser, 'Template HFA Scheme (Cosmetic) Cert 11 Oct 22-unlocked 1.pdf');
   await browser.close();
 }
 

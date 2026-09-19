@@ -6,3 +6,7 @@ node_modules/
 .vercel
 **/sql-server-export/**
 /**/sql-server-export/
+scratch/
+test-cert-out.pdf
+*.pdf
+*.png
