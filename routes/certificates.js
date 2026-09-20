@@ -206,7 +206,7 @@ router.get('/direct-history', authenticateToken, requireDirectCertificatePermiss
 
     const enriched = await Promise.all(certs.map(async (c) => {
       const client = userMap[c.client_id] || null;
-      const products = await Product.find({ 
+      const products = await Product.find({
         $or: [
           { certificate_id: c._id.toString() },
           { certificate_id: c.certificate_number }
@@ -533,7 +533,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
           }
         });
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 7. Check InitialProductApplication
     try {
@@ -549,7 +549,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
           }
         });
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 8. Build unified product catalog (deduplicated by normalized name)
     const productMap = new Map();
@@ -697,21 +697,21 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // POST create certificate (defaults to under_review for QA and correction)
 router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, upload.single('certificate_file'), async (req, res) => {
   try {
-    const { 
-      client_id, 
-      application_id, 
-      site_id, 
-      certificate_type, 
+    const {
+      client_id,
+      application_id,
+      site_id,
+      certificate_type,
       company_name,
       company_address,
       manufacturing_address,
       scope,
-      issue_date, 
+      issue_date,
       expiry_date,
       certification_start_date,
       current_cycle_start_date,
-      original_cycle_start_date, 
-      products_covered, 
+      original_cycle_start_date,
+      products_covered,
       product_details,
       certificate_number,
       status: reqStatus,
@@ -746,12 +746,34 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
+    let isAddOn = req.body.is_add_on === true || req.body.is_add_on === 'true' ||
+      (certificate_type && (certificate_type.toLowerCase().includes('add') || certificate_type.toLowerCase().includes('addon')));
+
+    if (!isAddOn && application_id) {
+      try {
+        const foundAddOn = await AddOnApplication.findById(application_id).select('_id application_number');
+        if (foundAddOn) {
+          isAddOn = true;
+        } else {
+          const foundApp = await Application.findById(application_id).select('application_number application_type is_add_on');
+          if (foundApp && (foundApp.is_add_on || foundApp.application_type === 'addon' || foundApp.application_type === 'add-on' || foundApp.application_number?.includes('-AD-') || foundApp.application_number?.startsWith('ADD-'))) {
+            isAddOn = true;
+          }
+        }
+      } catch (_) { }
+    }
+
     const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
       ? 'SU'
-      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
-        ? 'RE'
-        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
-    const certNo = certificate_number || generateHfaId(companyForId, certTypeCode);
+      : (isAddOn
+        ? 'AD'
+        : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+          ? 'RE'
+          : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE')));
+    let certNo = certificate_number || generateHfaId(companyForId, certTypeCode);
+    if (isAddOn && certNo && certNo.includes('-NE-')) {
+      certNo = certNo.replace('-NE-', '-AD-');
+    }
 
     let parsedProducts = [];
     if (Array.isArray(products_covered)) {
@@ -865,6 +887,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       if (certificate_url) certificate.certificate_url = certificate_url;
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
+      certificate.is_add_on = isAddOn;
       certificate.updated_at = new Date();
     } else {
       certificate = new Certificate({
@@ -886,6 +909,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         product_details: parsedProductDetails,
         certificate_url,
         status: initialStatus,
+        is_add_on: isAddOn,
         created_by: req.user._id,
         review_notes: review_notes || ''
       });
@@ -898,10 +922,10 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       await addOnApp.save();
     }
 
-    res.status(201).json({ 
-      success: true, 
+    res.status(201).json({
+      success: true,
       message: 'Certificate created and ready for review',
-      data 
+      data
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1128,6 +1152,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
     if (status) cert.status = status;
+    if (req.body.is_add_on !== undefined) {
+      cert.is_add_on = req.body.is_add_on === true || req.body.is_add_on === 'true';
+    }
 
     if (products_covered) {
       if (Array.isArray(products_covered)) {
@@ -1217,10 +1244,10 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
     const prods = (cert.product_details && cert.product_details.length > 0)
       ? cert.product_details
       : (cert.products_covered || []).map((p, idx) => ({
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
-          description: typeof p === 'object' ? (p.description || p.name) : p
-        }));
+        code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+        name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+        description: typeof p === 'object' ? (p.description || p.name) : p
+      }));
 
     const pdfBuffer = await generateCertificate({
       certificateType: cert.certificate_type || 'HFA Scheme',
@@ -1317,7 +1344,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       } else if (typeof product_details === 'string') {
         try {
           cert.product_details = JSON.parse(product_details);
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -1326,10 +1353,10 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
       const prods = (cert.product_details && cert.product_details.length > 0)
         ? cert.product_details
         : (cert.products_covered || []).map((p, idx) => ({
-            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-            name: typeof p === 'string' ? p : (p.name || p.title || p.description),
-            description: typeof p === 'object' ? (p.description || p.name) : p
-          }));
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+          description: typeof p === 'object' ? (p.description || p.name) : p
+        }));
 
       const pdfBuffer = await generateCertificate({
         certificateType: cert.certificate_type || 'HFA Scheme',
@@ -1387,9 +1414,19 @@ async function buildCertDataFromApplication(application) {
   const User = (await import('../models/User.js')).default;
   const client = await User.findById(application.client_id);
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
-  const certTypeCode = application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE');
+  const isAddOn = Boolean(
+    application?.is_add_on ||
+    application?.application_type === 'addon' ||
+    application?.application_type === 'add-on' ||
+    application?.application_type === 'add_on' ||
+    application?.application_number?.includes('-AD-') ||
+    application?.application_number?.startsWith('ADD-')
+  );
+  const certTypeCode = isAddOn
+    ? 'AD'
+    : (application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE'));
   const certNumber = generateHfaId(companyForId, certTypeCode);
-  
+
   let scheme = 'HFA Scheme (meat)';
   if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
   else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'HFA Scheme (meat)';
@@ -1441,7 +1478,7 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
     // Check if an active or pending review certificate already exists for this application
     let existingCert = await Certificate.findOne({ application_id: applicationId, status: { $in: ['active', 'under_review'] } });
     if (existingCert) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: existingCert.status === 'under_review'
           ? 'A certificate draft for this application is already in Pending Review. Please inspect and approve it on the review page.'
           : 'An active certificate already exists for this application. Use the regenerate endpoint to recreate it.',
@@ -1482,13 +1519,13 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
       updated_at: new Date()
     });
 
-    res.status(201).json({ 
-      success: true, 
+    res.status(201).json({
+      success: true,
       message: 'Certificate created and sent to Pending Review for QA inspection.',
-      certificateUrl: certificate_url, 
+      certificateUrl: certificate_url,
       certificateNumber: certData.certificateNumber,
       reviewUrl: `/certificates/${data._id}/review`,
-      data 
+      data
     });
   } catch (err) {
     console.error('Certificate generation endpoint failed:', err);
@@ -1557,7 +1594,7 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
       } else if (typeof product_details === 'string') {
         try {
           certificate.product_details = JSON.parse(product_details);
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -1569,11 +1606,11 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
     const prods = (certificate.product_details && certificate.product_details.length > 0)
       ? certificate.product_details
       : (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
-          .map((p, idx) => ({
-            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-            name: typeof p === 'string' ? p : (p?.name || p?.title || p?.description || String(p)),
-            description: typeof p === 'object' ? (p?.description || p?.name) : p
-          }));
+        .map((p, idx) => ({
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p?.name || p?.title || p?.description || String(p)),
+          description: typeof p === 'object' ? (p?.description || p?.name) : p
+        }));
 
     const certData = {
       certificateType: certificate.certificate_type || 'HFA Scheme',
@@ -1604,9 +1641,9 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
     certificate.updated_at = new Date();
     await certificate.save();
 
-    res.json({ 
-      success: true, 
-      certificateUrl: certificate_url, 
+    res.json({
+      success: true,
+      certificateUrl: certificate_url,
       certificateNumber: certificate.certificate_number,
       data: certificate
     });
@@ -1686,12 +1723,12 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       new_client_address,
       new_client_postcode,
       new_client_country,
-      
+
       site_id,
       site_name,
       site_address,
       manufacturer_address,
-      
+
       certificate_number,
       certificate_type,
       scope_of_certification,
@@ -1702,9 +1739,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       original_cycle_start_date,
       status,
       notes,
-      
+
       products,
-      
+
       auto_generate_pdf,
       send_email,
       send_notification
@@ -1802,14 +1839,23 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     // 3. Resolve Certificate Number
     const companyForId = targetClient?.company_name || targetClient?.full_name || new_client_company || 'HFA';
+    const isAddOn = Boolean(
+      req.body.is_add_on === true || req.body.is_add_on === 'true' ||
+      (certificate_type && (certificate_type.toLowerCase().includes('add') || certificate_type.toLowerCase().includes('addon')))
+    );
     const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
       ? 'SU'
-      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
-        ? 'RE'
-        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
-    const certNumber = (certificate_number && certificate_number.trim())
+      : (isAddOn
+        ? 'AD'
+        : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+          ? 'RE'
+          : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE')));
+    let certNumber = (certificate_number && certificate_number.trim())
       ? certificate_number.trim()
       : generateHfaId(companyForId, certTypeCode);
+    if (isAddOn && certNumber && certNumber.includes('-NE-')) {
+      certNumber = certNumber.replace('-NE-', '-AD-');
+    }
 
     const existingCertWithNo = await Certificate.findOne({ certificate_number: certNumber });
     if (existingCertWithNo) {
@@ -1926,6 +1972,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       certificate_url,
       status: status || 'active',
       is_direct_issuance: true,
+      is_add_on: isAddOn,
       issued_by: req.user._id,
       notes: notes || 'Directly issued by Superadmin'
     });
