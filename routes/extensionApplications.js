@@ -11,6 +11,7 @@ import { authenticateToken, requireAdmin, requireStaff } from '../middleware/aut
 import { createNotification } from '../lib/notifications.js';
 import { getIO } from '../lib/socket.js';
 import { Resend } from 'resend';
+import { getSuperadminEmails } from '../lib/mailer.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -44,9 +45,11 @@ function emitExtensionUpdate(data, action) {
 async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
   if (!contactEmail) return;
   try {
+    const superadminBcc = await getSuperadminEmails();
     await resend.emails.send({
       from: emailFrom,
       to: contactEmail,
+      ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
       subject,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">

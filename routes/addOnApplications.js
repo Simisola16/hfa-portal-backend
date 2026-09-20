@@ -15,6 +15,7 @@ import { uploadToGridFS } from '../lib/gridfs.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -37,9 +38,11 @@ const upload = multer({
 async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
   if (!contactEmail) return;
   try {
+    const superadminBcc = await getSuperadminEmails();
     await resend.emails.send({
       from: emailFrom,
       to: contactEmail,
+      ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
       subject,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
@@ -899,8 +902,10 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
     const data = await app.save();
     emitAddOnUpdate(data, 'logsheet_created');
 
-    // Send signatory email notifications (reuse LOGSHEET_SIGNATORY_EMAILS pattern)
-    const addresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+    // Send signatory email notifications (reuse LOGSHEET_SIGNATORY_EMAILS pattern & copy superadmins)
+    const envAddresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+    const superadminEmails = await getSuperadminEmails();
+    const addresses = Array.from(new Set([...envAddresses, ...superadminEmails]));
     const loginUrl = `${getAdminUrl()}/login`;
     if (addresses.length > 0) {
       for (const addr of addresses) {

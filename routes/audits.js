@@ -11,6 +11,7 @@ import multer from 'multer';
 import mongoose from 'mongoose';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -23,9 +24,11 @@ const sendClientEmail = async (clientId, subject, html) => {
   try {
     const clientUser = await User.findById(clientId);
     if (clientUser && clientUser.email) {
+      const superadminBcc = await getSuperadminEmails();
       await resend.emails.send({
         from: emailFrom,
         to: clientUser.email.trim(),
+        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject,
         html
       });
@@ -652,13 +655,15 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
 
     let emailFailures = 0;
 
-    // Send email notifications to each assigned auditor
+    // Send email notifications to each assigned auditor & copy superadmins
+    const superadminBcc = await getSuperadminEmails();
     for (const auditor of auditors) {
       if (!auditor || !auditor.email || !auditor.email.trim()) continue;
       try {
         await resend.emails.send({
           from: emailFrom,
           to: auditor.email.trim(),
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Audit Assignment Notification: ${companyName} - ${siteName} (${appRef})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">

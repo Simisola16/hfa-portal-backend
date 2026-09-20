@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -68,9 +69,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       try {
         const clientUser = await User.findById(data.client_id);
         if (clientUser?.email) {
+          const superadminBcc = await getSuperadminEmails();
           await resend.emails.send({
             from: emailFrom,
             to: clientUser.email,
+            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
             subject: `HFA Certification Proposal Received: ${data.title}`,
             html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
               <h2>Certification Proposal Received</h2>
@@ -171,9 +174,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       try {
         const clientUser = await User.findById(data.client_id);
         if (clientUser?.email) {
+          const superadminBcc = await getSuperadminEmails();
           await resend.emails.send({
             from: emailFrom,
             to: clientUser.email,
+            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
             subject: `HFA Certification Proposal Issued: ${data.title}`,
             html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
               <h2>New Certification Proposal</h2>
@@ -257,9 +262,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     try {
       const clientUser = await User.findById(data.client_id);
       if (clientUser?.email && status) {
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Proposal Update: ${data.title} (${status})`,
           html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
             <h2>Proposal Status Updated</h2>
