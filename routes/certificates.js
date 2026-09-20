@@ -322,15 +322,32 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
 
     // 1. Resolve client ID and user
-    const clientId = cert.client_id || cert.application_id?.client_id;
+    let clientId = cert.client_id || cert.application_id?.client_id;
     let clientUser = null;
-    if (clientId) {
+    if (clientId && mongoose.isValidObjectId(clientId.toString())) {
       clientUser = await User.findById(clientId).select('company_name full_name email phone address country').lean();
+    }
+    if (!clientUser && cert.application_id) {
+      const addOn = await AddOnApplication.findById(cert.application_id).populate('client_id');
+      if (addOn?.client_id) {
+        clientUser = typeof addOn.client_id === 'object' ? addOn.client_id : await User.findById(addOn.client_id).select('company_name full_name email phone address country').lean();
+        clientId = addOn.client_id._id || addOn.client_id;
+      }
     }
 
     // 2. Resolve site ID and site document
     let siteId = cert.site_id?._id || cert.site_id || cert.application_id?.site_id;
     let siteDoc = (cert.site_id && cert.site_id.name) ? cert.site_id : null;
+
+    if (!siteDoc && cert.application_id) {
+      const addOn = await AddOnApplication.findById(cert.application_id);
+      if (addOn?.site_id) {
+        siteId = siteId || addOn.site_id;
+        if (mongoose.isValidObjectId(addOn.site_id.toString())) {
+          siteDoc = await Site.findById(addOn.site_id).lean();
+        }
+      }
+    }
 
     if (!siteDoc && siteId && mongoose.isValidObjectId(siteId.toString())) {
       siteDoc = await Site.findById(siteId).lean();
@@ -584,7 +601,9 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       client: {
         id: clientId,
         company_name: cert.company_name || clientUser?.company_name || clientUser?.full_name || 'Client Company',
+        full_name: clientUser?.full_name || '',
         email: clientUser?.email || '',
+        phone: clientUser?.phone || '',
         address: cert.company_address || clientUser?.address || ''
       },
       site: siteDoc ? {
@@ -625,15 +644,43 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Resolve client user details
     let clientUser = null;
     if (data.client_id) {
-      clientUser = await User.findById(data.client_id).select('-password');
+      if (mongoose.isValidObjectId(data.client_id)) {
+        clientUser = await User.findById(data.client_id).select('-password');
+      } else {
+        clientUser = await User.findOne({
+          $or: [
+            { _id: data.client_id },
+            { email: data.client_id },
+            { company_name: data.company_name }
+          ]
+        }).select('-password');
+      }
+    }
+
+    let addOnDoc = null;
+    if (!clientUser && data.application_id) {
+      const appDoc = await Application.findById(data.application_id).populate('client_id');
+      if (appDoc?.client_id && typeof appDoc.client_id === 'object') {
+        clientUser = appDoc.client_id;
+      } else {
+        addOnDoc = await AddOnApplication.findById(data.application_id).populate('client_id');
+        if (addOnDoc?.client_id && typeof addOnDoc.client_id === 'object') {
+          clientUser = addOnDoc.client_id;
+        }
+      }
     }
 
     // Resolve site details if not populated directly on certificate
     let siteData = data.site_id;
-    if (!siteData && data.application_id?.site_id) {
+    if (!siteData && data.application_id) {
       const sId = data.application_id.site_id;
-      if (mongoose.isValidObjectId(sId)) {
+      if (sId && mongoose.isValidObjectId(sId)) {
         siteData = await Site.findById(sId);
+      } else {
+        if (!addOnDoc) addOnDoc = await AddOnApplication.findById(data.application_id);
+        if (addOnDoc?.site_id && mongoose.isValidObjectId(addOnDoc.site_id)) {
+          siteData = await Site.findById(addOnDoc.site_id);
+        }
       }
     }
 
