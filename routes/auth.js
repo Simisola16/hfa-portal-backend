@@ -296,7 +296,18 @@ router.post('/admin/login', async (req, res) => {
       ]
     });
 
-    if (!user || !['admin', 'superadmin', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'].includes(user.role) || !(await user.comparePassword(password))) {
+    const staffRoles = [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 
+      'inspector', 'staff', 'support_manager'
+    ];
+
+    const isStaff = user && (
+      staffRoles.includes(user.role) ||
+      (Array.isArray(user.roles) && user.roles.some(r => staffRoles.includes(r)))
+    );
+
+    if (!user || !isStaff || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
