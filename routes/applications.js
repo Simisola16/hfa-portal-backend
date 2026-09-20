@@ -13,6 +13,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
+import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -391,7 +392,7 @@ router.post('/', authenticateToken, upload.fields([
               <h2 style="color:#166534">Application Received</h2>
               <p>Dear ${req.user.full_name},</p>
               <p>Your application <strong>${appNumber}</strong> has been received and is being reviewed.</p>
-              <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/applications" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">Track Application</a>
+              <a href="${getClientUrl()}/applications" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">Track Application</a>
             </div>
           </div>
         `,
@@ -577,7 +578,7 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
         standards: standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
         signatory_name: signatory_name || 'HFA Halal Certification Committee',
         signatory_title: signatory_title || 'Lead Halal Auditor & Certification Director',
-        verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+        verification_url: `${getClientUrl()}/applications/${app._id}/track`
       });
 
       const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
@@ -667,7 +668,7 @@ router.post('/:id/preview-surveillance-letter', authenticateToken, requireAdmin,
       standards: req.body.standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
       signatory_name: req.body.signatory_name || 'HFA Halal Certification Committee',
       signatory_title: req.body.signatory_title || 'Lead Halal Auditor & Certification Director',
-      verification_url: `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/applications/${app._id}/track`
+      verification_url: `${getClientUrl()}/applications/${app._id}/track`
     });
 
     res.json({ html });
@@ -762,7 +763,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
             expiryDate: data.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
               ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
               : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            verificationUrl: `${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/verify/${certNumber}`
+            verificationUrl: `${getClientUrl()}/verify/${certNumber}`
           };
 
           const pdfBuffer = await generateCertificate(certData);
@@ -813,7 +814,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
                 <h2 style="color:#166534">Application Status Update</h2>
                 <p>Dear ${client.full_name},</p>
                  <p>New Status: <strong style="color:#15803d">${statusLabels[data.status] || data.status}</strong></p>
-                 <a href="${process.env.FRONTEND_CLIENT_URL}/applications/${req.params.id}" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View Application</a>
+                 <a href="${getClientUrl()}/applications/${req.params.id}" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View Application</a>
               </div>
             </div>
           `,
@@ -985,7 +986,7 @@ router.post('/renew', authenticateToken, upload.fields([
               <h2 style="color:#166534;margin:0 0 16px">Renewal Application Received</h2>
               <p style="color:#374151">Dear ${req.user.full_name},</p>
               <p style="color:#374151">Your renewal application <strong>${appNumber}</strong> for certificate <strong>${cert.certificate_number}</strong> has been received and is under review.</p>
-              <a href="${process.env.FRONTEND_CLIENT_URL || 'http://localhost:5173'}/applications" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">Track Application</a>
+              <a href="${getClientUrl()}/applications" style="display:inline-block;background:#15803d;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px">Track Application</a>
             </div>
           </div>
         `,

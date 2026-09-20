@@ -10,12 +10,13 @@ import { uploadToGridFS } from '../lib/gridfs.js';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { emitApplicationUpdate } from '../lib/socket.js';
+import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
-const clientPortalUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+const clientPortalUrl = getClientUrl();
 
 const sendClientEmail = async (clientId, subject, html) => {
   if (!clientId) return;
@@ -633,7 +634,7 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
       ? new Date(audit.finalized_date).toDateString() 
       : (audit.selected_dates?.[0] ? new Date(audit.selected_dates[0]).toDateString() : 'To Be Confirmed');
 
-    const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+    const adminUrl = getAdminUrl();
     const loginUrl = `${adminUrl}/login`;
 
     let emailFailures = 0;
