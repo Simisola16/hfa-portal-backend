@@ -13,6 +13,8 @@ import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
+const JWT_SECRET = process.env.JWT_SECRET || 'hfa_portal_secret_key_2024_@!';
+
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -248,35 +250,62 @@ router.post('/resend-verification', async (req, res) => {
 });
 
 
-// POST /api/auth/login  (client portal — unchanged)
+// POST /api/auth/login  (client portal — client accounts only)
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await User.findOne({ email });
+    const searchEmail = email?.trim();
+    if (!searchEmail) {
+      return res.status(401).json({ error: 'Email is required' });
+    }
+    const escapedEmail = searchEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await User.findOne({
+      email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') }
+    });
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    if (!user.is_verified && user.role !== 'admin') {
+    const staffRoles = [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 
+      'inspector', 'staff', 'support_manager'
+    ];
+
+    const userRole = user.role || 'client';
+    const isStaff = userRole !== 'client' ||
+      staffRoles.includes(userRole) ||
+      (Array.isArray(user.roles) && user.roles.some(r => staffRoles.includes(r)));
+
+    if (isStaff) {
+      return res.status(403).json({ 
+        error: 'Staff and administrator accounts cannot log in here. Please use the HFA Admin Portal.' 
+      });
+    }
+
+    if (!user.is_verified) {
       return res.status(403).json({ error: 'Please verify your email address before logging in.' });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id, role: userRole }, JWT_SECRET, { expiresIn: '7d' });
+
+    const clientData = {
+      id: user._id,
+      _id: user._id,
+      email: user.email,
+      full_name: user.full_name,
+      company_name: user.company_name,
+      role: userRole,
+      client_role: user.client_role,
+      parent_client_id: user.parent_client_id,
+      is_active: user.is_active,
+      is_verified: user.is_verified
+    };
 
     res.json({
       token,
-      user: {
-        id: user._id,
-        email: user.email,
-        full_name: user.full_name,
-        role: user.role
-      },
-      profile: {
-        id: user._id,
-        email: user.email,
-        full_name: user.full_name,
-        role: user.role
-      }
+      user: clientData,
+      profile: clientData
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -315,7 +344,7 @@ router.post('/admin/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       token,
@@ -569,7 +598,7 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
         impersonated_by: req.user._id,
         admin_name: req.user.full_name 
       },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '1h' }
     );
 

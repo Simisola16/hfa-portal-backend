@@ -23,11 +23,11 @@ async function runIntegrationTest() {
 
   // 2. Login as admin to get token
   console.log('Logging in as admin...');
-  const loginRes = await fetch(`${API_URL}/api/auth/login`, {
+  const loginRes = await fetch(`${API_URL}/api/auth/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: 'admin@hfa.com',
+      username: 'admin',
       password: 'password123'
     })
   });
