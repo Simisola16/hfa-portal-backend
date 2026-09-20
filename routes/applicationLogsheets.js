@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
+import Audit from '../models/Audit.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
@@ -428,6 +429,27 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
     const clientIdVal = (client_id && typeof client_id === 'object') ? client_id._id : client_id;
     const siteIdVal = (site_id && typeof site_id === 'object') ? site_id._id : site_id;
+
+    // CRITICAL BUSINESS RULE: NC must be completed and closed before LogSheet!
+    if (!logsheet && application_id && !req.body.force) {
+      const targetApp = await Application.findById(application_id);
+      if (targetApp) {
+        const targetAudits = await Audit.find({ application_id });
+        const appNcs = Array.isArray(targetApp.nc_reports) ? targetApp.nc_reports : [];
+        const auditNcs = targetAudits.flatMap(a => Array.isArray(a.nc_reports) ? a.nc_reports : []);
+        const allNcs = [...appNcs, ...auditNcs];
+
+        const hasOpenNc = targetApp.status === 'nc_flagged' ||
+          allNcs.some(nc => nc.status && nc.status !== 'closed') ||
+          targetAudits.some(a => Boolean(a.nc_text && !a.nc_closed) || a.status === 'nc_flagged');
+
+        if (hasOpenNc) {
+          return res.status(400).json({
+            error: 'Non-Conformances (NC) must be completed and closed before creating a LogSheet for this application.'
+          });
+        }
+      }
+    }
 
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
