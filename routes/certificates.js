@@ -742,12 +742,34 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
+    let isAddOn = req.body.is_add_on === true || req.body.is_add_on === 'true' ||
+      (certificate_type && (certificate_type.toLowerCase().includes('add') || certificate_type.toLowerCase().includes('addon')));
+
+    if (!isAddOn && application_id) {
+      try {
+        const foundAddOn = await AddOnApplication.findById(application_id).select('_id application_number');
+        if (foundAddOn) {
+          isAddOn = true;
+        } else {
+          const foundApp = await Application.findById(application_id).select('application_number application_type is_add_on');
+          if (foundApp && (foundApp.is_add_on || foundApp.application_type === 'addon' || foundApp.application_type === 'add-on' || foundApp.application_number?.includes('-AD-') || foundApp.application_number?.startsWith('ADD-'))) {
+            isAddOn = true;
+          }
+        }
+      } catch (_) { }
+    }
+
     const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
       ? 'SU'
-      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
-        ? 'RE'
-        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
-    const certNo = certificate_number || generateHfaId(companyForId, certTypeCode);
+      : (isAddOn
+        ? 'AD'
+        : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+          ? 'RE'
+          : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE')));
+    let certNo = certificate_number || generateHfaId(companyForId, certTypeCode);
+    if (isAddOn && certNo && certNo.includes('-NE-')) {
+      certNo = certNo.replace('-NE-', '-AD-');
+    }
 
     let parsedProducts = [];
     if (Array.isArray(products_covered)) {
@@ -861,6 +883,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       if (certificate_url) certificate.certificate_url = certificate_url;
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
+      certificate.is_add_on = isAddOn;
       certificate.updated_at = new Date();
     } else {
       certificate = new Certificate({
@@ -882,6 +905,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         product_details: parsedProductDetails,
         certificate_url,
         status: initialStatus,
+        is_add_on: isAddOn,
         created_by: req.user._id,
         review_notes: review_notes || ''
       });
@@ -1124,6 +1148,9 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
     if (status) cert.status = status;
+    if (req.body.is_add_on !== undefined) {
+      cert.is_add_on = req.body.is_add_on === true || req.body.is_add_on === 'true';
+    }
 
     if (products_covered) {
       if (Array.isArray(products_covered)) {
@@ -1378,7 +1405,17 @@ async function buildCertDataFromApplication(application) {
   const User = (await import('../models/User.js')).default;
   const client = await User.findById(application.client_id);
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
-  const certTypeCode = application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE');
+  const isAddOn = Boolean(
+    application?.is_add_on ||
+    application?.application_type === 'addon' ||
+    application?.application_type === 'add-on' ||
+    application?.application_type === 'add_on' ||
+    application?.application_number?.includes('-AD-') ||
+    application?.application_number?.startsWith('ADD-')
+  );
+  const certTypeCode = isAddOn
+    ? 'AD'
+    : (application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE'));
   const certNumber = generateHfaId(companyForId, certTypeCode);
 
   let scheme = 'HFA Scheme (meat)';
@@ -1791,14 +1828,23 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     // 3. Resolve Certificate Number
     const companyForId = targetClient?.company_name || targetClient?.full_name || new_client_company || 'HFA';
+    const isAddOn = Boolean(
+      req.body.is_add_on === true || req.body.is_add_on === 'true' ||
+      (certificate_type && (certificate_type.toLowerCase().includes('add') || certificate_type.toLowerCase().includes('addon')))
+    );
     const certTypeCode = (certificate_type && certificate_type.toLowerCase().includes('surv'))
       ? 'SU'
-      : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
-        ? 'RE'
-        : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE'));
-    const certNumber = (certificate_number && certificate_number.trim())
+      : (isAddOn
+        ? 'AD'
+        : ((certificate_type && certificate_type.toLowerCase().includes('renew'))
+          ? 'RE'
+          : ((certificate_type && certificate_type.toLowerCase().includes('ext')) ? 'EX' : 'NE')));
+    let certNumber = (certificate_number && certificate_number.trim())
       ? certificate_number.trim()
       : generateHfaId(companyForId, certTypeCode);
+    if (isAddOn && certNumber && certNumber.includes('-NE-')) {
+      certNumber = certNumber.replace('-NE-', '-AD-');
+    }
 
     const existingCertWithNo = await Certificate.findOne({ certificate_number: certNumber });
     if (existingCertWithNo) {
@@ -1907,6 +1953,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       certificate_url,
       status: status || 'active',
       is_direct_issuance: true,
+      is_add_on: isAddOn,
       issued_by: req.user._id,
       notes: notes || 'Directly issued by Superadmin'
     });
