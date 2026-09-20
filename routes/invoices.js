@@ -274,6 +274,65 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
   }
 });
 
+// Helper to confirm invoice payment and synchronize application status and audit logs
+const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
+  invoice.status = 'paid';
+  invoice.payment_date = new Date();
+  invoice.paid_at = invoice.paid_at || new Date();
+  invoice.confirmed_by = adminUser?._id || null;
+  invoice.confirmed_at = new Date();
+  const savedInvoice = await invoice.save();
+
+  let updatedApp = null;
+  const targetAppId = invoice.application_id;
+  if (targetAppId) {
+    const isFinal = invoice.invoice_type === 'final' || invoice.stage === 'final';
+    const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
+
+    const histEntry = {
+      status: targetStatus,
+      changedAt: new Date(),
+      changedBy: adminUser?._id || null,
+      note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice.invoice_number || ''}.`,
+    };
+
+    const updateData = {
+      status: targetStatus,
+      updated_at: new Date(),
+      $push: { statusHistory: histEntry }
+    };
+
+    if (isFinal) {
+      updateData.final_payment_confirmed = true;
+      updateData.final_invoice_paid = true;
+    } else {
+      updateData.initial_payment_confirmed = true;
+      updateData.initial_invoice_paid = true;
+    }
+
+    updatedApp = await Application.findByIdAndUpdate(
+      targetAppId,
+      updateData,
+      { new: true }
+    );
+    if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+  }
+
+  // Notify the client
+  const clientId = invoice.client_id || updatedApp?.client_id;
+  if (clientId) {
+    await createNotification(
+      clientId,
+      'Payment Confirmed ✅',
+      `Your payment for invoice ${invoice.invoice_number} has been confirmed by HFA. Your application will now proceed to the next stage.`,
+      'success',
+      '/applications'
+    );
+  }
+
+  return { invoice: savedInvoice, application: updatedApp };
+};
+
 // POST /api/invoices/confirm-payment — admin confirms payment for application
 router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -287,105 +346,80 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
       invoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
     }
 
-    if (invoice) {
-      invoice.status = 'paid';
-      invoice.payment_date = new Date();
-      await invoice.save();
+    if (!invoice && !application_id) {
+      return res.status(400).json({ error: 'invoice_id or application_id required' });
     }
 
-    const targetAppId = application_id || invoice?.application_id;
-    let updatedApp = null;
+    if (invoice) {
+      const result = await confirmInvoicePaymentHelper(invoice, req.user);
+      return res.json({ data: result.invoice, application: result.application });
+    }
 
-    if (targetAppId) {
-      const isFinal = invoice?.invoice_type === 'final' || invoice?.stage === 'final';
-      const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
-
+    // Fallback if invoice was not found but application_id was provided
+    if (application_id) {
+      const targetStatus = 'payment_received';
       const histEntry = {
         status: targetStatus,
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice?.invoice_number || ''}.`,
+        note: `Payment confirmed by admin.`,
       };
-
-      const updateData = {
-        status: targetStatus,
-        updated_at: new Date(),
-        $push: { statusHistory: histEntry }
-      };
-
-      updatedApp = await Application.findByIdAndUpdate(
-        targetAppId,
-        updateData,
+      const updatedApp = await Application.findByIdAndUpdate(
+        application_id,
+        {
+          status: targetStatus,
+          initial_payment_confirmed: true,
+          initial_invoice_paid: true,
+          updated_at: new Date(),
+          $push: { statusHistory: histEntry }
+        },
         { new: true }
       );
       if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+      return res.json({ data: null, application: updatedApp });
     }
-
-    // Notify the client
-    const clientId = invoice?.client_id || updatedApp?.client_id;
-    if (clientId) {
-      await createNotification(
-        clientId,
-        'Payment Confirmed ✅',
-        `Your payment${invoice ? ` for invoice ${invoice.invoice_number}` : ''} has been confirmed by HFA. Your application will now proceed to the next stage.`,
-        'success',
-        '/applications'
-      );
-    }
-
-    res.json({ data: invoice, application: updatedApp });
   } catch (err) {
     console.error('Error confirming payment:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/invoices/:id/confirm-payment — admin confirms client payment
-router.put('/:id/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
+// Handler for single invoice confirmation
+const handleConfirmInvoiceById = async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-    invoice.status = 'paid';
-    invoice.payment_date = new Date();
-    const data = await invoice.save();
+    const result = await confirmInvoicePaymentHelper(invoice, req.user);
+    res.json({ data: result.invoice, application: result.application });
+  } catch (err) {
+    console.error('Error confirming payment by ID:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
 
-    // Update application status
-    if (invoice.application_id) {
-      const isFinal = invoice.invoice_type === 'final';
-      const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
+// PUT /api/invoices/:id/confirm-payment — admin confirms client payment
+router.put('/:id/confirm-payment', authenticateToken, requireAdmin, handleConfirmInvoiceById);
 
-      const histEntry = {
-        status: targetStatus,
-        changedAt: new Date(),
-        changedBy: req.user._id,
-        note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice.invoice_number}.`,
-      };
+// PATCH /api/invoices/:id/confirm-payment — alias for confirm-payment
+router.patch('/:id/confirm-payment', authenticateToken, requireAdmin, handleConfirmInvoiceById);
 
-      const updateData = {
-        status: targetStatus,
-        updated_at: new Date(),
-        $push: { statusHistory: histEntry }
-      };
+// PUT /api/invoices/:id/status — status change handler with support for 'paid'
+router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-      const updatedApp = await Application.findByIdAndUpdate(
-        invoice.application_id,
-        updateData,
-        { new: true }
-      );
-      if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+    if (status === 'paid') {
+      const result = await confirmInvoicePaymentHelper(invoice, req.user);
+      return res.json({ data: result.invoice, application: result.application });
     }
 
-    // Notify the client
-    await createNotification(
-      invoice.client_id,
-      'Payment Confirmed ✅',
-      `Your payment for invoice ${invoice.invoice_number} has been confirmed by HFA. Your application will now proceed to the next stage.`,
-      'success',
-      '/applications'
-    );
-
-    res.json({ data });
+    invoice.status = status;
+    if (req.body.payment_date) invoice.payment_date = new Date(req.body.payment_date);
+    const saved = await invoice.save();
+    res.json({ data: saved });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
