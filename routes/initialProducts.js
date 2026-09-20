@@ -219,11 +219,121 @@ router.post('/', authenticateToken, async (req, res) => {
     const data = await newInitialProduct.save();
     emitInitialProductUpdate(data, 'created');
 
-    // Notify admins & FT managers
+    // Notify admins & FT managers (in-app)
     await notifyAdmins(
       'New Initial Product Submitted 📦',
       `${req.user.company_name || req.user.full_name} submitted Initial Product "${product.name.trim()}" for application #${app.application_number}.`
     );
+
+    // Email all Food Technology Managers — professional notification
+    try {
+      const ftManagers = await User.find({ role: { $in: ['food_tech_manager', 'food_tech'] }, is_active: { $ne: false } }).lean();
+      const clientName = req.user.company_name || req.user.full_name || 'Client';
+      const appRef = app.application_number || 'N/A';
+      const appCategory = app.category || 'Standard Halal Certification';
+      const establishmentName = app.establishment_name || app.site_name || clientName;
+
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); padding: 28px 32px; text-align: center;">
+            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
+            <p style="margin: 6px 0 0; color: #ddd6fe; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology Team</p>
+          </div>
+
+          <!-- Body -->
+          <div style="padding: 32px; background: #ffffff;">
+            <div style="margin-bottom: 24px;">
+              <div style="display: inline-flex; align-items: center; gap: 10px; background: #f5f3ff; border: 1.5px solid #ddd6fe; border-radius: 10px; padding: 12px 18px; margin-bottom: 20px;">
+                <span style="font-size: 24px;">📦</span>
+                <div>
+                  <p style="margin: 0; font-size: 16px; font-weight: 800; color: #4c1d95;">New Initial Product Submitted</p>
+                  <p style="margin: 2px 0 0; font-size: 12px; color: #7c3aed;">Assignment & evaluation required</p>
+                </div>
+              </div>
+            </div>
+
+            <p style="margin: 0 0 20px; font-size: 14px; color: #334155; line-height: 1.7;">
+              A client has submitted a new <strong>Initial Product</strong> for evaluation as part of their Halal Certification application. The Food Technology team is required to review the product details and proceed with the evaluation process.
+            </p>
+
+            <!-- Details Table -->
+            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; margin-bottom: 24px; border: 1px solid #e2e8f0;">
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; width: 40%;">Application No.</td>
+                <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #0f172a;">${appRef}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Client / Establishment</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${establishmentName}</td>
+              </tr>
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Certification Category</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${appCategory}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Product Name</td>
+                <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #1e293b;">${product.name.trim()}</td>
+              </tr>
+              ${product.code ? `
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Product Code</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${product.code.trim()}</td>
+              </tr>` : ''}
+              ${product.category ? `
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Product Category</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${product.category.trim()}</td>
+              </tr>` : ''}
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Contact Person</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${contact_name} (${contact_email})</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Submitted At</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${new Date().toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+              </tr>
+            </table>
+
+            <!-- Action Box -->
+            <div style="background: #faf5ff; border: 1.5px solid #ddd6fe; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #6d28d9;">📋 Required Actions — Food Technology Team</p>
+              <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #5b21b6; line-height: 1.8;">
+                <li>Log in to the HFA Admin Portal and navigate to <strong>Initial Products</strong>.</li>
+                <li>Review the submitted product details, ingredients, and specifications.</li>
+                <li>Assign a Food Technologist and enable the <strong>Product Approval Form</strong> for the client.</li>
+              </ul>
+            </div>
+
+            <div style="text-align: center;">
+              <a href="${process.env.ADMIN_URL || 'https://admin.hfaportal.company'}/initial-products"
+                 style="display: inline-block; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.01em;">
+                Review Initial Product →
+              </a>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div style="padding: 18px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+            <p style="margin: 0; font-size: 11px; color: #94a3b8;">This is an automated internal notification from the HFA Portal. Do not reply to this email.</p>
+            <p style="margin: 4px 0 0; font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} Halal Food Authority. All rights reserved.</p>
+          </div>
+        </div>
+      `;
+
+      for (const ft of ftManagers) {
+        if (ft.email) {
+          await resend.emails.send({
+            from: emailFrom,
+            to: ft.email.trim(),
+            subject: `[HFA] Initial Product Submitted — ${appRef} | ${product.name.trim()}`,
+            html: emailHtml
+          });
+        }
+      }
+    } catch (ftEmailErr) {
+      console.error('[InitialProduct] Failed to send FT Manager product submission email:', ftEmailErr.message);
+    }
 
     // Email contact person
     await sendContactEmail({
