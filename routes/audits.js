@@ -800,6 +800,41 @@ router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (
       return res.status(404).json({ error: 'Audit or Application not found' });
     }
 
+    // GSO/UAE/Dual-Stage Guard: NCs can only be recorded against Stage 2 audits.
+    // Stage 1 (Initial Visit) is an assessment stage — no NC findings permitted.
+    if (targetApp || audit) {
+      const appForCheck = targetApp || await Application.findById(audit?.application_id);
+      if (appForCheck) {
+        const catLower = String(appForCheck.category || '').toLowerCase();
+        const typeLower = String(appForCheck.application_type || '').toLowerCase();
+        const schemeLower = String(appForCheck.scheme || '').toLowerCase();
+        const isGSO = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+        const isRenewalOrSurveillance = typeLower === 'renewal' || typeLower === 'surveillance';
+
+        if (isGSO && !isRenewalOrSurveillance) {
+          // Resolve the actual audit stage to validate
+          const resolvedAuditStage = audit?.stage || 1;
+          const allAuditsForApp = await Audit.find({ application_id: appForCheck._id });
+          const stage1Audit = allAuditsForApp.find(a => (a.stage || 1) === 1) || allAuditsForApp[0];
+          const isStage1Complete = stage1Audit?.status === 'audit_completed' || stage1Audit?.status === 'audit_successful';
+
+          if (resolvedAuditStage === 1 || (!isStage1Complete && resolvedAuditStage !== 2)) {
+            return res.status(400).json({
+              error: 'For GSO/UAE schemes, Non-Conformities (NC) cannot be raised during Stage 1 (Initial Visit). NC findings strictly belong to Stage 2 (Main Audit). Please complete Stage 1 and proceed to Stage 2 before flagging NCs.'
+            });
+          }
+
+          // If audit was auto-resolved to Stage 1 but Stage 1 is complete and Stage 2 exists, re-target Stage 2
+          if (resolvedAuditStage === 1 && isStage1Complete) {
+            const stage2Audit = allAuditsForApp.find(a => a.stage === 2);
+            if (stage2Audit) {
+              audit = stage2Audit;
+            }
+          }
+        }
+      }
+    }
+
     // Auto-create audit document if it did not exist
     if (!audit && targetApp) {
       audit = new Audit({
