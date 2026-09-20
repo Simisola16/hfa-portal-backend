@@ -318,6 +318,16 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
       { new: true }
     );
     if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+
+    try {
+      const Audit = (await import('../models/Audit.js')).default;
+      await Audit.updateMany(
+        { application_id: targetAppId },
+        { $set: { updated_at: new Date() } }
+      );
+    } catch (auditErr) {
+      console.error('Error updating audit timestamp on payment confirmation:', auditErr);
+    }
   }
 
   // Notify the client
