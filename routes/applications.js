@@ -104,7 +104,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         if (logsheet.mufti2_signature) sigCount++;
 
         const isRenewal = data.application_type === 'renewal';
-        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Signed' || logsheet.status === 'Completed' || sigCount >= 4;
+        const isLogsheetFinalized = logsheet.status === 'Waiting For Certificate' || logsheet.status === 'Completed';
 
         if (isLogsheetFinalized) {
           const targetStatus = 'application_successful';

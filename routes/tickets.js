@@ -101,9 +101,38 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/tickets/active-chat - Get current active support chat ticket for client
+router.get('/active-chat', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id?.toString();
+    if (!userId) {
+      return res.json({ data: null });
+    }
+
+    const raw = await Ticket.findOne({
+      user_id: userId,
+      status: { $in: ['open', 'in_progress'] }
+    }).sort({ updated_at: -1, created_at: -1 }).lean();
+
+    if (!raw) {
+      return res.json({ data: null });
+    }
+
+    const ticket = await populateTicketsSafely(raw);
+    res.json({ data: ticket || null });
+  } catch (err) {
+    console.error('Error fetching active chat ticket:', err);
+    res.json({ data: null });
+  }
+});
+
 // GET /api/tickets/:id - Get single ticket details
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
     const raw = await Ticket.findById(req.params.id).lean();
     if (!raw) return res.status(404).json({ error: 'Ticket not found' });
 

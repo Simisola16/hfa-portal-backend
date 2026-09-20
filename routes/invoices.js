@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
@@ -9,25 +10,65 @@ import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { getSuperadminEmails } from '../lib/mailer.js';
+import { generateHfaId } from '../lib/idGenerator.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
-// GET /api/invoices — all (admin) or client's own
+// GET /api/invoices — all (admin/staff) or client's own
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = req.user._id.toString();
+    const isStaffOrAdmin = [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'staff', 'support_manager'
+    ].includes(req.user?.role) || (Array.isArray(req.user?.roles) && req.user.roles.some(r => [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'staff', 'support_manager'
+    ].includes(r)));
+
+    if (!isStaffOrAdmin && req.user?._id) {
+      const userObjId = req.user._id;
+      const userStr = req.user._id.toString();
+      query.$or = [
+        { client_id: userObjId },
+        { client_id: userStr }
+      ];
     }
-    const data = await Invoice.find(query)
+
+    let invoices = await Invoice.find(query)
       .populate('application_id')
       .populate('profiles')
-      .sort({ createdAt: -1 });
-    res.json({ data });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Ensure profiles is populated even if virtual population had mismatched types
+    const unpopulatedInvoices = invoices.filter(inv => !inv.profiles && inv.client_id);
+    if (unpopulatedInvoices.length > 0) {
+      const validClientIds = [...new Set(
+        unpopulatedInvoices
+          .map(inv => inv.client_id)
+          .filter(id => id && mongoose.isValidObjectId(id.toString()))
+      )];
+      if (validClientIds.length > 0) {
+        const users = await User.find({ _id: { $in: validClientIds } })
+          .select('_id full_name company_name email phone')
+          .lean();
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+        invoices = invoices.map(inv => {
+          if (!inv.profiles && inv.client_id && userMap.has(inv.client_id.toString())) {
+            return { ...inv, profiles: userMap.get(inv.client_id.toString()) };
+          }
+          return inv;
+        });
+      }
+    }
+
+    res.json({ data: invoices });
   } catch (err) {
+    console.error('[Invoices GET /] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -35,9 +76,14 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/invoices/application/:appId/all — fetch all invoices for a specific application
 router.get('/application/:appId/all', authenticateToken, async (req, res) => {
   try {
-    const data = await Invoice.find({ application_id: req.params.appId }).sort({ updatedAt: -1, createdAt: -1 });
+    const { appId } = req.params;
+    if (!appId || appId === 'undefined' || appId === 'null' || !mongoose.isValidObjectId(appId)) {
+      return res.json({ data: [] });
+    }
+    const data = await Invoice.find({ application_id: appId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
+    console.error('[Invoices GET /application/:appId/all] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -45,9 +91,14 @@ router.get('/application/:appId/all', authenticateToken, async (req, res) => {
 // GET /api/invoices/application/:appId — fetch latest invoice for a specific application
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Invoice.findOne({ application_id: req.params.appId }).sort({ updatedAt: -1, createdAt: -1 });
+    const { appId } = req.params;
+    if (!appId || appId === 'undefined' || appId === 'null' || !mongoose.isValidObjectId(appId)) {
+      return res.json({ data: null });
+    }
+    const data = await Invoice.findOne({ application_id: appId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
+    console.error('[Invoices GET /application/:appId] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -70,11 +121,15 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     const invoiceType = isFinal ? 'final' : 'initial';
     invoiceData.invoice_type = invoiceType;
 
+    const validAppId = invoiceData.application_id && mongoose.isValidObjectId(invoiceData.application_id) 
+      ? invoiceData.application_id 
+      : null;
+
     if (isFinal && !req.file && !invoiceData.invoice_url) {
       let existingFinal = null;
-      if (invoiceData.application_id) {
+      if (validAppId) {
         existingFinal = await Invoice.findOne({
-          application_id: invoiceData.application_id,
+          application_id: validAppId,
           $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
         });
       }
@@ -84,7 +139,7 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     }
 
     let companyForId = 'HFA';
-    if (invoiceData.client_id) {
+    if (invoiceData.client_id && mongoose.isValidObjectId(invoiceData.client_id.toString())) {
       const clientUser = await User.findById(invoiceData.client_id);
       companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
     }
@@ -93,14 +148,14 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     let isRevision = false;
 
     // Check if an existing invoice of this type already exists for this application
-    if (invoiceData.application_id) {
+    if (validAppId) {
       const typeQuery = isFinal
         ? {
-            application_id: invoiceData.application_id,
+            application_id: validAppId,
             $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
           }
         : {
-            application_id: invoiceData.application_id,
+            application_id: validAppId,
             $or: [
               { invoice_type: 'initial' },
               { invoice_type: { $exists: false } },
@@ -128,7 +183,7 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
 
         // Clean up any other duplicate invoices of this type for this application
         await Invoice.deleteMany({
-          application_id: invoiceData.application_id,
+          application_id: validAppId,
           _id: { $ne: existingInvoice._id },
           ...typeQuery
         });
@@ -136,13 +191,13 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     }
 
     if (!data) {
-      invoiceData.invoice_number = invoiceData.invoice_number || generateHfaId(companyForId);
+      invoiceData.invoice_number = invoiceData.invoice_number || (typeof generateHfaId === 'function' ? generateHfaId(companyForId, 'IN') : `HFA-INV-${Date.now()}`);
       const invoice = new Invoice(invoiceData);
       data = await invoice.save();
     }
 
     // Update application status
-    if (invoiceData.application_id) {
+    if (validAppId) {
       const targetStatus = isFinal ? 'final_invoice_sent' : 'invoice_sent';
       const histEntry = {
         status: targetStatus,
@@ -152,7 +207,7 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
           ? `Revised ${isFinal ? 'Final ' : 'Initial '}Invoice issued: ${data.invoice_number} (Amount: £${data.amount}, v${data.version || 1})`
           : `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
       };
-      const updatedApp = await Application.findByIdAndUpdate(invoiceData.application_id, {
+      const updatedApp = await Application.findByIdAndUpdate(validAppId, {
         status: targetStatus,
         updated_at: new Date(),
         $push: { statusHistory: histEntry }
@@ -162,39 +217,48 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
 
     // Send Email Notification
     try {
-      const clientUser = await User.findById(data.client_id);
-      if (clientUser?.email) {
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
-          to: clientUser.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
-          subject: isRevision
-            ? `HFA Revised Invoice Issued: ${data.invoice_number}`
-            : `HFA Invoice Issued: ${data.invoice_number}`,
-          html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2>${isRevision ? 'Revised Invoice Issued' : 'Invoice Issued'}</h2>
-            <p>Dear ${clientUser.full_name || 'Client'},</p>
-            <p>${isRevision ? 'A revised invoice' : 'Invoice'} <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
-            <p>Please log in to your HFA Portal account to view and process payment.</p>
-          </div>`
-        });
+      if (data.client_id && mongoose.isValidObjectId(data.client_id.toString())) {
+        const clientUser = await User.findById(data.client_id);
+        if (clientUser?.email) {
+          const superadminBcc = await getSuperadminEmails();
+          await resend.emails.send({
+            from: emailFrom,
+            to: clientUser.email,
+            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
+            subject: isRevision
+              ? `HFA Revised Invoice Issued: ${data.invoice_number}`
+              : `HFA Invoice Issued: ${data.invoice_number}`,
+            html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+              <h2>${isRevision ? 'Revised Invoice Issued' : 'Invoice Issued'}</h2>
+              <p>Dear ${clientUser.full_name || 'Client'},</p>
+              <p>${isRevision ? 'A revised invoice' : 'Invoice'} <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
+              <p>Please log in to your HFA Portal account to view and process payment.</p>
+            </div>`
+          });
+        }
       }
     } catch (e) {
       console.error('Invoice Resend Email error:', e.message);
     }
 
     // Notify Client
-    await createNotification(
-      data.client_id,
-      isRevision ? 'Revised Invoice Issued 🧾' : 'Invoice Issued 🧾',
-      `A ${isRevision ? 'revised ' : ''}invoice (${data.invoice_number}) has been issued for your application. Amount: £${data.amount}. Please review and confirm payment.`,
-      'warning',
-      '/invoices'
-    );
+    if (data.client_id) {
+      try {
+        await createNotification(
+          data.client_id,
+          isRevision ? 'Revised Invoice Issued 🧾' : 'Invoice Issued 🧾',
+          `A ${isRevision ? 'revised ' : ''}invoice (${data.invoice_number}) has been issued for your application. Amount: £${data.amount}. Please review and confirm payment.`,
+          'warning',
+          '/invoices'
+        );
+      } catch (notifErr) {
+        console.error('Invoice notification error:', notifErr.message);
+      }
+    }
 
     res.status(isRevision ? 200 : 201).json({ data });
   } catch (err) {
+    console.error('[Invoices POST /] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -202,9 +266,14 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
 // PUT /api/invoices/:id — admin update
 router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid invoice ID' });
+    }
     const data = await Invoice.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!data) return res.status(404).json({ error: 'Invoice not found' });
     res.json({ data });
   } catch (err) {
+    console.error('[Invoices PUT /:id] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -212,11 +281,22 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
 // PUT /api/invoices/:id/pay — client confirms payment (optionally uploads proof)
 router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid invoice ID' });
+    }
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-    // Only the invoice owner or admin can mark as paid
-    if (!['admin', 'superadmin'].includes(req.user.role) && invoice.client_id !== req.user._id.toString()) {
+    // Only the invoice owner or admin/staff can mark as paid
+    const isStaffOrAdmin = [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'staff', 'support_manager'
+    ].includes(req.user?.role) || (Array.isArray(req.user?.roles) && req.user.roles.some(r => [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
+      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'staff', 'support_manager'
+    ].includes(r)));
+
+    if (!isStaffOrAdmin && invoice.client_id?.toString() !== req.user._id?.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -235,7 +315,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
     const data = await invoice.save();
 
     // Ensure Application status is advanced to invoice_sent if it was on nc_closed / audit_report_submitted
-    if (invoice.application_id) {
+    if (invoice.application_id && mongoose.isValidObjectId(invoice.application_id.toString())) {
       try {
         const app = await Application.findById(invoice.application_id);
         if (app && ['nc_closed', 'audit_report_submitted', 'audit_completed', 'audit_successful'].includes(app.status)) {
@@ -258,20 +338,24 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
     }
 
     // Notify admins
-    const { default: User } = await import('../models/User.js');
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
-    for (const admin of admins) {
-      await createNotification(
-        admin._id,
-        'Payment Confirmed 💰',
-        `Client has confirmed payment for invoice ${invoice.invoice_number}.`,
-        'success',
-        '/invoices'
-      );
+    try {
+      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech', 'accountant'] } });
+      for (const admin of admins) {
+        await createNotification(
+          admin._id,
+          'Payment Confirmed 💰',
+          `Client has confirmed payment for invoice ${invoice.invoice_number}.`,
+          'success',
+          '/invoices'
+        );
+      }
+    } catch (notifErr) {
+      console.error('Admin payment notification error:', notifErr);
     }
 
     res.json({ data });
   } catch (err) {
+    console.error('[Invoices PUT /:id/pay] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -287,10 +371,10 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
 
   let updatedApp = null;
   const targetAppId = invoice.application_id;
-  if (targetAppId) {
-    const isFinal = invoice.invoice_type === 'final' || invoice.stage === 'final';
-    const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
+  const isFinal = invoice.invoice_type === 'final' || invoice.stage === 'final';
+  const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
 
+  if (targetAppId && mongoose.isValidObjectId(targetAppId.toString())) {
     const histEntry = {
       status: targetStatus,
       changedAt: new Date(),
@@ -318,18 +402,32 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
       { new: true }
     );
     if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+
+    try {
+      const Audit = (await import('../models/Audit.js')).default;
+      await Audit.updateMany(
+        { application_id: targetAppId },
+        { $set: { updated_at: new Date() } }
+      );
+    } catch (auditErr) {
+      console.error('Error updating audit timestamp on payment confirmation:', auditErr);
+    }
   }
 
   // Notify the client
   const clientId = invoice.client_id || updatedApp?.client_id;
   if (clientId) {
-    await createNotification(
-      clientId,
-      'Payment Confirmed ✅',
-      `Your payment for invoice ${invoice.invoice_number} has been confirmed by HFA. Your application will now proceed to the next stage.`,
-      'success',
-      '/applications'
-    );
+    try {
+      await createNotification(
+        clientId,
+        'Payment Confirmed ✅',
+        `Your payment for invoice ${invoice.invoice_number} has been confirmed by HFA. Your application will now proceed to the next stage.`,
+        'success',
+        '/applications'
+      );
+    } catch (notifErr) {
+      console.error('Client payment notification error:', notifErr.message);
+    }
   }
 
   // Email all Food Technology Managers & Superadmins — professional notification on initial payment confirmation
@@ -338,8 +436,8 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
     if (!isFinalInvoice) {
       const staffRecipients = await User.find({
         $or: [
-          { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } },
-          { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } }
+          { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } },
+          { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } }
         ],
         is_active: { $ne: false }
       }).lean();
@@ -349,94 +447,98 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
       const invoiceAmount = invoice.amount ? `£${Number(invoice.amount).toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : 'N/A';
       const invoiceType = 'Initial Certification Fee';
 
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #15803d 0%, #166534 100%); padding: 28px 32px; text-align: center;">
-          <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
-          <p style="margin: 6px 0 0; color: #bbf7d0; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology & Superadmin</p>
-        </div>
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #15803d 0%, #166534 100%); padding: 28px 32px; text-align: center;">
+            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
+            <p style="margin: 6px 0 0; color: #bbf7d0; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology & Superadmin</p>
+          </div>
 
-        <!-- Body -->
-        <div style="padding: 32px; background: #ffffff;">
-          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
-            <div style="width: 44px; height: 44px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px;">💰</div>
-            <div>
-              <h2 style="margin: 0; font-size: 18px; font-weight: 800; color: #14532d;">Initial Payment Confirmed</h2>
-              <p style="margin: 2px 0 0; font-size: 13px; color: #64748b;">Action may be required — please review below</p>
+          <!-- Body -->
+          <div style="padding: 32px; background: #ffffff;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+              <div style="width: 44px; height: 44px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px;">💰</div>
+              <div>
+                <h2 style="margin: 0; font-size: 18px; font-weight: 800; color: #14532d;">Initial Payment Confirmed</h2>
+                <p style="margin: 2px 0 0; font-size: 13px; color: #64748b;">Action may be required — please review below</p>
+              </div>
+            </div>
+
+            <p style="margin: 0 0 20px; font-size: 14px; color: #334155; line-height: 1.7;">
+              An initial certification payment has been <strong>confirmed and verified</strong> by the HFA Finance team. The client is now ready to proceed with Initial Product submission and evaluation.
+            </p>
+
+            <!-- Details Table -->
+            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; margin-bottom: 24px; border: 1px solid #e2e8f0;">
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; width: 40%;">Application No.</td>
+                <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #0f172a;">${appRef}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Client / Establishment</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${clientName}</td>
+              </tr>
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Certification Category</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${appCategory}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Invoice</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${invoice.invoice_number || 'N/A'} — ${invoiceType}</td>
+              </tr>
+              <tr style="background: #f1f5f9;">
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Amount Paid</td>
+                <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #15803d;">${invoiceAmount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Confirmed At</td>
+                <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${new Date().toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+              </tr>
+            </table>
+
+            <!-- Action Box -->
+            <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #15803d;">📋 Next Steps for Food Technology & Executive Team</p>
+              <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #166534; line-height: 1.8;">
+                <li>The client will now submit their <strong>Initial Product</strong> for evaluation.</li>
+                <li>Once submitted, a separate notification will be sent for product assignment.</li>
+                <li>Please monitor the HFA Admin Portal for new Initial Product submissions linked to this application.</li>
+              </ul>
+            </div>
+
+            <div style="text-align: center;">
+              <a href="${process.env.ADMIN_URL || 'https://admin.hfaportal.company'}/applications"
+                 style="display: inline-block; background: linear-gradient(135deg, #15803d, #166534); color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.01em;">
+                View in Admin Portal →
+              </a>
             </div>
           </div>
 
-          <p style="margin: 0 0 20px; font-size: 14px; color: #334155; line-height: 1.7;">
-            An initial certification payment has been <strong>confirmed and verified</strong> by the HFA Finance team. The client is now ready to proceed with Initial Product submission and evaluation.
-          </p>
-
-          <!-- Details Table -->
-          <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; margin-bottom: 24px; border: 1px solid #e2e8f0;">
-            <tr style="background: #f1f5f9;">
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; width: 40%;">Application No.</td>
-              <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #0f172a;">${appRef}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Client / Establishment</td>
-              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${clientName}</td>
-            </tr>
-            <tr style="background: #f1f5f9;">
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Certification Category</td>
-              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${appCategory}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Invoice</td>
-              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${invoice.invoice_number || 'N/A'} — ${invoiceType}</td>
-            </tr>
-            <tr style="background: #f1f5f9;">
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Amount Paid</td>
-              <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #15803d;">${invoiceAmount}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Confirmed At</td>
-              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${new Date().toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-            </tr>
-          </table>
-
-          <!-- Action Box -->
-          <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
-            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #15803d;">📋 Next Steps for Food Technology & Executive Team</p>
-            <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #166534; line-height: 1.8;">
-              <li>The client will now submit their <strong>Initial Product</strong> for evaluation.</li>
-              <li>Once submitted, a separate notification will be sent for product assignment.</li>
-              <li>Please monitor the HFA Admin Portal for new Initial Product submissions linked to this application.</li>
-            </ul>
-          </div>
-
-          <div style="text-align: center;">
-            <a href="${process.env.ADMIN_URL || 'https://admin.hfaportal.company'}/applications"
-               style="display: inline-block; background: linear-gradient(135deg, #15803d, #166534); color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.01em;">
-              View in Admin Portal →
-            </a>
+          <!-- Footer -->
+          <div style="padding: 18px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+            <p style="margin: 0; font-size: 11px; color: #94a3b8;">This is an automated internal notification from the HFA Portal. Do not reply to this email.</p>
+            <p style="margin: 4px 0 0; font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} Halal Food Authority. All rights reserved.</p>
           </div>
         </div>
+      `;
 
-        <!-- Footer -->
-        <div style="padding: 18px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
-          <p style="margin: 0; font-size: 11px; color: #94a3b8;">This is an automated internal notification from the HFA Portal. Do not reply to this email.</p>
-          <p style="margin: 4px 0 0; font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} Halal Food Authority. All rights reserved.</p>
-        </div>
-      </div>
-    `;
-
-    for (const staff of staffRecipients) {
-      if (staff.email) {
-        await resend.emails.send({
-          from: emailFrom,
-          to: staff.email.trim(),
-          subject: `[HFA] Initial Payment Confirmed — ${appRef} | ${clientName}`,
-          html: emailHtml
-        });
+      for (const staff of staffRecipients) {
+        if (staff.email) {
+          try {
+            await resend.emails.send({
+              from: emailFrom,
+              to: staff.email.trim(),
+              subject: `[HFA] Initial Payment Confirmed — ${appRef} | ${clientName}`,
+              html: emailHtml
+            });
+          } catch (sendErr) {
+            console.warn(`Failed to email staff ${staff.email}:`, sendErr.message);
+          }
+        }
       }
     }
-  }
-} catch (ftEmailErr) {
+  } catch (ftEmailErr) {
     console.error('[Invoices] Failed to send payment confirmation email:', ftEmailErr.message);
   }
 
@@ -449,10 +551,10 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
     const { application_id, invoice_id } = req.body;
     let invoice = null;
 
-    if (invoice_id) {
+    if (invoice_id && mongoose.isValidObjectId(invoice_id)) {
       invoice = await Invoice.findById(invoice_id);
     }
-    if (!invoice && application_id) {
+    if (!invoice && application_id && mongoose.isValidObjectId(application_id)) {
       invoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
     }
 
@@ -466,7 +568,7 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
     }
 
     // Fallback if invoice was not found but application_id was provided
-    if (application_id) {
+    if (application_id && mongoose.isValidObjectId(application_id)) {
       const targetStatus = 'payment_received';
       const histEntry = {
         status: targetStatus,
@@ -488,6 +590,8 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
       if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
       return res.json({ data: null, application: updatedApp });
     }
+
+    return res.status(404).json({ error: 'Invoice or application not found' });
   } catch (err) {
     console.error('Error confirming payment:', err);
     res.status(500).json({ error: err.message });
@@ -497,6 +601,9 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
 // Handler for single invoice confirmation
 const handleConfirmInvoiceById = async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid invoice ID' });
+    }
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
@@ -517,6 +624,9 @@ router.patch('/:id/confirm-payment', authenticateToken, requireAdmin, handleConf
 // PUT /api/invoices/:id/status — status change handler with support for 'paid'
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid invoice ID' });
+    }
     const { status } = req.body;
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -531,6 +641,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     const saved = await invoice.save();
     res.json({ data: saved });
   } catch (err) {
+    console.error('[Invoices PUT /:id/status] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -165,18 +165,43 @@ router.post('/', authenticateToken, async (req, res) => {
       'ready_for_certificate'
     ].includes(app.status?.toLowerCase());
 
+    const isPaymentConfirmed = app.initial_payment_confirmed === true || [
+      'payment_received',
+      'initial_product',
+      'initial_product_approved',
+      'dates_proposed',
+      'dates_rejected',
+      'dates_accepted',
+      'date_finalized',
+      'audit_assigned',
+      'audit_successful',
+      'audit_completed',
+      'nc_flagged',
+      'nc_closed',
+      'logsheet_created',
+      'logsheet_signed',
+      'application_successful',
+      'agreement_sent',
+      'agreement_signed',
+      'agreement_finalised',
+      'final_invoice_sent',
+      'final_invoice_paid',
+      'ready_for_certificate',
+      'certificate_issued'
+    ].includes(app.status?.toLowerCase());
+
     const paidInvoice = await Invoice.findOne({
       $or: [
         { application_id: app._id },
-        { application_id: String(app._id) },
-        { client_id: String(req.user._id) }
+        { application_id: String(app._id) }
       ],
-      status: { $in: ['paid', 'client_paid', 'settled'] }
+      invoice_type: { $ne: 'final' },
+      status: { $in: ['paid', 'settled'] }
     });
 
-    if (!isAppStatusValid && !paidInvoice) {
+    if (!isPaymentConfirmed && !paidInvoice) {
       return res.status(400).json({
-        error: 'Initial Product can only be submitted after your Initial Certification Invoice has been confirmed by HFA.'
+        error: 'Initial Product can only be submitted after your Initial Certification Invoice payment has been confirmed by HFA.'
       });
     }
 

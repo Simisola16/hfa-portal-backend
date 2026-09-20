@@ -443,6 +443,9 @@ const handleClientAuditDateResponse = async (req, res) => {
     }
 
     if (unavailable) {
+      if (!noteText) {
+        return res.status(400).json({ error: 'Please provide your alternative availability dates or notes when declining proposed audit dates.' });
+      }
       audit.client_unavailable = true;
       audit.client_availability_note = noteText;
       audit.status = 'dates_rejected';
@@ -451,15 +454,14 @@ const handleClientAuditDateResponse = async (req, res) => {
       const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
         status: 'dates_rejected',
         client_audit_availability_note: noteText,
+        client_availability_note: noteText,
         updated_at: new Date(),
         $push: {
           statusHistory: {
             status: 'dates_rejected',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: noteText
-              ? `Client rejected proposed audit dates. Alternative availability: ${noteText}`
-              : 'Client rejected proposed audit dates.',
+            note: `Client rejected proposed audit dates. Alternative availability: ${noteText}`,
           }
         }
       }, { new: true });
