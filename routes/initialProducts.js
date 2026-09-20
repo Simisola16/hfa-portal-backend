@@ -336,19 +336,25 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
       ? { $in: [new mongoose.Types.ObjectId(clientId), String(clientId)] }
       : String(clientId);
 
+    const UNCONFIRMED_STATUSES = [
+      'created', 'draft', 'submitted', 'under_review', 'approved',
+      'proposal_sent', 'proposal_rejected', 'proposal_approved',
+      'invoice_sent', 'rejected', 'on_hold', 'certificate_issued'
+    ];
+
     const apps = await Application.find({
       client_id: clientQuery,
       application_type: { $nin: ['renewal', 'surveillance'] },
-      status: { $nin: ['rejected', 'on_hold', 'certificate_issued'] }
+      status: { $nin: UNCONFIRMED_STATUSES }
     }).populate('site_id', 'name address city').lean();
 
-    // Check which apps have confirmed initial invoices
+    // Check which apps have confirmed initial invoices (must be 'paid' or 'settled', NOT 'client_paid')
     const appIds = apps.map(a => a._id);
     const appIdsStrings = appIds.map(a => String(a));
 
     const paidInvoices = await Invoice.find({
       application_id: { $in: [...appIds, ...appIdsStrings] },
-      status: { $in: ['paid', 'client_paid', 'settled'] }
+      status: { $in: ['paid', 'settled'] }
     }).lean();
 
     const paidAppIds = new Set(paidInvoices.map(inv => String(inv.application_id?._id || inv.application_id)).filter(Boolean));
@@ -360,7 +366,8 @@ router.get('/eligible-applications', authenticateToken, async (req, res) => {
     const existingAppIds = new Set(existingInitialProducts.map(ip => String(ip.application_id?._id || ip.application_id)).filter(Boolean));
 
     const VALID_PAID_STATUSES = [
-      'payment_received', 'initial_payment_received',
+      'payment_received', 'initial_payment_received', 'payment_confirmed',
+      'initial_product_processing', 'initial_product_approved',
       'dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized',
       'audit_assigned', 'audit_scheduled', 'auditor_assigned', 'audit_in_progress',
       'audit_successful', 'audit_completed', 'audit_report_submitted',
