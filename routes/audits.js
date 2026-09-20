@@ -426,10 +426,13 @@ router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) 
 });
 
 // POST /api/audits/select-dates (Client)
-router.post('/select-dates', authenticateToken, async (req, res) => {
+const handleClientAuditDateResponse = async (req, res) => {
   try {
-    const { audit_id, selected_dates, unavailable } = req.body;
-    const audit = await Audit.findById(audit_id);
+    const auditId = req.body.audit_id || req.params.id;
+    const { selected_dates, unavailable, remarks, client_availability_note } = req.body;
+    const noteText = (client_availability_note || remarks || '').trim();
+
+    const audit = await Audit.findById(auditId);
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
     if (audit.client_id !== req.user._id.toString()) {
@@ -438,38 +441,44 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
 
     if (unavailable) {
       audit.client_unavailable = true;
+      audit.client_availability_note = noteText;
       audit.status = 'dates_rejected';
       await audit.save();
 
-        const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
-          status: 'dates_rejected',
-          updated_at: new Date(),
-          $push: {
-            statusHistory: {
-              status: 'dates_rejected',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: 'Client rejected proposed audit dates.',
-            }
+      const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
+        status: 'dates_rejected',
+        client_audit_availability_note: noteText,
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'dates_rejected',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: noteText
+              ? `Client rejected proposed audit dates. Alternative availability: ${noteText}`
+              : 'Client rejected proposed audit dates.',
           }
-        }, { new: true });
-        if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
+        }
+      }, { new: true });
+      if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
       
       const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
       for (const admin of admins) {
         await createNotification(
           admin._id,
           'Audit Dates Rejected ❌',
-          `Client is unavailable on the proposed audit dates. Please propose 3 new dates.`,
+          `Client is unavailable on the proposed audit dates.${noteText ? ` Proposed availability: "${noteText}".` : ''} Please propose 3 new dates.`,
           'warning',
-          '/applications'
+          `/applications/${audit.application_id}/processing`
         );
       }
+      return res.json({ data: audit, application: updatedApp });
     } else {
       if (!selected_dates || selected_dates.length !== 2) {
         return res.status(400).json({ error: 'Must select exactly 2 dates' });
       }
       audit.selected_dates = selected_dates;
+      audit.client_unavailable = false;
       audit.status = 'dates_accepted';
       await audit.save();
 
@@ -503,7 +512,11 @@ router.post('/select-dates', authenticateToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+router.post('/select-dates', authenticateToken, handleClientAuditDateResponse);
+router.post('/:id/respond-dates', authenticateToken, handleClientAuditDateResponse);
+router.post('/respond-dates/:id', authenticateToken, handleClientAuditDateResponse);
 
 // POST /api/audits/finalize-date (Admin picks 1 final date from client's 2)
 router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) => {

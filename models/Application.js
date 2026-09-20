@@ -63,6 +63,7 @@ const applicationSchema = new mongoose.Schema({
   initial_invoice_paid: { type: Boolean, default: false },
   final_payment_confirmed: { type: Boolean, default: false },
   final_invoice_paid: { type: Boolean, default: false },
+  client_audit_availability_note: { type: String, default: '' },
   logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet', default: null },
   surveillance_letter_data: { type: mongoose.Schema.Types.Mixed },
   renewed_certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', default: null },
