@@ -41,6 +41,7 @@ const auditSchema = new mongoose.Schema({
 
   // If the client rejects the dates
   client_unavailable: { type: Boolean, default: false },
+  client_availability_note: { type: String, default: '' },
 
   // The 2 dates chosen by the client
   selected_dates: [{ type: Date }],
