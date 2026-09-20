@@ -330,6 +330,108 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
     );
   }
 
+  // Email all Food Technology Managers — professional notification on initial payment confirmation
+  try {
+    const isFinalInvoice = invoice.invoice_type === 'final' || invoice.stage === 'final' || targetStatus === 'final_invoice_paid';
+    if (!isFinalInvoice) {
+      const ftManagers = await User.find({ role: { $in: ['food_tech_manager', 'food_tech'] }, is_active: { $ne: false } }).lean();
+      const appRef = updatedApp?.application_number || invoice.invoice_number || 'N/A';
+      const clientName = updatedApp?.establishment_name || updatedApp?.site_name || 'Client';
+      const appCategory = updatedApp?.category || 'Standard Halal Certification';
+      const invoiceAmount = invoice.amount ? `£${Number(invoice.amount).toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : 'N/A';
+      const invoiceType = 'Initial Certification Fee';
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #15803d 0%, #166534 100%); padding: 28px 32px; text-align: center;">
+          <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
+          <p style="margin: 6px 0 0; color: #bbf7d0; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology Team</p>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 32px; background: #ffffff;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+            <div style="width: 44px; height: 44px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px;">💰</div>
+            <div>
+              <h2 style="margin: 0; font-size: 18px; font-weight: 800; color: #14532d;">Initial Payment Confirmed</h2>
+              <p style="margin: 2px 0 0; font-size: 13px; color: #64748b;">Action may be required — please review below</p>
+            </div>
+          </div>
+
+          <p style="margin: 0 0 20px; font-size: 14px; color: #334155; line-height: 1.7;">
+            An initial certification payment has been <strong>confirmed and verified</strong> by the HFA Finance team. The client is now ready to proceed with Initial Product submission and evaluation.
+          </p>
+
+          <!-- Details Table -->
+          <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; margin-bottom: 24px; border: 1px solid #e2e8f0;">
+            <tr style="background: #f1f5f9;">
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; width: 40%;">Application No.</td>
+              <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #0f172a;">${appRef}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Client / Establishment</td>
+              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${clientName}</td>
+            </tr>
+            <tr style="background: #f1f5f9;">
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Certification Category</td>
+              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${appCategory}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Invoice</td>
+              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${invoice.invoice_number || 'N/A'} — ${invoiceType}</td>
+            </tr>
+            <tr style="background: #f1f5f9;">
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Amount Paid</td>
+              <td style="padding: 10px 16px; font-size: 14px; font-weight: 700; color: #15803d;">${invoiceAmount}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 16px; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Confirmed At</td>
+              <td style="padding: 10px 16px; font-size: 14px; color: #1e293b;">${new Date().toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+            </tr>
+          </table>
+
+          <!-- Action Box -->
+          <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
+            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #15803d;">📋 Next Steps for Food Technology Team</p>
+            <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #166534; line-height: 1.8;">
+              <li>The client will now submit their <strong>Initial Product</strong> for evaluation.</li>
+              <li>Once submitted, a separate notification will be sent for product assignment.</li>
+              <li>Please monitor the HFA Admin Portal for new Initial Product submissions linked to this application.</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center;">
+            <a href="${process.env.ADMIN_URL || 'https://admin.hfaportal.company'}/applications"
+               style="display: inline-block; background: linear-gradient(135deg, #15803d, #166534); color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.01em;">
+              View in Admin Portal →
+            </a>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 18px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+          <p style="margin: 0; font-size: 11px; color: #94a3b8;">This is an automated internal notification from the HFA Portal. Do not reply to this email.</p>
+          <p style="margin: 4px 0 0; font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} Halal Food Authority. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+
+    for (const ft of ftManagers) {
+      if (ft.email) {
+        await resend.emails.send({
+          from: emailFrom,
+          to: ft.email.trim(),
+          subject: `[HFA] Initial Payment Confirmed — ${appRef} | ${clientName}`,
+          html: emailHtml
+        });
+      }
+    }
+  }
+} catch (ftEmailErr) {
+    console.error('[Invoices] Failed to send FT Manager payment email:', ftEmailErr.message);
+  }
+
   return { invoice: savedInvoice, application: updatedApp };
 };
 
