@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import QRCode from 'qrcode';
+import { getClientUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,7 +87,7 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
   const formattedIssueShort = formatShortDate(issue_date);
   const formattedNextDueShort = formatShortDate(next_due_date);
 
-  const qrTarget = verification_url || `${process.env.FRONTEND_CLIENT_URL || 'https://hfaportal.company'}/verify/${letter_number}`;
+  const qrTarget = verification_url || `${getClientUrl()}/verify/${letter_number}`;
   const qrCodeBase64 = await generateQRCode(qrTarget);
 
   // Default body paragraphs if none provided

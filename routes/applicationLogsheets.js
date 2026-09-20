@@ -9,6 +9,7 @@ import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId, normalizeHfaTypeCode } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
+import { getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -50,7 +51,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, cust
     return { sent: 0, failed: 0 };
   }
 
-  const loginUrl = `${adminUrl || process.env.ADMIN_URL || 'http://localhost:5175'}/login`;
+  const loginUrl = `${adminUrl || getAdminUrl()}/login`;
   const companyName = logsheet.company_name || 'the applicant company';
   const appRef = applicationNumber || 'N/A';
   const issueDate = logsheet.issue_date
@@ -334,7 +335,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
     // Send signatory notification emails
     let emailNote = '';
     if (send_signatory_notifications) {
-      const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+      const adminUrl = getAdminUrl();
       const emailResult = await sendSignatoryEmails({
         logsheet,
         applicationNumber: directRef,
@@ -479,7 +480,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     if (app) emitApplicationUpdate(app, 'logsheet_created');
 
     // Send signatory email notifications
-    const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+    const adminUrl = getAdminUrl();
     const emailResult = await sendSignatoryEmails({
       logsheet,
       applicationNumber: app?.application_number,
@@ -853,7 +854,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                       ]
                     });
                     const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
-                    const adminBaseUrl = process.env.ADMIN_URL || 'https://admin.hfaportal.company';
+                    const adminBaseUrl = getAdminUrl();
                     for (const mgr of recipients) {
                       if (mgr.email) {
                         await resend.emails.send({
@@ -1120,7 +1121,7 @@ router.post('/:id/resend-emails', authenticateToken, requireAdmin, async (req, r
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
     const applicationNumber = logsheet.application_id?.application_number;
-    const adminUrl = process.env.ADMIN_URL || 'http://localhost:5175';
+    const adminUrl = getAdminUrl();
 
     let customEmails = [];
     if (req.body.emails) {

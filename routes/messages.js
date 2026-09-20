@@ -7,6 +7,7 @@ import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitToUser, emitToAdmins, emitToClients } from '../lib/socket.js';
+import { getClientUrl } from '../lib/urls.js';
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -300,7 +301,7 @@ router.post('/', authenticateToken, async (req, res) => {
       }
 
       // Email notifications to all clients via Resend
-      const frontendClientUrl = process.env.FRONTEND_CLIENT_URL || 'https://client.hfaportal.company';
+      const frontendClientUrl = getClientUrl();
       const clientsWithEmail = clients.filter(c => c.email && c.email.includes('@'));
 
       let emailsDispatched = 0;
@@ -404,7 +405,7 @@ router.post('/', authenticateToken, async (req, res) => {
           try {
             const targetClient = await User.findById(recipient_id);
             if (targetClient?.email) {
-              const frontendClientUrl = process.env.FRONTEND_CLIENT_URL || 'https://client.hfaportal.company';
+              const frontendClientUrl = getClientUrl();
               await resend.emails.send({
                 from: emailFrom,
                 to: targetClient.email,
