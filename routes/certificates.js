@@ -51,7 +51,7 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
           invoice_status: renewalInvoice.status
         });
       }
-      if (!['ready_for_certificate', 'certificate_issued', 'application_successful'].includes(app.status)) {
+      if (!['ready_for_certificate', 'certificate_issued', 'application_successful', 'payment_received', 'final_invoice_paid'].includes(app.status)) {
         return res.status(403).json({
           error: 'Application must be marked "Application Successful" or "Ready for Certificate" before issuing a certificate.',
           code: 'READY_FOR_CERTIFICATE_REQUIRED',
@@ -72,7 +72,7 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       });
     }
 
-    if (!['ready_for_certificate', 'certificate_issued', 'application_successful'].includes(app.status)) {
+    if (!['final_invoice_paid', 'ready_for_certificate', 'certificate_issued', 'application_successful'].includes(app.status)) {
       return res.status(403).json({
         error: 'Application must be marked "Ready for Certificate" or "Application Successful" before issuing a certificate.',
         code: 'READY_FOR_CERTIFICATE_REQUIRED',
