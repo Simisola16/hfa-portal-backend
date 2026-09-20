@@ -287,12 +287,16 @@ router.post('/login', async (req, res) => {
 router.post('/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    // Look up by username or email for staff accounts
+    // Look up by username or email for staff accounts (case-insensitive)
     const searchVal = username?.trim();
+    if (!searchVal) {
+      return res.status(401).json({ error: 'Username or email is required' });
+    }
+    const escapedVal = searchVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({
       $or: [
-        { username: searchVal },
-        { email: searchVal?.toLowerCase() }
+        { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+        { email: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
       ]
     });
 
