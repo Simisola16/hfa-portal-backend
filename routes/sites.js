@@ -9,8 +9,40 @@ router.get('/', authenticateToken, async (req, res) => {
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
     }
-    const data = await Site.find(query).sort({ created_at: -1 });
+    const sites = await Site.find(query)
+      .populate('client_id', 'company_name full_name email phone address')
+      .sort({ created_at: -1 });
+
+    const data = sites.map(s => {
+      const obj = s.toObject ? s.toObject() : { ...s };
+      const client = obj.client_id && typeof obj.client_id === 'object' ? obj.client_id : null;
+      obj.profiles = {
+        company_name: client?.company_name || obj.est_name || obj.trading_name || client?.full_name || '—',
+        full_name: client?.full_name || '',
+        email: client?.email || ''
+      };
+      return obj;
+    });
+
     res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const site = await Site.findById(req.params.id)
+      .populate('client_id', 'company_name full_name email phone address');
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    const obj = site.toObject ? site.toObject() : { ...site };
+    const client = obj.client_id && typeof obj.client_id === 'object' ? obj.client_id : null;
+    obj.profiles = {
+      company_name: client?.company_name || obj.est_name || obj.trading_name || client?.full_name || '—',
+      full_name: client?.full_name || '',
+      email: client?.email || ''
+    };
+    res.json({ data: obj });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
