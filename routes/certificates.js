@@ -17,6 +17,7 @@ import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { getClientUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -1087,9 +1088,11 @@ async function performCertificateIssuance({ certificate, application_id, client_
     const client = await User.findById(client_id);
     if (client && client.email) {
       try {
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: client.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `🏅 Your Halal Certificate is Ready – ${certNo}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -2056,9 +2059,11 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     if (send_email !== 'false' && send_email !== false && targetClient.email) {
       try {
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: targetClient.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `🏅 Official Halal Certificate Issued – ${certNumber}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">

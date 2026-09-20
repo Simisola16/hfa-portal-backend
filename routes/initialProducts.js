@@ -14,6 +14,7 @@ import { Resend } from 'resend';
 import { uploadToGridFS } from '../lib/gridfs.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -50,9 +51,11 @@ function emitInitialProductUpdate(data, action) {
 async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
   if (!contactEmail) return;
   try {
+    const superadminBcc = await getSuperadminEmails();
     await resend.emails.send({
       from: emailFrom,
       to: contactEmail,
+      ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
       subject,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
@@ -225,9 +228,15 @@ router.post('/', authenticateToken, async (req, res) => {
       `${req.user.company_name || req.user.full_name} submitted Initial Product "${product.name.trim()}" for application #${app.application_number}.`
     );
 
-    // Email all Food Technology Managers — professional notification
+    // Email all Food Technology Managers & Superadmins — professional notification
     try {
-      const ftManagers = await User.find({ role: { $in: ['food_tech_manager', 'food_tech'] }, is_active: { $ne: false } }).lean();
+      const staffRecipients = await User.find({
+        $or: [
+          { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } },
+          { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } }
+        ],
+        is_active: { $ne: false }
+      }).lean();
       const clientName = req.user.company_name || req.user.full_name || 'Client';
       const appRef = app.application_number || 'N/A';
       const appCategory = app.category || 'Standard Halal Certification';
@@ -238,7 +247,7 @@ router.post('/', authenticateToken, async (req, res) => {
           <!-- Header -->
           <div style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); padding: 28px 32px; text-align: center;">
             <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
-            <p style="margin: 6px 0 0; color: #ddd6fe; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology Team</p>
+            <p style="margin: 6px 0 0; color: #ddd6fe; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology & Superadmin</p>
           </div>
 
           <!-- Body -->
@@ -297,7 +306,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
             <!-- Action Box -->
             <div style="background: #faf5ff; border: 1.5px solid #ddd6fe; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
-              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #6d28d9;">📋 Required Actions — Food Technology Team</p>
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #6d28d9;">📋 Required Actions — Food Technology & Executive Team</p>
               <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #5b21b6; line-height: 1.8;">
                 <li>Log in to the HFA Admin Portal and navigate to <strong>Initial Products</strong>.</li>
                 <li>Review the submitted product details, ingredients, and specifications.</li>
@@ -321,18 +330,18 @@ router.post('/', authenticateToken, async (req, res) => {
         </div>
       `;
 
-      for (const ft of ftManagers) {
-        if (ft.email) {
+      for (const staff of staffRecipients) {
+        if (staff.email) {
           await resend.emails.send({
             from: emailFrom,
-            to: ft.email.trim(),
+            to: staff.email.trim(),
             subject: `[HFA] Initial Product Submitted — ${appRef} | ${product.name.trim()}`,
             html: emailHtml
           });
         }
       }
     } catch (ftEmailErr) {
-      console.error('[InitialProduct] Failed to send FT Manager product submission email:', ftEmailErr.message);
+      console.error('[InitialProduct] Failed to send product submission email:', ftEmailErr.message);
     }
 
     // Email contact person
@@ -1019,8 +1028,10 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
     const data = await app.save();
     emitInitialProductUpdate(data, 'logsheet_created');
 
-    // Notify signatories
-    const addresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+    // Notify signatories & superadmins
+    const envAddresses = (process.env.LOGSHEET_SIGNATORY_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+    const superadminEmails = await getSuperadminEmails();
+    const addresses = Array.from(new Set([...envAddresses, ...superadminEmails]));
     const loginUrl = `${getAdminUrl()}/login`;
     if (addresses.length > 0) {
       for (const addr of addresses) {
@@ -1125,15 +1136,15 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
           await parentApp.save();
           emitApplicationUpdate(parentApp, parentApp.status);
 
-          // Email notification to Audit Managers
+          // Email notification to Audit Managers & Superadmins
           try {
-            const auditManagers = await User.find({
+            const recipients = await User.find({
               $or: [
-                { role: 'audit_manager' },
-                { roles: 'audit_manager' }
-              ]
+                { role: { $in: ['audit_manager', 'superadmin'] } },
+                { roles: { $in: ['audit_manager', 'superadmin'] } }
+              ],
+              is_active: { $ne: false }
             });
-            const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
             const adminBaseUrl = getAdminUrl();
             for (const mgr of recipients) {
               if (mgr.email) {

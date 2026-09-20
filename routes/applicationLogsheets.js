@@ -10,6 +10,7 @@ import { createNotification } from '../lib/notifications.js';
 import { generateHfaId, normalizeHfaTypeCode } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -45,6 +46,9 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, cust
   } else {
     addresses = getSignatoryEmails();
   }
+
+  const superadminEmails = await getSuperadminEmails();
+  addresses = Array.from(new Set([...addresses, ...superadminEmails]));
 
   if (addresses.length === 0) {
     console.warn('[Logsheet] No signatory email addresses provided or configured.');
@@ -847,13 +851,13 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
                   // Email notification to Audit Managers
                   try {
-                    const auditManagers = await User.find({
+                    const recipients = await User.find({
                       $or: [
-                        { role: 'audit_manager' },
-                        { roles: 'audit_manager' }
-                      ]
+                        { role: { $in: ['audit_manager', 'superadmin'] } },
+                        { roles: { $in: ['audit_manager', 'superadmin'] } }
+                      ],
+                      is_active: { $ne: false }
                     });
-                    const recipients = auditManagers.length > 0 ? auditManagers : await User.find({ role: { $in: ['admin', 'superadmin'] } });
                     const adminBaseUrl = getAdminUrl();
                     for (const mgr of recipients) {
                       if (mgr.email) {

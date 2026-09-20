@@ -14,6 +14,7 @@ import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { getClientUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -379,9 +380,11 @@ router.post('/', authenticateToken, upload.fields([
 
     // Send confirmation email
     try {
+      const superadminBcc = await getSuperadminEmails();
       await resend.emails.send({
         from: emailFrom,
         to: req.user.email,
+        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject: `Application Received – ${appNumber}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -804,9 +807,11 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       };
 
       try {
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: client.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Application Update – ${data.application_number}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -972,9 +977,11 @@ router.post('/renew', authenticateToken, upload.fields([
 
     // Confirmation email to client
     try {
+      const superadminBcc = await getSuperadminEmails();
       await resend.emails.send({
         from: emailFrom,
         to: req.user.email,
+        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject: `Renewal Application Received – ${appNumber}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">

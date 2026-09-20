@@ -6,9 +6,9 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
-import { generateHfaId } from '../lib/idGenerator.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -164,9 +164,11 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     try {
       const clientUser = await User.findById(data.client_id);
       if (clientUser?.email) {
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: isRevision
             ? `HFA Revised Invoice Issued: ${data.invoice_number}`
             : `HFA Invoice Issued: ${data.invoice_number}`,
@@ -330,11 +332,17 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
     );
   }
 
-  // Email all Food Technology Managers — professional notification on initial payment confirmation
+  // Email all Food Technology Managers & Superadmins — professional notification on initial payment confirmation
   try {
     const isFinalInvoice = invoice.invoice_type === 'final' || invoice.stage === 'final' || targetStatus === 'final_invoice_paid';
     if (!isFinalInvoice) {
-      const ftManagers = await User.find({ role: { $in: ['food_tech_manager', 'food_tech'] }, is_active: { $ne: false } }).lean();
+      const staffRecipients = await User.find({
+        $or: [
+          { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } },
+          { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } }
+        ],
+        is_active: { $ne: false }
+      }).lean();
       const appRef = updatedApp?.application_number || invoice.invoice_number || 'N/A';
       const clientName = updatedApp?.establishment_name || updatedApp?.site_name || 'Client';
       const appCategory = updatedApp?.category || 'Standard Halal Certification';
@@ -346,7 +354,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
         <!-- Header -->
         <div style="background: linear-gradient(135deg, #15803d 0%, #166534 100%); padding: 28px 32px; text-align: center;">
           <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Halal Food Authority</h1>
-          <p style="margin: 6px 0 0; color: #bbf7d0; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology Team</p>
+          <p style="margin: 6px 0 0; color: #bbf7d0; font-size: 13px; font-weight: 500;">Internal Notification — Food Technology & Superadmin</p>
         </div>
 
         <!-- Body -->
@@ -393,7 +401,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
 
           <!-- Action Box -->
           <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
-            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #15803d;">📋 Next Steps for Food Technology Team</p>
+            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #15803d;">📋 Next Steps for Food Technology & Executive Team</p>
             <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #166534; line-height: 1.8;">
               <li>The client will now submit their <strong>Initial Product</strong> for evaluation.</li>
               <li>Once submitted, a separate notification will be sent for product assignment.</li>
@@ -417,11 +425,11 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
       </div>
     `;
 
-    for (const ft of ftManagers) {
-      if (ft.email) {
+    for (const staff of staffRecipients) {
+      if (staff.email) {
         await resend.emails.send({
           from: emailFrom,
-          to: ft.email.trim(),
+          to: staff.email.trim(),
           subject: `[HFA] Initial Payment Confirmed — ${appRef} | ${clientName}`,
           html: emailHtml
         });
@@ -429,7 +437,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
     }
   }
 } catch (ftEmailErr) {
-    console.error('[Invoices] Failed to send FT Manager payment email:', ftEmailErr.message);
+    console.error('[Invoices] Failed to send payment confirmation email:', ftEmailErr.message);
   }
 
   return { invoice: savedInvoice, application: updatedApp };

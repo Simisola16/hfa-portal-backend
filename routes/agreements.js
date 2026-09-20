@@ -10,6 +10,7 @@ import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
+import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -126,9 +127,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
       const clientUser = await User.findById(data.client_id);
       if (clientUser && clientUser.email) {
         const clientPortalUrl = getClientUrl();
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Certification Agreement Sent — ${appNumber}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
@@ -253,8 +256,9 @@ router.put('/:id', authenticateToken, upload.fields([
         );
       }
 
-      // Send email notifications to HFA admin list (Phase 9 corrected variable)
-      const adminAddresses = getAdminNotificationEmails();
+      // Send email notifications to HFA admin list & superadmins (Phase 9 corrected variable)
+      const superadminEmails = await getSuperadminEmails();
+      const adminAddresses = Array.from(new Set([...getAdminNotificationEmails(), ...superadminEmails]));
       if (adminAddresses.length > 0) {
         const adminUrl = getAdminUrl();
         const emailHtml = `
@@ -375,9 +379,11 @@ router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('fin
       if (clientUser && clientUser.email) {
         const clientPortalUrl = getClientUrl();
         const appNumber = updatedApp ? updatedApp.application_number : 'N/A';
+        const superadminBcc = await getSuperadminEmails();
         await resend.emails.send({
           from: emailFrom,
           to: clientUser.email,
+          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Final Countersigned Agreement Sent — ${appNumber}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
