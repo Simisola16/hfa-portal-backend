@@ -733,6 +733,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       return res.status(400).json({ error: 'Site selection is compulsory. A certificate must be issued for a specific site.' });
     }
 
+    const siteDoc = resolvedSiteId ? await Site.findById(resolvedSiteId) : null;
+
     let companyForId = company_name || 'HFA';
     let cUser = null;
     if (client_id) {
@@ -797,7 +799,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || addOnApp?.contact_name || 'Halal Certified Client';
     let resolvedCompanyAddress = company_address || cUser?.address || app?.establishment_address || '—';
-    let resolvedManufacturingAddress = manufacturing_address || app?.manufacturer_address || resolvedCompanyAddress;
+    let resolvedManufacturingAddress = manufacturing_address || req.body.manufacturer_address || siteDoc?.name || siteDoc?.trading_name || siteDoc?.est_name || app?.site_name || app?.manufacturer_address || resolvedCompanyAddress;
     let resolvedScope = scope || app?.scope || 'Halal Food & Products Certification';
 
     let certificate_url = null;
