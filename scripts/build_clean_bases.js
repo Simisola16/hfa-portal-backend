@@ -43,7 +43,7 @@ const SCHEME_CONFIGS = {
   },
   'SMIIC.pdf': {
     name: 'Smiic',
-    isGso: false,
+    isGso: true,
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
