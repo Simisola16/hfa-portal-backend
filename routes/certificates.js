@@ -41,12 +41,28 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
-    // Renewal applications require Renewal Invoice payment before certificate issuance
-    if (app.application_type === 'renewal') {
-      const renewalInvoice = await Invoice.findOne({ application_id });
+    // Renewal & Surveillance applications require invoice payment before certificate / letter issuance
+    const isRenewal = (
+      String(app.application_type || '').toLowerCase().includes('renewal') ||
+      String(app.type || '').toLowerCase().includes('renewal') ||
+      Boolean(app.is_renewal) ||
+      Boolean(app.renewed_certificate_id) ||
+      String(app.application_number || '').includes('-RE-') ||
+      String(app.category || '').toLowerCase().includes('renewal')
+    );
+    const isSurveillance = (
+      String(app.application_type || '').toLowerCase().includes('surveillance') ||
+      String(app.type || '').toLowerCase().includes('surveillance') ||
+      Boolean(app.is_surveillance) ||
+      String(app.application_number || '').includes('-SU-') ||
+      String(app.category || '').toLowerCase().includes('surveillance')
+    );
+
+    if (isRenewal || isSurveillance) {
+      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
       if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
-          error: 'The Renewal Invoice must be paid before a Certificate can be issued.',
+          error: `The ${isSurveillance ? 'Surveillance' : 'Renewal'} Invoice must be paid before a ${isSurveillance ? 'Letter' : 'Certificate'} can be issued.`,
           code: 'RENEWAL_INVOICE_NOT_PAID',
           invoice_status: renewalInvoice.status
         });
@@ -913,7 +929,15 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 async function performCertificateIssuance({ certificate, application_id, client_id, site_id, certNo, user }) {
   // If this is a renewal application, mark the old certificate as renewed
   const app = await Application.findById(application_id);
-  if (app && (app.application_type === 'renewal' || app.renewed_certificate_id)) {
+  const isRen = app && (
+    String(app.application_type || '').toLowerCase().includes('renewal') ||
+    String(app.type || '').toLowerCase().includes('renewal') ||
+    Boolean(app.is_renewal) ||
+    Boolean(app.renewed_certificate_id) ||
+    String(app.application_number || '').includes('-RE-') ||
+    String(app.category || '').toLowerCase().includes('renewal')
+  );
+  if (app && (isRen || app.renewed_certificate_id)) {
     const oldCertId = app.renewed_certificate_id || (await Certificate.findOne({
       site_id: app.site_id,
       client_id,
@@ -1390,7 +1414,22 @@ async function buildCertDataFromApplication(application) {
   const User = (await import('../models/User.js')).default;
   const client = await User.findById(application.client_id);
   const companyForId = client ? (client.company_name || client.full_name) : application.establishment_name;
-  const certTypeCode = application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE');
+  const isRenApp = (
+    String(application.application_type || '').toLowerCase().includes('renewal') ||
+    String(application.type || '').toLowerCase().includes('renewal') ||
+    Boolean(application.is_renewal) ||
+    Boolean(application.renewed_certificate_id) ||
+    String(application.application_number || '').includes('-RE-') ||
+    String(application.category || '').toLowerCase().includes('renewal')
+  );
+  const isSurvApp = (
+    String(application.application_type || '').toLowerCase().includes('surveillance') ||
+    String(application.type || '').toLowerCase().includes('surveillance') ||
+    Boolean(application.is_surveillance) ||
+    String(application.application_number || '').includes('-SU-') ||
+    String(application.category || '').toLowerCase().includes('surveillance')
+  );
+  const certTypeCode = isRenApp ? 'RE' : (isSurvApp ? 'SU' : 'NE');
   const certNumber = generateHfaId(companyForId, certTypeCode);
   
   let scheme = 'HFA Scheme (meat)';
