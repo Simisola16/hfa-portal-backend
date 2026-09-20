@@ -301,7 +301,7 @@ export const CERTIFICATE_SCHEMES = {
   },
   'Smiic': {
     name: 'Smiic',
-    templateType: 'hfa',
+    templateType: 'gso',
     basePdf: 'SMIIC.pdf',
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
@@ -312,7 +312,7 @@ export const CERTIFICATE_SCHEMES = {
   },
   'SMIIC': {
     name: 'Smiic',
-    templateType: 'hfa',
+    templateType: 'gso',
     basePdf: 'SMIIC.pdf',
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
