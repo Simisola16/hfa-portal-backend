@@ -3,6 +3,7 @@ import multer from 'multer';
 import mongoose from 'mongoose';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
+import AddOnApplication from '../models/AddOnApplication.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
@@ -32,6 +33,10 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
 
     const app = await Application.findById(application_id);
     if (!app) {
+      const addOn = await AddOnApplication.findById(application_id);
+      if (addOn) {
+        return next();
+      }
       return res.status(404).json({ error: 'Application not found.' });
     }
 
@@ -162,11 +167,22 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET certificate by application ID
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Certificate.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 })
+    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 })
       .populate('site_id')
       .populate('application_id')
       .populate('created_by', 'full_name email role')
       .populate('reviewed_by', 'full_name email role');
+
+    if (!data && mongoose.isValidObjectId(req.params.appId)) {
+      const addOn = await AddOnApplication.findById(req.params.appId);
+      if (addOn?.certificate_id) {
+        data = await Certificate.findById(addOn.certificate_id)
+          .populate('site_id')
+          .populate('created_by', 'full_name email role')
+          .populate('reviewed_by', 'full_name email role');
+      }
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -654,7 +670,17 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let resolvedSiteId = site_id || null;
     if (!resolvedSiteId && application_id) {
       const appForSite = await Application.findById(application_id).select('site_id');
-      if (appForSite?.site_id) resolvedSiteId = appForSite.site_id;
+      if (appForSite?.site_id) {
+        resolvedSiteId = appForSite.site_id;
+      } else {
+        const addOnForSite = await AddOnApplication.findById(application_id).select('site_id certificate_id');
+        if (addOnForSite?.site_id) {
+          resolvedSiteId = addOnForSite.site_id;
+        } else if (addOnForSite?.certificate_id) {
+          const linkedCert = await Certificate.findById(addOnForSite.certificate_id).select('site_id');
+          if (linkedCert?.site_id) resolvedSiteId = linkedCert.site_id;
+        }
+      }
     }
     if (!resolvedSiteId) {
       return res.status(400).json({ error: 'Site selection is compulsory. A certificate must be issued for a specific site.' });
@@ -706,8 +732,12 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     }
 
     let app = null;
+    let addOnApp = null;
     if (application_id) {
       app = await Application.findById(application_id);
+      if (!app) {
+        addOnApp = await AddOnApplication.findById(application_id);
+      }
     }
 
     let resolvedScheme = certificate_type;
@@ -718,7 +748,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       else resolvedScheme = 'HFA Scheme (meat)';
     }
 
-    let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || 'Halal Certified Client';
+    let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || addOnApp?.contact_name || 'Halal Certified Client';
     let resolvedCompanyAddress = company_address || cUser?.address || app?.establishment_address || '—';
     let resolvedManufacturingAddress = manufacturing_address || app?.manufacturer_address || resolvedCompanyAddress;
     let resolvedScope = scope || app?.scope || 'Halal Food & Products Certification';
@@ -812,6 +842,11 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     const data = await certificate.save();
 
+    if (addOnApp) {
+      addOnApp.certificate_id = data._id;
+      await addOnApp.save();
+    }
+
     res.status(201).json({ 
       success: true, 
       message: 'Certificate created and ready for review',
@@ -870,27 +905,59 @@ async function performCertificateIssuance({ certificate, application_id, client_
 
   // Update application status to certificate_issued with statusHistory entry
   if (application_id) {
-    await Application.findByIdAndUpdate(application_id, {
-      status: 'certificate_issued',
-      updated_at: new Date(),
-      $push: {
-        statusHistory: {
-          status: 'certificate_issued',
+    const standardApp = await Application.findById(application_id);
+    if (standardApp) {
+      await Application.findByIdAndUpdate(application_id, {
+        status: 'certificate_issued',
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'certificate_issued',
+            changedAt: new Date(),
+            changedBy: user?._id || user,
+            note: `Certificate issued and approved: ${certNo}`,
+          }
+        }
+      });
+
+      // Mark associated application logsheets as Completed so they leave Waiting for Certificate
+      try {
+        await ApplicationLogsheet.updateMany(
+          { application_id },
+          { $set: { status: 'Completed', updated_at: new Date() } }
+        );
+      } catch (e) {
+        console.error('Error updating logsheets to Completed on certificate issuance:', e);
+      }
+    } else {
+      const addOnApp = await AddOnApplication.findById(application_id);
+      if (addOnApp) {
+        addOnApp.status = 'completed';
+        addOnApp.certificate_id = certificate._id;
+        addOnApp.statusHistory = addOnApp.statusHistory || [];
+        addOnApp.statusHistory.push({
+          status: 'completed',
           changedAt: new Date(),
           changedBy: user?._id || user,
-          note: `Certificate issued and approved: ${certNo}`,
+          note: `Certificate issued and approved: ${certNo}`
+        });
+        await addOnApp.save();
+
+        try {
+          await ApplicationLogsheet.updateMany(
+            {
+              $or: [
+                { addon_application_id: application_id },
+                { application_id },
+                { source_type: 'addon_application', addon_application_id: application_id }
+              ]
+            },
+            { $set: { status: 'Completed', updated_at: new Date() } }
+          );
+        } catch (e) {
+          console.error('Error updating add-on logsheets on certificate issuance:', e);
         }
       }
-    });
-
-    // Mark associated application logsheets as Completed so they leave Waiting for Certificate
-    try {
-      await ApplicationLogsheet.updateMany(
-        { application_id },
-        { $set: { status: 'Completed', updated_at: new Date() } }
-      );
-    } catch (e) {
-      console.error('Error updating logsheets to Completed on certificate issuance:', e);
     }
   }
 
