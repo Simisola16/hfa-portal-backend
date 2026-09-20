@@ -961,52 +961,78 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         const currentApp = await Application.findById(appId);
         const isRenewal = currentApp?.application_type === 'renewal';
         const isSurveillance = currentApp?.application_type === 'surveillance';
-        const targetStatus = isSurveillance ? 'ready_for_certificate' : 'application_successful';
 
-        const newHistoryEntries = [
-          {
-            status: 'logsheet_signed',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: `Committee review completed and endorsed with ${sigCount}/4 signatures. Products approved.`
+        if (finalizeSignOff) {
+          const targetStatus = isSurveillance ? 'ready_for_certificate' : 'application_successful';
+
+          const newHistoryEntries = [];
+          if (!currentApp.statusHistory?.some(h => h.status === 'logsheet_signed')) {
+            newHistoryEntries.push({
+              status: 'logsheet_signed',
+              changedAt: new Date(Date.now() - 1000),
+              changedBy: req.user._id,
+              note: `Committee review completed and endorsed with ${sigCount}/4 signatures. Products approved.`
+            });
           }
-        ];
 
-        if (isSurveillance) {
-          newHistoryEntries.push({
-            status: 'ready_for_certificate',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: 'Surveillance review endorsed & completed. Ready for Surveillance Letter Issuance.'
-          });
-        } else if (isRenewal) {
-          newHistoryEntries.push({
-            status: 'application_successful',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: 'Renewal review endorsed & completed. Application Successful — ready for Renewal Invoice.'
-          });
+          if (isSurveillance) {
+            newHistoryEntries.push({
+              status: 'ready_for_certificate',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Surveillance review endorsed & completed. Ready for Surveillance Letter Issuance.'
+            });
+          } else if (isRenewal) {
+            newHistoryEntries.push({
+              status: 'application_successful',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Renewal review endorsed & completed. Application Successful — ready for Renewal Invoice.'
+            });
+          } else {
+            newHistoryEntries.push({
+              status: 'application_successful',
+              changedAt: new Date(),
+              changedBy: req.user._id,
+              note: 'Application Successful — committee review endorsed. Proceeding to certification agreement.'
+            });
+          }
+
+          const app = await Application.findByIdAndUpdate(
+            appId,
+            {
+              status: targetStatus,
+              updated_at: new Date(),
+              $push: {
+                statusHistory: newHistoryEntries
+              }
+            },
+            { new: true }
+          );
+          if (app) emitApplicationUpdate(app, targetStatus);
         } else {
-          newHistoryEntries.push({
-            status: 'application_successful',
-            changedAt: new Date(),
-            changedBy: req.user._id,
-            note: 'Application Successful — committee review endorsed. Proceeding to certification agreement.'
-          });
-        }
-
-        const app = await Application.findByIdAndUpdate(
-          appId,
-          {
-            status: targetStatus,
-            updated_at: new Date(),
-            $push: {
-              statusHistory: newHistoryEntries
+          // Logsheet signed by a signatory, but Application Successful button hasn't been clicked yet
+          const preLogsheetStatuses = ['logsheet_created', 'nc_closed', 'audit_completed', 'audit_successful'];
+          if (preLogsheetStatuses.includes(currentApp.status)) {
+            const hasLogsheetSigned = currentApp.statusHistory?.some(h => h.status === 'logsheet_signed');
+            const updateDoc = {
+              status: 'logsheet_signed',
+              updated_at: new Date()
+            };
+            if (!hasLogsheetSigned) {
+              updateDoc.$push = {
+                statusHistory: {
+                  status: 'logsheet_signed',
+                  changedAt: new Date(),
+                  changedBy: req.user._id,
+                  note: `Committee review completed and endorsed with ${sigCount}/4 signatures. Awaiting Application Successful confirmation.`
+                }
+              };
             }
-          },
-          { new: true }
-        );
-        if (app) emitApplicationUpdate(app, targetStatus);
+            const app = await Application.findByIdAndUpdate(appId, updateDoc, { new: true });
+            if (app) emitApplicationUpdate(app, 'logsheet_signed');
+          }
+        }
 
         // Sync approved products to Product collection
         if (Array.isArray(approved_products) && approved_products.length > 0 && currentApp) {
