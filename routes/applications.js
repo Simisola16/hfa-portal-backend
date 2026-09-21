@@ -181,7 +181,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const catLower = String(data.category || '').toLowerCase();
         const typeLower = String(data.application_type || '').toLowerCase();
         const schemeLower = String(data.scheme || '').toLowerCase();
-        const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+        const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(data.is_renewal) || Boolean(data.is_surveillance);
+        const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
 
         if (isDualStage) {
           const Audit = mongoose.model('Audit');
@@ -208,6 +209,30 @@ router.get('/:id', authenticateToken, async (req, res) => {
               finalData.status = properStatus;
               await Application.findByIdAndUpdate(data._id, { status: properStatus });
             }
+          }
+        } else if (isRenewalOrSurveillance) {
+          // Reconcile Renewal / Surveillance if audit is already completed but application was falsely downgraded to dates_proposed
+          const Audit = mongoose.model('Audit');
+          const allAudits = await Audit.find({
+            $or: [
+              { application_id: data._id },
+              ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
+            ]
+          });
+          const renewalAudit = allAudits[0];
+          const isAuditComplete = renewalAudit && (renewalAudit.status === 'audit_completed' || renewalAudit.status === 'audit_successful' || renewalAudit.completed_at);
+
+          if (isAuditComplete && ['dates_proposed', 'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned'].includes(data.status)) {
+            const hasLogsheet = Boolean(logsheet);
+            const properStatus = hasLogsheet ? 'logsheet_created' : 'audit_completed';
+            data.status = properStatus;
+            finalData.status = properStatus;
+            await Application.findByIdAndUpdate(data._id, {
+              status: properStatus,
+              $pull: {
+                statusHistory: { note: 'Stage 1 audit completed successfully. Ready for Stage 2 audit scheduling.' }
+              }
+            });
           }
         }
       }
