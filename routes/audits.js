@@ -1112,7 +1112,8 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     const catLower = String(currentApp?.category || '').toLowerCase();
     const typeLower = String(currentApp?.application_type || '').toLowerCase();
     const schemeLower = String(currentApp?.scheme || '').toLowerCase();
-    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+    const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(currentApp?.is_renewal) || Boolean(currentApp?.is_surveillance);
+    const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
 
     const allAudits = await Audit.find({ application_id: currentApp._id });
     const stage2 = allAudits.find(a => a.stage === 2);
@@ -1122,7 +1123,7 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     if (isDualStage && !isStage2Done) {
       if (stage2 && stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
       else if (stage2 && stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
-      else if (stage2 && stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
+      else if (stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
       else nextAppStatus = 'dates_proposed';
     }
 
@@ -1198,7 +1199,8 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
     const catLower = String(app?.category || '').toLowerCase();
     const typeLower = String(app?.application_type || '').toLowerCase();
     const schemeLower = String(app?.scheme || '').toLowerCase();
-    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+    const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(app?.is_renewal) || Boolean(app?.is_surveillance);
+    const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
     const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {
