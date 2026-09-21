@@ -1102,6 +1102,8 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
           audit.nc_reports.forEach(r => { r.status = 'closed'; });
         }
       }
+      audit.nc_closed = true;
+      audit.nc_closed_at = new Date();
       audit.status = 'audit_completed';
       await audit.save();
     }
@@ -1109,25 +1111,11 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     const currentApp = await Application.findById(appId);
     if (!currentApp) return res.status(404).json({ error: 'Application not found' });
 
-    const catLower = String(currentApp?.category || '').toLowerCase();
-    const typeLower = String(currentApp?.application_type || '').toLowerCase();
-    const schemeLower = String(currentApp?.scheme || '').toLowerCase();
-    const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(currentApp?.is_renewal) || Boolean(currentApp?.is_surveillance);
-    const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
-
-    const allAudits = await Audit.find({ application_id: currentApp._id });
-    const stage2 = allAudits.find(a => a.stage === 2);
-    const isStage2Done = stage2 && (stage2.status === 'audit_completed' || stage2.status === 'audit_successful' || stage2.completed_at);
-
     let nextAppStatus = 'nc_closed';
-    if (isDualStage && !isStage2Done) {
-      if (stage2 && stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
-      else if (stage2 && stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
-      else if (stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
-      else nextAppStatus = 'dates_proposed';
-    }
 
     currentApp.status = nextAppStatus;
+    currentApp.nc_closed = true;
+    currentApp.nc_closed_at = new Date();
     currentApp.updated_at = new Date();
 
     if (currentApp.nc_reports && currentApp.nc_reports.length > 0) {
@@ -1141,16 +1129,14 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
 
     if (!currentApp.statusHistory) currentApp.statusHistory = [];
     currentApp.statusHistory.push({
-      status: nextAppStatus,
+      status: 'nc_closed',
       changedAt: new Date(),
       changedBy: req.user._id,
-      note: note || (isDualStage && !isStage2Done
-        ? 'Stage 1 NC closed — non-conformity resolved. Ready for Stage 2 audit scheduling.'
-        : 'NC closed — non-conformity reviewed and closed by auditor/admin.')
+      note: note || 'NC closed — all non-conformities reviewed, verified, and officially closed.'
     });
 
     await currentApp.save();
-    emitApplicationUpdate(currentApp, nextAppStatus);
+    emitApplicationUpdate(currentApp, 'nc_closed');
 
     const clientId = currentApp.client_id || currentApp.user_id;
     if (clientId) {
