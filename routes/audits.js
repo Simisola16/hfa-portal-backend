@@ -1185,15 +1185,23 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
       audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
     }
 
+    let app = audit?.application_id;
+    if (!app && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      app = await Application.findById(appId);
+    }
+
+    const hasOpenAuditNc = audit?.nc_reports && audit.nc_reports.some(r => r.status && r.status !== 'closed');
+    const hasOpenAppNc = app?.nc_reports && app.nc_reports.some(r => r.status && r.status !== 'closed');
+    if (hasOpenAuditNc || hasOpenAppNc) {
+      return res.status(400).json({
+        error: 'Cannot mark audit as completed with open Non-Conformities (NC). All NC reports must be closed before completing the audit.'
+      });
+    }
+
     if (audit) {
       audit.status = 'audit_completed';
       audit.completed_at = new Date();
       await audit.save();
-    }
-
-    let app = audit?.application_id;
-    if (!app && appId) {
-      app = await Application.findById(appId);
     }
 
     const catLower = String(app?.category || '').toLowerCase();
