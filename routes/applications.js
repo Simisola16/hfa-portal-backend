@@ -541,6 +541,22 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
       { new: true }
     ).populate('profiles');
 
+    // Also update linked logsheet status to 'Waiting For Certificate'
+    try {
+      const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
+      await ApplicationLogsheet.updateMany(
+        {
+          $or: [
+            { application_id: req.params.id },
+            { application_id: new mongoose.Types.ObjectId(req.params.id) }
+          ]
+        },
+        { $set: { status: 'Waiting For Certificate', updated_at: new Date() } }
+      );
+    } catch (e) {
+      console.warn('Could not update logsheet status on ready-for-certificate:', e.message);
+    }
+
     if (data) emitApplicationUpdate(data, 'ready_for_certificate');
 
     await createNotification(
