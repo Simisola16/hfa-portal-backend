@@ -11,6 +11,7 @@ import Agreement from '../models/Agreement.js';
 import Audit from '../models/Audit.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import InitialProduct from '../models/InitialProductApplication.js';
+import Product from '../models/Product.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
@@ -66,6 +67,31 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
 
     const targetAppId = appDoc._id;
 
+    // Resolve client and site IDs for product querying
+    const clientOrSiteIds = [];
+    if (appDoc.client_id) {
+      const cId = (appDoc.client_id && typeof appDoc.client_id === 'object' && appDoc.client_id._id)
+        ? appDoc.client_id._id
+        : appDoc.client_id;
+      if (cId) {
+        clientOrSiteIds.push({ client_id: cId });
+        if (mongoose.Types.ObjectId.isValid(cId.toString())) {
+          clientOrSiteIds.push({ client_id: new mongoose.Types.ObjectId(cId.toString()) });
+        }
+      }
+    }
+    if (appDoc.site_id) {
+      const sId = (appDoc.site_id && typeof appDoc.site_id === 'object' && appDoc.site_id._id)
+        ? appDoc.site_id._id
+        : appDoc.site_id;
+      if (sId) {
+        clientOrSiteIds.push({ site_id: sId });
+        if (mongoose.Types.ObjectId.isValid(sId.toString())) {
+          clientOrSiteIds.push({ site_id: new mongoose.Types.ObjectId(sId.toString()) });
+        }
+      }
+    }
+
     // Fetch all related entities in parallel directly from DB using lean queries
     const [
       proposal,
@@ -76,7 +102,8 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       logsheets,
       initialProducts,
       certificate,
-      site
+      site,
+      products
     ] = await Promise.all([
       Proposal.findOne({ application_id: targetAppId }).lean().catch(() => null),
       Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
@@ -94,7 +121,10 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       Certificate.findOne({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => null),
       (appDoc.site_id && mongoose.Types.ObjectId.isValid(appDoc.site_id))
         ? mongoose.model('Site').findById(appDoc.site_id).lean().catch(() => null)
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      clientOrSiteIds.length > 0
+        ? Product.find({ $or: clientOrSiteIds, status: { $ne: 'rejected' } }).sort({ createdAt: -1 }).lean().catch(() => [])
+        : Promise.resolve([])
     ]);
 
     let finalApp = { ...appDoc };
@@ -120,7 +150,8 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
         audits: audits || [],
         logsheet: mainLogsheet || null,
         initialProduct: initialProductItem || null,
-        certificate: certificate || null
+        certificate: certificate || null,
+        products: products || []
       }
     });
   } catch (err) {
