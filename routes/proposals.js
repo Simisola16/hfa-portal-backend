@@ -46,6 +46,23 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       return res.status(400).json({ error: 'Proposal PDF document is required.' });
     }
 
+    let resolvedClientId = client_id;
+    if (!resolvedClientId && application_id) {
+      const Application = (await import('../models/Application.js')).default;
+      const appDoc = await Application.findById(application_id).lean();
+      if (appDoc?.client_id) {
+        resolvedClientId = appDoc.client_id.toString();
+      }
+    }
+
+    if (!resolvedClientId) {
+      return res.status(400).json({ error: 'Client ID is required for proposal creation.' });
+    }
+
+    const parsedCost = (estimated_cost !== undefined && estimated_cost !== '' && !isNaN(parseFloat(estimated_cost)))
+      ? parseFloat(estimated_cost)
+      : 0;
+
     const proposal_url = await uploadToGridFS(
       req.file.buffer,
       req.file.originalname,
@@ -57,9 +74,10 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
     if (proposal) {
       if (proposal_url) proposal.proposal_url = proposal_url;
       if (title) proposal.title = title;
-      if (estimated_cost) proposal.estimated_cost = estimated_cost;
+      proposal.estimated_cost = parsedCost;
       if (admin_comment !== undefined) proposal.admin_comment = admin_comment;
       if (details !== undefined) proposal.details = details;
+      if (resolvedClientId) proposal.client_id = resolvedClientId;
       proposal.status = 'pending';
       proposal.client_comment = '';
       proposal.version = (proposal.version || 1) + 1;
@@ -127,10 +145,10 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       res.status(200).json({ data });
     } else {
       const proposalData = {
-        client_id,
+        client_id: resolvedClientId,
         application_id,
         title,
-        estimated_cost: estimated_cost || 0,
+        estimated_cost: parsedCost,
         admin_comment: admin_comment || '',
         details: details || '',
         status: 'pending',

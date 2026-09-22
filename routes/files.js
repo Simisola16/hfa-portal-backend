@@ -7,7 +7,7 @@ const router = express.Router();
 // GET /api/files/:id
 router.get('/:id', async (req, res) => {
   try {
-    const gfs = getGridFSBucket();
+    const gfs = await getGridFSBucket();
     if (!gfs) return res.status(500).json({ error: 'GridFS not ready' });
 
     const fileId = new mongoose.Types.ObjectId(req.params.id);
