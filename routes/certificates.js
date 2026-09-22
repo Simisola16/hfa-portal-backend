@@ -41,12 +41,28 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
-    // Renewal applications require Renewal Invoice payment before certificate issuance
-    if (app.application_type === 'renewal') {
-      const renewalInvoice = await Invoice.findOne({ application_id });
+    // Renewal & Surveillance applications require invoice payment before certificate / letter issuance
+    const isRenewal = (
+      String(app.application_type || '').toLowerCase().includes('renewal') ||
+      String(app.type || '').toLowerCase().includes('renewal') ||
+      Boolean(app.is_renewal) ||
+      Boolean(app.renewed_certificate_id) ||
+      String(app.application_number || '').includes('-RE-') ||
+      String(app.category || '').toLowerCase().includes('renewal')
+    );
+    const isSurveillance = (
+      String(app.application_type || '').toLowerCase().includes('surveillance') ||
+      String(app.type || '').toLowerCase().includes('surveillance') ||
+      Boolean(app.is_surveillance) ||
+      String(app.application_number || '').includes('-SU-') ||
+      String(app.category || '').toLowerCase().includes('surveillance')
+    );
+
+    if (isRenewal || isSurveillance) {
+      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
       if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
-          error: 'The Renewal Invoice must be paid before a Certificate can be issued.',
+          error: `The ${isSurveillance ? 'Surveillance' : 'Renewal'} Invoice must be paid before a ${isSurveillance ? 'Letter' : 'Certificate'} can be issued.`,
           code: 'RENEWAL_INVOICE_NOT_PAID',
           invoice_status: renewalInvoice.status
         });
@@ -869,8 +885,28 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate = await Certificate.findOne({ application_id, status: { $in: ['under_review', 'draft'] } });
     }
 
+    // Ensure certNo is strictly unique across the database
+    let finalCertNo = certNo;
+    let existingWithNumber = await Certificate.findOne({ certificate_number: finalCertNo });
+    if (existingWithNumber) {
+      if (certificate && existingWithNumber._id.equals(certificate._id)) {
+        // Same document, no collision
+      } else if (!certificate && String(existingWithNumber.application_id) === String(application_id)) {
+        // It's the existing certificate record for this application
+        certificate = existingWithNumber;
+      } else {
+        // Collision with another certificate (e.g. from an old certificate during renewal)
+        let attempts = 0;
+        while (existingWithNumber && attempts < 15) {
+          finalCertNo = generateHfaId(companyForId, certTypeCode);
+          existingWithNumber = await Certificate.findOne({ certificate_number: finalCertNo });
+          attempts++;
+        }
+      }
+    }
+
     if (certificate) {
-      certificate.certificate_number = certNo;
+      certificate.certificate_number = finalCertNo;
       certificate.client_id = client_id || certificate.client_id;
       certificate.site_id = resolvedSiteId || certificate.site_id;
       certificate.certificate_type = resolvedScheme;
@@ -892,7 +928,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.updated_at = new Date();
     } else {
       certificate = new Certificate({
-        certificate_number: certNo,
+        certificate_number: finalCertNo,
         client_id,
         application_id,
         site_id: resolvedSiteId,
@@ -916,7 +952,18 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       });
     }
 
-    const data = await certificate.save();
+    let data;
+    try {
+      data = await certificate.save();
+    } catch (saveErr) {
+      if (saveErr.code === 11000 || (saveErr.message && saveErr.message.includes('E11000'))) {
+        // Fallback: generate a completely fresh random ID if a race condition occurred
+        certificate.certificate_number = generateHfaId(companyForId, certTypeCode);
+        data = await certificate.save();
+      } else {
+        throw saveErr;
+      }
+    }
 
     if (addOnApp) {
       addOnApp.certificate_id = data._id;
@@ -937,7 +984,15 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 async function performCertificateIssuance({ certificate, application_id, client_id, site_id, certNo, user }) {
   // If this is a renewal application, mark the old certificate as renewed
   const app = await Application.findById(application_id);
-  if (app && (app.application_type === 'renewal' || app.renewed_certificate_id)) {
+  const isRen = app && (
+    String(app.application_type || '').toLowerCase().includes('renewal') ||
+    String(app.type || '').toLowerCase().includes('renewal') ||
+    Boolean(app.is_renewal) ||
+    Boolean(app.renewed_certificate_id) ||
+    String(app.application_number || '').includes('-RE-') ||
+    String(app.category || '').toLowerCase().includes('renewal')
+  );
+  if (app && (isRen || app.renewed_certificate_id)) {
     const oldCertId = app.renewed_certificate_id || (await Certificate.findOne({
       site_id: app.site_id,
       client_id,
@@ -1425,9 +1480,22 @@ async function buildCertDataFromApplication(application) {
     application?.application_number?.includes('-AD-') ||
     application?.application_number?.startsWith('ADD-')
   );
-  const certTypeCode = isAddOn
-    ? 'AD'
-    : (application.application_type === 'renewal' ? 'RE' : (application.application_type === 'surveillance' ? 'SU' : 'NE'));
+  const isRenApp = (
+    String(application?.application_type || '').toLowerCase().includes('renewal') ||
+    String(application?.type || '').toLowerCase().includes('renewal') ||
+    Boolean(application?.is_renewal) ||
+    Boolean(application?.renewed_certificate_id) ||
+    String(application?.application_number || '').includes('-RE-') ||
+    String(application?.category || '').toLowerCase().includes('renewal')
+  );
+  const isSurvApp = (
+    String(application?.application_type || '').toLowerCase().includes('surveillance') ||
+    String(application?.type || '').toLowerCase().includes('surveillance') ||
+    Boolean(application?.is_surveillance) ||
+    String(application?.application_number || '').includes('-SU-') ||
+    String(application?.category || '').toLowerCase().includes('surveillance')
+  );
+  const certTypeCode = isAddOn ? 'AD' : (isRenApp ? 'RE' : (isSurvApp ? 'SU' : 'NE'));
   const certNumber = generateHfaId(companyForId, certTypeCode);
 
   let scheme = 'HFA Scheme (meat)';

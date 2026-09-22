@@ -290,7 +290,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             `Proposal ${status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'Updated'} 📑`,
             `${clientName} has ${statusLabel} the proposal: ${data.title}.${client_comment ? ` Comment: "${client_comment}"` : ''}`,
             status === 'accepted' ? 'success' : status === 'rejected' ? 'warning' : 'info',
-            data.application_id ? `/applications?appId=${data.application_id}` : '/proposals'
+            data.application_id ? `/applications/${data.application_id}/processing` : '/proposals'
           );
         }
       } catch (e) {

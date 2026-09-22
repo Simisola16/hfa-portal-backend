@@ -742,7 +742,8 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       }
 
       const isInitialProductLogsheet = logsheet.source_type === 'initial_product_application' || Boolean(logsheet.initial_product_application_id) || logsheet.audit_type === 'Initial Product Evaluation';
-      logsheet.status = isInitialProductLogsheet ? 'Completed' : 'Signed';
+      const isDirectLogsheet = logsheet.source_type === 'direct';
+      logsheet.status = isInitialProductLogsheet ? 'Completed' : (isDirectLogsheet ? 'Waiting For Certificate' : 'Signed');
       await logsheet.save();
 
       const { approved_products } = req.body;
