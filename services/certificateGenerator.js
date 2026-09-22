@@ -250,22 +250,34 @@ export const CERTIFICATE_SCHEMES = {
     docFooter: 'Doc: Halal Certificate (HFA Cosmetic Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with OIC/SMIIC 4:2018.'
+      'below has/have been successfully evaluated and audited in accordance with OIC/SMIIC 4:2018.'
     ]
   },
   'SMIIC': {
     name: 'SMIIC',
-    templateType: 'hfa',
+    templateType: 'gso',
     basePdf: 'SMIIC.pdf',
-    defaultColumns: 1,
+    defaultColumns: 2,
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with GSO 2055-1,',
+      'below has/have been successfully evaluated and audited in accordance with GSO 2055-1,',
       'OIC/SMIIC 1 and HFA Halal Certification Requirements Manual HFP-1005-20/5.'
     ]
   }
 };
+
+// Compatibility aliases
+CERTIFICATE_SCHEMES['GSO meat'] = CERTIFICATE_SCHEMES['GSO MEAT'];
+CERTIFICATE_SCHEMES['GSO non-meat'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme (meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
+CERTIFICATE_SCHEMES['HFA SCHEME'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme (non-meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme Non-Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+CERTIFICATE_SCHEMES['Cosmetics'] = CERTIFICATE_SCHEMES['COSMETICS'];
+CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];
 
 /**
  * Normalize certificate type to one of the 6 official schemes.

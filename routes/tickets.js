@@ -10,13 +10,37 @@ import { generateSupportAiResponse } from '../lib/supportAi.js';
 
 const router = express.Router();
 
-const STAFF_ROLES = ['admin', 'superadmin', 'support_manager', 'scheme_manager', 'food_tech_manager', 'food_tech', 'certificate_officer', 'accountant', 'audit_manager', 'staff'];
+const STAFF_ROLES = ['admin', 'superadmin', 'support_manager', 'scheme_manager', 'food_tech_manager', 'food_tech', 'certificate_officer', 'accountant', 'audit_manager', 'staff', 'inspector'];
 
 const isStaffUser = (user) => {
   if (!user) return false;
+  if (user.role && user.role !== 'client') return true;
+  if (Array.isArray(user.roles) && user.roles.some(r => r !== 'client')) return true;
   if (STAFF_ROLES.includes(user.role)) return true;
-  if (Array.isArray(user.roles) && user.roles.some(r => STAFF_ROLES.includes(r))) return true;
   return false;
+};
+
+// Sanitize ticket for client so they do NOT know when an admin has been assigned
+// until the assigned agent actually views/connects
+const sanitizeTicketForClient = (ticket) => {
+  if (!ticket) return null;
+  const isAgentConnected = Boolean(
+    ticket.agent_connected ||
+    ticket.agent_viewed_at ||
+    (ticket.responses && ticket.responses.some(r => {
+      const role = r.user_role?.toLowerCase() || '';
+      return role.includes('staff') || role.includes('admin') || role.includes('agent');
+    }))
+  );
+
+  if (!isAgentConnected) {
+    const copy = { ...ticket };
+    // Strip internal staff assignment details from client view
+    copy.assigned_staff = null;
+    copy.assigned_to = null;
+    return copy;
+  }
+  return ticket;
 };
 
 // Safe enrichment helper to populate user, assigned staff, and application without Mongoose CastError
@@ -93,8 +117,9 @@ router.get('/', authenticateToken, async (req, res) => {
     
     const raw = await Ticket.find(filter).sort({ updated_at: -1, created_at: -1 }).lean();
     const tickets = await populateTicketsSafely(raw);
+    const result = isStaff ? tickets : (tickets || []).map(t => sanitizeTicketForClient(t));
 
-    res.json({ data: tickets || [] });
+    res.json({ data: result || [] });
   } catch (err) {
     console.error('Error fetching tickets:', err);
     res.status(500).json({ error: err.message });
@@ -144,7 +169,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 
     const ticket = await populateTicketsSafely(raw);
-    res.json({ data: ticket });
+    const result = isStaff ? ticket : sanitizeTicketForClient(ticket);
+    res.json({ data: result });
   } catch (err) {
     console.error('Error fetching ticket:', err);
     res.status(500).json({ error: err.message });
@@ -369,8 +395,29 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
       if (req.body.status === 'closed') ticket.closed_at = new Date();
     }
 
+    // If staff replied and agent wasn't marked connected yet:
+    let justConnected = false;
+    if (isStaff && ticket.assigned_to && !ticket.agent_viewed_at) {
+      ticket.agent_viewed_at = new Date();
+      ticket.agent_connected = true;
+      justConnected = true;
+    }
+
     await ticket.save();
     const populated = await populateTicketsSafely(ticket);
+
+    if (justConnected && populated.assigned_staff) {
+      const fullName = populated.assigned_staff.full_name || populated.assigned_staff.username || 'Support Agent';
+      const firstName = fullName.trim().split(/\s+/)[0] || 'Support';
+      emitToUser(ticket.user_id, 'agent_connected', {
+        ticketId: ticket._id,
+        ticketNumber: ticket.ticket_number,
+        agent_first_name: firstName,
+        agent_full_name: fullName,
+        agent: populated.assigned_staff,
+        ticket: populated
+      });
+    }
 
     // Send notification to the other party
     if (isStaff) {
@@ -435,6 +482,9 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         ticket.assigned_to = nextAssigned ? new mongoose.Types.ObjectId(nextAssigned) : null;
         if (nextAssigned && nextAssigned !== prevAssigned) {
           newlyAssignedStaffId = nextAssigned;
+          // Reset viewed/connected so client won't know admin assignment until new agent views it
+          ticket.agent_viewed_at = null;
+          ticket.agent_connected = false;
         }
       }
     }
@@ -474,12 +524,60 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     }
 
     // Real-time socket emit
-    emitToUser(ticket.user_id, 'ticket_updated', populated);
+    // Client should NOT know an admin has been assigned until agent views/connects
+    emitToUser(ticket.user_id, 'ticket_updated', sanitizeTicketForClient(populated));
     emitToAdmins('ticket_updated', populated);
 
     res.json({ data: populated });
   } catch (err) {
     console.error('Error updating ticket status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tickets/:id/view - Staff/Agent views the ticket, marking it viewed and connecting agent
+router.post('/:id/view', authenticateToken, async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const isStaff = isStaffUser(req.user);
+    if (!isStaff) {
+      return res.status(403).json({ error: 'Only staff can mark ticket as viewed' });
+    }
+
+    let newlyConnected = false;
+    // When the ticket has an assigned staff and staff views it
+    if (ticket.assigned_to && !ticket.agent_viewed_at) {
+      ticket.agent_viewed_at = new Date();
+      ticket.agent_connected = true;
+      ticket.updated_at = new Date();
+      await ticket.save();
+      newlyConnected = true;
+    }
+
+    const populated = await populateTicketsSafely(ticket);
+
+    if (newlyConnected && populated.assigned_staff) {
+      const fullName = populated.assigned_staff.full_name || populated.assigned_staff.username || 'Support Agent';
+      const firstName = fullName.trim().split(/\s+/)[0] || 'Support';
+
+      emitToUser(ticket.user_id, 'agent_connected', {
+        ticketId: ticket._id,
+        ticketNumber: ticket.ticket_number,
+        agent_first_name: firstName,
+        agent_full_name: fullName,
+        agent: populated.assigned_staff,
+        ticket: populated
+      });
+
+      emitToUser(ticket.user_id, 'ticket_updated', populated);
+      emitToAdmins('ticket_updated', populated);
+    }
+
+    res.json({ data: populated });
+  } catch (err) {
+    console.error('Error in ticket view:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -495,7 +593,9 @@ router.get('/active-chat', authenticateToken, async (req, res) => {
 
     if (!ticket) return res.json({ data: null });
     const populated = await populateTicketsSafely(ticket);
-    res.json({ data: populated });
+    const isStaff = isStaffUser(req.user);
+    const result = isStaff ? populated : sanitizeTicketForClient(populated);
+    res.json({ data: result });
   } catch (err) {
     console.error('Error fetching active chat ticket:', err);
     res.status(500).json({ error: err.message });

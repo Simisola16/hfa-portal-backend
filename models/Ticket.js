@@ -24,6 +24,8 @@ const ticketSchema = new mongoose.Schema({
   source: { type: String, enum: ['portal', 'chat_widget'], default: 'portal' },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  agent_viewed_at: Date,
+  agent_connected: { type: Boolean, default: false },
   attachments: [{
     name: String,
     url: String,

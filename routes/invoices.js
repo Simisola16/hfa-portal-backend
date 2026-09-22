@@ -77,10 +77,16 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/application/:appId/all', authenticateToken, async (req, res) => {
   try {
     const { appId } = req.params;
-    if (!appId || appId === 'undefined' || appId === 'null' || !mongoose.isValidObjectId(appId)) {
+    if (!appId || appId === 'undefined' || appId === 'null') {
       return res.json({ data: [] });
     }
-    const data = await Invoice.find({ application_id: appId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    let targetAppId = appId;
+    if (!mongoose.isValidObjectId(appId)) {
+      const appDoc = await Application.findOne({ application_number: appId });
+      if (appDoc) targetAppId = appDoc._id;
+      else return res.json({ data: [] });
+    }
+    const data = await Invoice.find({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId/all] Error:', err);
@@ -92,10 +98,16 @@ router.get('/application/:appId/all', authenticateToken, async (req, res) => {
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
     const { appId } = req.params;
-    if (!appId || appId === 'undefined' || appId === 'null' || !mongoose.isValidObjectId(appId)) {
+    if (!appId || appId === 'undefined' || appId === 'null') {
       return res.json({ data: null });
     }
-    const data = await Invoice.findOne({ application_id: appId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    let targetAppId = appId;
+    if (!mongoose.isValidObjectId(appId)) {
+      const appDoc = await Application.findOne({ application_number: appId });
+      if (appDoc) targetAppId = appDoc._id;
+      else return res.json({ data: null });
+    }
+    const data = await Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId] Error:', err);
@@ -121,9 +133,16 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
     const invoiceType = isFinal ? 'final' : 'initial';
     invoiceData.invoice_type = invoiceType;
 
-    const validAppId = invoiceData.application_id && mongoose.isValidObjectId(invoiceData.application_id) 
+    let validAppId = invoiceData.application_id && mongoose.isValidObjectId(invoiceData.application_id) 
       ? invoiceData.application_id 
       : null;
+    if (!validAppId && invoiceData.application_id) {
+      const appDoc = await Application.findOne({ application_number: invoiceData.application_id });
+      if (appDoc) {
+        validAppId = appDoc._id;
+        invoiceData.application_id = appDoc._id;
+      }
+    }
 
     if (isFinal && !req.file && !invoiceData.invoice_url) {
       let existingFinal = null;
@@ -554,8 +573,15 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
     if (invoice_id && mongoose.isValidObjectId(invoice_id)) {
       invoice = await Invoice.findById(invoice_id);
     }
-    if (!invoice && application_id && mongoose.isValidObjectId(application_id)) {
-      invoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
+    if (!invoice && application_id) {
+      let validAppId = application_id;
+      if (!mongoose.isValidObjectId(application_id)) {
+        const appDoc = await Application.findOne({ application_number: application_id });
+        if (appDoc) validAppId = appDoc._id;
+      }
+      if (mongoose.isValidObjectId(validAppId)) {
+        invoice = await Invoice.findOne({ application_id: validAppId }).sort({ createdAt: -1 });
+      }
     }
 
     if (!invoice && !application_id) {

@@ -1102,6 +1102,8 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
           audit.nc_reports.forEach(r => { r.status = 'closed'; });
         }
       }
+      audit.nc_closed = true;
+      audit.nc_closed_at = new Date();
       audit.status = 'audit_completed';
       await audit.save();
     }
@@ -1109,24 +1111,11 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
     const currentApp = await Application.findById(appId);
     if (!currentApp) return res.status(404).json({ error: 'Application not found' });
 
-    const catLower = String(currentApp?.category || '').toLowerCase();
-    const typeLower = String(currentApp?.application_type || '').toLowerCase();
-    const schemeLower = String(currentApp?.scheme || '').toLowerCase();
-    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
-
-    const allAudits = await Audit.find({ application_id: currentApp._id });
-    const stage2 = allAudits.find(a => a.stage === 2);
-    const isStage2Done = stage2 && (stage2.status === 'audit_completed' || stage2.status === 'audit_successful' || stage2.completed_at);
-
     let nextAppStatus = 'nc_closed';
-    if (isDualStage && !isStage2Done) {
-      if (stage2 && stage2.status === 'auditors_assigned') nextAppStatus = 'audit_assigned';
-      else if (stage2 && stage2.status === 'date_finalized') nextAppStatus = 'date_finalized';
-      else if (stage2 && stage2.status === 'dates_accepted') nextAppStatus = 'dates_accepted';
-      else nextAppStatus = 'dates_proposed';
-    }
 
     currentApp.status = nextAppStatus;
+    currentApp.nc_closed = true;
+    currentApp.nc_closed_at = new Date();
     currentApp.updated_at = new Date();
 
     if (currentApp.nc_reports && currentApp.nc_reports.length > 0) {
@@ -1140,16 +1129,14 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
 
     if (!currentApp.statusHistory) currentApp.statusHistory = [];
     currentApp.statusHistory.push({
-      status: nextAppStatus,
+      status: 'nc_closed',
       changedAt: new Date(),
       changedBy: req.user._id,
-      note: note || (isDualStage && !isStage2Done
-        ? 'Stage 1 NC closed — non-conformity resolved. Ready for Stage 2 audit scheduling.'
-        : 'NC closed — non-conformity reviewed and closed by auditor/admin.')
+      note: note || 'NC closed — all non-conformities reviewed, verified, and officially closed.'
     });
 
     await currentApp.save();
-    emitApplicationUpdate(currentApp, nextAppStatus);
+    emitApplicationUpdate(currentApp, 'nc_closed');
 
     const clientId = currentApp.client_id || currentApp.user_id;
     if (clientId) {
@@ -1184,21 +1171,30 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
       audit = await Audit.findOne({ application_id: appId }).sort({ created_at: -1 });
     }
 
+    let app = audit?.application_id;
+    if (!app && appId && mongoose.Types.ObjectId.isValid(appId)) {
+      app = await Application.findById(appId);
+    }
+
+    const hasOpenAuditNc = audit?.nc_reports && audit.nc_reports.some(r => r.status && r.status !== 'closed');
+    const hasOpenAppNc = app?.nc_reports && app.nc_reports.some(r => r.status && r.status !== 'closed');
+    if (hasOpenAuditNc || hasOpenAppNc) {
+      return res.status(400).json({
+        error: 'Cannot mark audit as completed with open Non-Conformities (NC). All NC reports must be closed before completing the audit.'
+      });
+    }
+
     if (audit) {
       audit.status = 'audit_completed';
       audit.completed_at = new Date();
       await audit.save();
     }
 
-    let app = audit?.application_id;
-    if (!app && appId) {
-      app = await Application.findById(appId);
-    }
-
     const catLower = String(app?.category || '').toLowerCase();
     const typeLower = String(app?.application_type || '').toLowerCase();
     const schemeLower = String(app?.scheme || '').toLowerCase();
-    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+    const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(app?.is_renewal) || Boolean(app?.is_surveillance);
+    const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
     const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {

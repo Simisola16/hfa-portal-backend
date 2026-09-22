@@ -696,6 +696,14 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             note: 'Renewal review completed and verified. Application Successful — ready for Renewal Invoice.'
           });
           app.status = 'application_successful';
+        } else if (app.application_type === 'surveillance') {
+          newHistory.push({
+            status: 'application_successful',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Surveillance review completed and verified. Application Successful — ready for Surveillance Invoice.'
+          });
+          app.status = 'application_successful';
         } else {
           newHistory.push({
             status: 'application_successful',
@@ -964,7 +972,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
         const isSurveillance = currentApp?.application_type === 'surveillance';
 
         if (finalizeSignOff) {
-          const targetStatus = isSurveillance ? 'ready_for_certificate' : 'application_successful';
+          const targetStatus = 'application_successful';
 
           const newHistoryEntries = [];
           if (!currentApp.statusHistory?.some(h => h.status === 'logsheet_signed')) {
@@ -978,10 +986,10 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
           if (isSurveillance) {
             newHistoryEntries.push({
-              status: 'ready_for_certificate',
+              status: 'application_successful',
               changedAt: new Date(),
               changedBy: req.user._id,
-              note: 'Surveillance review endorsed & completed. Ready for Surveillance Letter Issuance.'
+              note: 'Surveillance review endorsed & completed. Application Successful — ready for Surveillance Invoice.'
             });
           } else if (isRenewal) {
             newHistoryEntries.push({
