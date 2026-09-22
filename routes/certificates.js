@@ -1481,19 +1481,19 @@ async function buildCertDataFromApplication(application) {
     application?.application_number?.startsWith('ADD-')
   );
   const isRenApp = (
-    String(application.application_type || '').toLowerCase().includes('renewal') ||
-    String(application.type || '').toLowerCase().includes('renewal') ||
-    Boolean(application.is_renewal) ||
-    Boolean(application.renewed_certificate_id) ||
-    String(application.application_number || '').includes('-RE-') ||
-    String(application.category || '').toLowerCase().includes('renewal')
+    String(application?.application_type || '').toLowerCase().includes('renewal') ||
+    String(application?.type || '').toLowerCase().includes('renewal') ||
+    Boolean(application?.is_renewal) ||
+    Boolean(application?.renewed_certificate_id) ||
+    String(application?.application_number || '').includes('-RE-') ||
+    String(application?.category || '').toLowerCase().includes('renewal')
   );
   const isSurvApp = (
-    String(application.application_type || '').toLowerCase().includes('surveillance') ||
-    String(application.type || '').toLowerCase().includes('surveillance') ||
-    Boolean(application.is_surveillance) ||
-    String(application.application_number || '').includes('-SU-') ||
-    String(application.category || '').toLowerCase().includes('surveillance')
+    String(application?.application_type || '').toLowerCase().includes('surveillance') ||
+    String(application?.type || '').toLowerCase().includes('surveillance') ||
+    Boolean(application?.is_surveillance) ||
+    String(application?.application_number || '').includes('-SU-') ||
+    String(application?.category || '').toLowerCase().includes('surveillance')
   );
   const certTypeCode = isAddOn ? 'AD' : (isRenApp ? 'RE' : (isSurvApp ? 'SU' : 'NE'));
   const certNumber = generateHfaId(companyForId, certTypeCode);
