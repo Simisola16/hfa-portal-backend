@@ -9,13 +9,155 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 import { generateHfaId } from '../lib/idGenerator.js';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
+
+async function generateInvoicePdf({ invoiceNumber, title, amount, notes, companyName, clientEmail }) {
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage([595.28, 841.89]); // A4
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const { width, height } = page.getSize();
+
+  // Header Banner
+  page.drawRectangle({
+    x: 0,
+    y: height - 100,
+    width: width,
+    height: 100,
+    color: rgb(0.08, 0.45, 0.3), // Dark emerald green
+  });
+
+  page.drawText('HALAL FOOD AUTHORITY (HFA)', {
+    x: 40,
+    y: height - 45,
+    size: 18,
+    font: fontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  page.drawText('INVOICE / PAYMENT REQUEST', {
+    x: 40,
+    y: height - 70,
+    size: 13,
+    font: fontRegular,
+    color: rgb(0.85, 0.98, 0.9),
+  });
+
+  let currentY = height - 130;
+
+  page.drawText(`Invoice Number: ${invoiceNumber || 'HFA-INV'}`, {
+    x: 40,
+    y: currentY,
+    size: 14,
+    font: fontBold,
+    color: rgb(0.1, 0.15, 0.2),
+  });
+  currentY -= 20;
+
+  if (companyName) {
+    page.drawText(`Billed to: ${companyName}`, {
+      x: 40,
+      y: currentY,
+      size: 11,
+      font: fontRegular,
+      color: rgb(0.3, 0.35, 0.4),
+    });
+    currentY -= 16;
+  }
+
+  if (clientEmail) {
+    page.drawText(`Email: ${clientEmail}`, {
+      x: 40,
+      y: currentY,
+      size: 10,
+      font: fontRegular,
+      color: rgb(0.4, 0.45, 0.5),
+    });
+    currentY -= 16;
+  }
+
+  page.drawText(`Issue Date: ${new Date().toLocaleDateString('en-GB')}`, {
+    x: 40,
+    y: currentY,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.4, 0.45, 0.5),
+  });
+  currentY -= 22;
+
+  page.drawLine({
+    start: { x: 40, y: currentY },
+    end: { x: width - 40, y: currentY },
+    thickness: 1,
+    color: rgb(0.85, 0.88, 0.92),
+  });
+  currentY -= 25;
+
+  page.drawText(`Description: ${title || 'Halal Certification Fee'}`, {
+    x: 40,
+    y: currentY,
+    size: 12,
+    font: fontBold,
+    color: rgb(0.1, 0.15, 0.2),
+  });
+  currentY -= 22;
+
+  page.drawText(`Amount Due: £${Number(amount || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, {
+    x: 40,
+    y: currentY,
+    size: 14,
+    font: fontBold,
+    color: rgb(0.08, 0.5, 0.25),
+  });
+  currentY -= 30;
+
+  if (notes) {
+    page.drawText('Payment Instructions / Notes:', {
+      x: 40,
+      y: currentY,
+      size: 11,
+      font: fontBold,
+      color: rgb(0.1, 0.15, 0.2),
+    });
+    currentY -= 18;
+
+    const lines = (notes || '').split('\n');
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (currentY < 60) {
+        page = pdfDoc.addPage([595.28, 841.89]);
+        currentY = height - 60;
+      }
+      page.drawText(line || ' ', {
+        x: 40,
+        y: currentY,
+        size: 10,
+        font: fontRegular,
+        color: rgb(0.3, 0.35, 0.4),
+      });
+      currentY -= 15;
+    }
+  }
+
+  // Footer note
+  page.drawText('Thank you for choosing Halal Food Authority (HFA). Please log in to your portal to submit payment confirmation.', {
+    x: 40,
+    y: 40,
+    size: 8.5,
+    font: fontRegular,
+    color: rgb(0.5, 0.55, 0.6),
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
 
 // GET /api/invoices — all (admin/staff) or client's own
 router.get('/', authenticateToken, async (req, res) => {
@@ -120,6 +262,51 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
   try {
     const invoiceData = { ...req.body };
 
+    const isFinal = invoiceData.invoice_type === 'final' || invoiceData.stage === 'final' || invoiceData.target_status === 'final_invoice_sent';
+    const invoiceType = isFinal ? 'final' : 'initial';
+    invoiceData.invoice_type = invoiceType;
+
+    let validAppId = null;
+    let appDoc = null;
+    if (invoiceData.application_id) {
+      if (mongoose.isValidObjectId(invoiceData.application_id)) {
+        appDoc = await Application.findById(invoiceData.application_id).lean();
+        if (appDoc) validAppId = appDoc._id;
+      }
+      if (!appDoc) {
+        appDoc = await Application.findOne({ application_number: invoiceData.application_id }).lean();
+        if (appDoc) validAppId = appDoc._id;
+      }
+    }
+    if (validAppId) {
+      invoiceData.application_id = validAppId;
+    }
+
+    // Resolve client_id
+    if (!invoiceData.client_id && appDoc?.client_id) {
+      invoiceData.client_id = appDoc.client_id.toString();
+    } else if (invoiceData.client_id && typeof invoiceData.client_id === 'object') {
+      invoiceData.client_id = invoiceData.client_id._id || invoiceData.client_id.id || invoiceData.client_id.toString();
+    } else if (!invoiceData.client_id && req.user?._id) {
+      invoiceData.client_id = req.user._id.toString();
+    }
+
+    // Resolve client and company name
+    let clientUser = null;
+    let companyForId = appDoc?.establishment_name || 'HFA';
+    if (invoiceData.client_id && mongoose.isValidObjectId(invoiceData.client_id.toString())) {
+      clientUser = await User.findById(invoiceData.client_id).lean();
+      if (clientUser) {
+        companyForId = clientUser.company_name || clientUser.full_name || companyForId;
+      }
+    }
+
+    // Parse amount
+    const parsedAmount = (invoiceData.amount !== undefined && invoiceData.amount !== '' && !isNaN(parseFloat(invoiceData.amount)))
+      ? parseFloat(invoiceData.amount)
+      : 0;
+    invoiceData.amount = parsedAmount;
+
     // Upload invoice PDF if attached
     if (req.file) {
       invoiceData.invoice_url = await uploadToGridFS(
@@ -127,40 +314,6 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         req.file.originalname,
         req.file.mimetype
       );
-    }
-
-    const isFinal = invoiceData.invoice_type === 'final' || invoiceData.stage === 'final' || invoiceData.target_status === 'final_invoice_sent';
-    const invoiceType = isFinal ? 'final' : 'initial';
-    invoiceData.invoice_type = invoiceType;
-
-    let validAppId = invoiceData.application_id && mongoose.isValidObjectId(invoiceData.application_id) 
-      ? invoiceData.application_id 
-      : null;
-    if (!validAppId && invoiceData.application_id) {
-      const appDoc = await Application.findOne({ application_number: invoiceData.application_id });
-      if (appDoc) {
-        validAppId = appDoc._id;
-        invoiceData.application_id = appDoc._id;
-      }
-    }
-
-    if (isFinal && !req.file && !invoiceData.invoice_url) {
-      let existingFinal = null;
-      if (validAppId) {
-        existingFinal = await Invoice.findOne({
-          application_id: validAppId,
-          $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
-        });
-      }
-      if (!existingFinal || !existingFinal.invoice_url) {
-        return res.status(400).json({ error: 'Please upload the final invoice PDF document.' });
-      }
-    }
-
-    let companyForId = 'HFA';
-    if (invoiceData.client_id && mongoose.isValidObjectId(invoiceData.client_id.toString())) {
-      const clientUser = await User.findById(invoiceData.client_id);
-      companyForId = clientUser?.company_name || clientUser?.full_name || 'HFA';
     }
 
     let data;
@@ -189,9 +342,26 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
       if (existingInvoice) {
         isRevision = true;
         if (invoiceData.title) existingInvoice.title = invoiceData.title;
-        if (invoiceData.amount !== undefined) existingInvoice.amount = Number(invoiceData.amount);
+        existingInvoice.amount = parsedAmount;
         if (invoiceData.notes !== undefined) existingInvoice.notes = invoiceData.notes;
-        if (invoiceData.invoice_url) existingInvoice.invoice_url = invoiceData.invoice_url;
+        if (invoiceData.invoice_url) {
+          existingInvoice.invoice_url = invoiceData.invoice_url;
+        } else if (!existingInvoice.invoice_url) {
+          // Generate PDF on the fly if missing
+          const pdfBuffer = await generateInvoicePdf({
+            invoiceNumber: existingInvoice.invoice_number,
+            title: existingInvoice.title || `${isFinal ? 'Final ' : ''}Invoice for ${appDoc?.application_number || 'Application'}`,
+            amount: parsedAmount,
+            notes: existingInvoice.notes,
+            companyName: companyForId,
+            clientEmail: clientUser?.email || ''
+          });
+          existingInvoice.invoice_url = await uploadToGridFS(
+            pdfBuffer,
+            `invoice_${existingInvoice.invoice_number}.pdf`,
+            'application/pdf'
+          );
+        }
         existingInvoice.invoice_type = invoiceType;
         existingInvoice.status = 'unpaid';
         existingInvoice.payment_proof_url = null;
@@ -201,60 +371,98 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         data = await existingInvoice.save();
 
         // Clean up any other duplicate invoices of this type for this application
-        await Invoice.deleteMany({
-          application_id: validAppId,
-          _id: { $ne: existingInvoice._id },
-          ...typeQuery
-        });
+        try {
+          await Invoice.deleteMany({
+            application_id: validAppId,
+            _id: { $ne: existingInvoice._id },
+            ...(isFinal ? { invoice_type: 'final' } : { invoice_type: { $ne: 'final' } })
+          });
+        } catch (delErr) {
+          console.warn('Error cleaning duplicate invoices:', delErr.message);
+        }
       }
     }
 
     if (!data) {
-      invoiceData.invoice_number = invoiceData.invoice_number || (typeof generateHfaId === 'function' ? generateHfaId(companyForId, 'IN') : `HFA-INV-${Date.now()}`);
+      if (!invoiceData.invoice_number) {
+        let invNum = generateHfaId(companyForId, 'IN');
+        let exists = await Invoice.findOne({ invoice_number: invNum }).lean();
+        let attempts = 0;
+        while (exists && attempts < 10) {
+          invNum = generateHfaId(companyForId, 'IN');
+          exists = await Invoice.findOne({ invoice_number: invNum }).lean();
+          attempts++;
+        }
+        if (exists) {
+          invNum = `HFA-INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        }
+        invoiceData.invoice_number = invNum;
+      }
+
+      if (!invoiceData.invoice_url) {
+        // Auto-generate invoice PDF if not attached
+        const pdfBuffer = await generateInvoicePdf({
+          invoiceNumber: invoiceData.invoice_number,
+          title: invoiceData.title || `${isFinal ? 'Final ' : ''}Invoice for ${appDoc?.application_number || 'Application'}`,
+          amount: parsedAmount,
+          notes: invoiceData.notes,
+          companyName: companyForId,
+          clientEmail: clientUser?.email || ''
+        });
+        invoiceData.invoice_url = await uploadToGridFS(
+          pdfBuffer,
+          `invoice_${invoiceData.invoice_number}.pdf`,
+          'application/pdf'
+        );
+      }
+
+      invoiceData.status = 'unpaid';
       const invoice = new Invoice(invoiceData);
       data = await invoice.save();
     }
 
     // Update application status
     if (validAppId) {
-      const targetStatus = isFinal ? 'final_invoice_sent' : 'invoice_sent';
-      const histEntry = {
-        status: targetStatus,
-        changedAt: new Date(),
-        changedBy: req.user._id,
-        note: isRevision
-          ? `Revised ${isFinal ? 'Final ' : 'Initial '}Invoice issued: ${data.invoice_number} (Amount: £${data.amount}, v${data.version || 1})`
-          : `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
-      };
-      const updatedApp = await Application.findByIdAndUpdate(validAppId, {
-        status: targetStatus,
-        updated_at: new Date(),
-        $push: { statusHistory: histEntry }
-      }, { new: true });
-      if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+      try {
+        const targetStatus = isFinal ? 'final_invoice_sent' : 'invoice_sent';
+        const changedById = (req.user?._id && mongoose.isValidObjectId(req.user._id.toString()))
+          ? req.user._id
+          : null;
+        const histEntry = {
+          status: targetStatus,
+          changedAt: new Date(),
+          changedBy: changedById,
+          note: isRevision
+            ? `Revised ${isFinal ? 'Final ' : 'Initial '}Invoice issued: ${data.invoice_number} (Amount: £${data.amount}, v${data.version || 1})`
+            : `Invoice issued: ${data.invoice_number} (Amount: £${data.amount})`,
+        };
+        const updatedApp = await Application.findByIdAndUpdate(validAppId, {
+          status: targetStatus,
+          updated_at: new Date(),
+          $push: { statusHistory: histEntry }
+        }, { new: true });
+        if (updatedApp) emitApplicationUpdate(updatedApp, targetStatus);
+      } catch (appUpdateErr) {
+        console.error('Error updating application status on invoice creation:', appUpdateErr.message);
+      }
     }
 
     // Send Email Notification
     try {
-      if (data.client_id && mongoose.isValidObjectId(data.client_id.toString())) {
-        const clientUser = await User.findById(data.client_id);
-        if (clientUser?.email) {
-          const superadminBcc = await getSuperadminEmails();
-          await resend.emails.send({
-            from: emailFrom,
-            to: clientUser.email,
-            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
-            subject: isRevision
-              ? `HFA Revised Invoice Issued: ${data.invoice_number}`
-              : `HFA Invoice Issued: ${data.invoice_number}`,
-            html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
-              <h2>${isRevision ? 'Revised Invoice Issued' : 'Invoice Issued'}</h2>
-              <p>Dear ${clientUser.full_name || 'Client'},</p>
-              <p>${isRevision ? 'A revised invoice' : 'Invoice'} <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
-              <p>Please log in to your HFA Portal account to view and process payment.</p>
-            </div>`
-          });
-        }
+      const recipientEmail = clientUser?.email;
+      if (recipientEmail) {
+        await sendEmail({
+          to: recipientEmail,
+          subject: isRevision
+            ? `HFA Revised Invoice Issued: ${data.invoice_number}`
+            : `HFA Invoice Issued: ${data.invoice_number}`,
+          html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2>${isRevision ? 'Revised Invoice Issued' : 'Invoice Issued'}</h2>
+            <p>Dear ${clientUser?.full_name || 'Client'},</p>
+            <p>${isRevision ? 'A revised invoice' : 'Invoice'} <strong>${data.invoice_number}</strong> for amount <strong>£${data.amount}</strong> has been issued for your application.</p>
+            <p>Please log in to your HFA Portal account to view and process payment.</p>
+          </div>`
+        });
       }
     } catch (e) {
       console.error('Invoice Resend Email error:', e.message);

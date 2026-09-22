@@ -5,6 +5,12 @@ import { uploadToGridFS } from '../lib/gridfs.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
+import Proposal from '../models/Proposal.js';
+import Invoice from '../models/Invoice.js';
+import Agreement from '../models/Agreement.js';
+import Audit from '../models/Audit.js';
+import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
+import InitialProduct from '../models/InitialProductApplication.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
@@ -40,6 +46,85 @@ router.get('/', authenticateToken, async (req, res) => {
       .sort({ created_at: -1 });
     res.json({ data });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/applications/:id/processing-details — Ultra-fast unified processing data fetch in 1 DB round-trip
+router.get('/:id/processing-details', authenticateToken, async (req, res) => {
+  try {
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
+
+    const appDoc = await Application.findOne(query)
+      .populate('client_id', 'company_name full_name email phone address country postcode city')
+      .populate('profiles')
+      .populate('inspectors')
+      .lean();
+
+    if (!appDoc) return res.status(404).json({ error: 'Application not found' });
+
+    const targetAppId = appDoc._id;
+
+    // Fetch all related entities in parallel directly from DB using lean queries
+    const [
+      proposal,
+      latestInvoice,
+      allInvoices,
+      agreement,
+      audits,
+      logsheets,
+      initialProducts,
+      certificate,
+      site
+    ] = await Promise.all([
+      Proposal.findOne({ application_id: targetAppId }).lean().catch(() => null),
+      Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
+      Invoice.find({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => []),
+      Agreement.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
+      Audit.find({ application_id: targetAppId }).populate('inspector_id').sort({ stage: 1, created_at: -1 }).lean().catch(() => []),
+      ApplicationLogsheet.find({
+        $or: [
+          { application_id: targetAppId },
+          { application_id: String(targetAppId) },
+          ...(appDoc.logsheet_id ? [{ _id: appDoc.logsheet_id }] : [])
+        ]
+      }).sort({ createdAt: -1, created_at: -1 }).lean().catch(() => []),
+      InitialProduct.find({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => []),
+      Certificate.findOne({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => null),
+      (appDoc.site_id && mongoose.Types.ObjectId.isValid(appDoc.site_id))
+        ? mongoose.model('Site').findById(appDoc.site_id).lean().catch(() => null)
+        : Promise.resolve(null)
+    ]);
+
+    let finalApp = { ...appDoc };
+    if (site) finalApp.site = site;
+
+    // Filter main logsheet
+    const mainLogsheet = (logsheets || []).find(l => {
+      if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
+      if (l.initial_product_application_id || l.addon_application_id) return false;
+      if (l.audit_type === 'Initial Product Evaluation') return false;
+      return true;
+    }) || null;
+
+    const initialProductItem = (initialProducts && initialProducts.length > 0) ? initialProducts[0] : null;
+
+    res.json({
+      data: {
+        app: finalApp,
+        proposal: proposal || null,
+        invoice: latestInvoice || null,
+        allInvoices: allInvoices || [],
+        agreement: agreement || null,
+        audits: audits || [],
+        logsheet: mainLogsheet || null,
+        initialProduct: initialProductItem || null,
+        certificate: certificate || null
+      }
+    });
+  } catch (err) {
+    console.error('[Application Processing Details Error]:', err);
     res.status(500).json({ error: err.message });
   }
 });
