@@ -430,7 +430,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     const clientIdVal = (client_id && typeof client_id === 'object') ? client_id._id : client_id;
     const siteIdVal = (site_id && typeof site_id === 'object') ? site_id._id : site_id;
 
-    // CRITICAL BUSINESS RULE: NC must be completed and closed before LogSheet!
+    // CRITICAL BUSINESS RULE: Audit must be completed and NC closed before LogSheet!
     if (!logsheet && application_id && !req.body.force) {
       const targetApp = await Application.findById(application_id);
       if (targetApp) {
@@ -446,6 +446,15 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         if (hasOpenNc) {
           return res.status(400).json({
             error: 'Non-Conformances (NC) must be completed and closed before creating a LogSheet for this application.'
+          });
+        }
+
+        const isAuditDone = targetAudits.some(a => ['audit_completed', 'completed', 'audit_successful'].includes(a.status)) ||
+          ['audit_completed', 'audit_successful', 'nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful'].includes(targetApp.status);
+
+        if (!isAuditDone && targetApp.application_type !== 'extension') {
+          return res.status(400).json({
+            error: 'The facility audit must be completed and NC verified before a LogSheet can be created.'
           });
         }
       }
