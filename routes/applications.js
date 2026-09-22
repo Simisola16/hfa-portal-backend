@@ -412,7 +412,7 @@ router.post('/', authenticateToken, upload.fields([
         'New Application Received! 📄',
         `A new application (${appNumber}) has been submitted by ${req.user.company_name || req.user.full_name}.`,
         'info',
-        `/applications?appId=${data._id}`
+        `/applications/${data._id}/processing`
       );
     }
 
@@ -517,6 +517,22 @@ router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => 
     ).populate('profiles');
 
     if (data) emitApplicationUpdate(data, 'ready_for_certificate');
+
+    // Update any linked ApplicationLogsheet status to 'Waiting For Certificate'
+    try {
+      const ApplicationLogsheet = mongoose.model('ApplicationLogsheet');
+      await ApplicationLogsheet.updateMany(
+        { 
+          application_id: app._id, 
+          source_type: { $ne: 'initial_product_application' },
+          audit_type: { $ne: 'Initial Product Evaluation' },
+          status: { $ne: 'Completed' } 
+        },
+        { status: 'Waiting For Certificate', updated_at: new Date() }
+      );
+    } catch (logErr) {
+      console.warn('[ready-for-certificate] logsheet sync warning:', logErr.message);
+    }
 
     await createNotification(
       data.client_id,
@@ -1010,7 +1026,7 @@ router.post('/renew', authenticateToken, upload.fields([
         '🔄 Renewal Application Received',
         `A renewal application (${appNumber}) has been submitted by ${req.user.company_name || req.user.full_name} for certificate ${cert.certificate_number}.`,
         'info',
-        `/applications?appId=${data._id}`
+        `/applications/${data._id}/processing`
       );
     }
 

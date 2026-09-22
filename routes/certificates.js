@@ -863,8 +863,28 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate = await Certificate.findOne({ application_id, status: { $in: ['under_review', 'draft'] } });
     }
 
+    // Ensure certNo is strictly unique across the database
+    let finalCertNo = certNo;
+    let existingWithNumber = await Certificate.findOne({ certificate_number: finalCertNo });
+    if (existingWithNumber) {
+      if (certificate && existingWithNumber._id.equals(certificate._id)) {
+        // Same document, no collision
+      } else if (!certificate && String(existingWithNumber.application_id) === String(application_id)) {
+        // It's the existing certificate record for this application
+        certificate = existingWithNumber;
+      } else {
+        // Collision with another certificate (e.g. from an old certificate during renewal)
+        let attempts = 0;
+        while (existingWithNumber && attempts < 15) {
+          finalCertNo = generateHfaId(companyForId, certTypeCode);
+          existingWithNumber = await Certificate.findOne({ certificate_number: finalCertNo });
+          attempts++;
+        }
+      }
+    }
+
     if (certificate) {
-      certificate.certificate_number = certNo;
+      certificate.certificate_number = finalCertNo;
       certificate.client_id = client_id || certificate.client_id;
       certificate.site_id = resolvedSiteId || certificate.site_id;
       certificate.certificate_type = resolvedScheme;
@@ -885,7 +905,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.updated_at = new Date();
     } else {
       certificate = new Certificate({
-        certificate_number: certNo,
+        certificate_number: finalCertNo,
         client_id,
         application_id,
         site_id: resolvedSiteId,
@@ -908,7 +928,18 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       });
     }
 
-    const data = await certificate.save();
+    let data;
+    try {
+      data = await certificate.save();
+    } catch (saveErr) {
+      if (saveErr.code === 11000 || (saveErr.message && saveErr.message.includes('E11000'))) {
+        // Fallback: generate a completely fresh random ID if a race condition occurred
+        certificate.certificate_number = generateHfaId(companyForId, certTypeCode);
+        data = await certificate.save();
+      } else {
+        throw saveErr;
+      }
+    }
 
     if (addOnApp) {
       addOnApp.certificate_id = data._id;

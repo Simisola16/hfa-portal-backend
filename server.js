@@ -124,6 +124,15 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Something went wrong!' });
 });
 
+// Process safety listeners to prevent crashes on socket or network disconnects
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [Uncaught Exception]:', err.message);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [Unhandled Rejection]:', reason);
+});
+
 // Start server for local and persistent hosting (like Render.com)
 // Vercel handles the export, but Render needs the listen call
 const isVercel = process.env.VERCEL === '1';

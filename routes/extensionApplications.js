@@ -484,7 +484,7 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
 // ─── PUT /api/extension-applications/:id/logsheet/sign (Sign Logsheet) ─────────
 router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, res) => {
   try {
-    const { signature_role, signature_data, signer_name } = req.body;
+    const { signature_role, signature_data, signer_name, comment } = req.body;
     const logsheet = await ExtensionLogsheet.findOne({ extension_application_id: req.params.id });
     const app = await ExtensionApplication.findById(req.params.id);
 
@@ -529,6 +529,11 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
       if (isComplete) {
         logsheet.status = 'Signed';
       }
+    }
+
+    if (comment && comment.trim()) {
+      const commentEntry = `[${signName}]: ${comment.trim()}`;
+      logsheet.comments = logsheet.comments ? `${logsheet.comments}\n${commentEntry}` : commentEntry;
     }
 
     await logsheet.save();
@@ -582,26 +587,63 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
     }
 
     const companyForId = app.company_name || app.client_id?.company_name || app.client_id?.full_name || 'HFA';
-    const certNumber = certificate_number || generateHfaId(companyForId, 'EX');
+    let certNumber = certificate_number || generateHfaId(companyForId, 'EX');
+
+    let existingCertWithNum = await Certificate.findOne({ certificate_number: certNumber });
+    let attempts = 0;
+    while (existingCertWithNum && attempts < 15) {
+      certNumber = generateHfaId(companyForId, 'EX');
+      existingCertWithNum = await Certificate.findOne({ certificate_number: certNumber });
+      attempts++;
+    }
 
     // Create or update Certificate in Certificate collection
-    const cert = new Certificate({
-      certificate_number: certNumber,
-      client_id: String(app.client_id?._id || app.client_id),
-      site_id: app.site_id,
-      certificate_type: 'Extension',
-      company_name: app.company_name || app.client_id?.company_name || 'Client',
-      company_address: logsheet?.facility_address || app.client_id?.address || '',
-      scope: `Halal Extension Certificate (${extensionDays} Days)`,
-      issue_date: new Date(),
-      expiry_date: newExpiryDate,
-      status: 'active',
-      is_direct_issuance: true,
-      issued_by: req.user.id,
-      notes: notes || `Issued via Extension Application ${app.application_number} for ${extensionDays} days.`
-    });
+    let cert = null;
+    if (app.certificate_id) {
+      cert = await Certificate.findById(app.certificate_id);
+    }
 
-    await cert.save();
+    if (cert) {
+      cert.certificate_number = certNumber;
+      cert.client_id = String(app.client_id?._id || app.client_id);
+      cert.site_id = app.site_id;
+      cert.company_name = app.company_name || app.client_id?.company_name || 'Client';
+      cert.company_address = logsheet?.facility_address || app.client_id?.address || '';
+      cert.scope = `Halal Extension Certificate (${extensionDays} Days)`;
+      cert.issue_date = new Date();
+      cert.expiry_date = newExpiryDate;
+      cert.status = 'active';
+      cert.notes = notes || `Issued via Extension Application ${app.application_number} for ${extensionDays} days.`;
+      await cert.save();
+    } else {
+      cert = new Certificate({
+        certificate_number: certNumber,
+        client_id: String(app.client_id?._id || app.client_id),
+        site_id: app.site_id,
+        certificate_type: 'Extension',
+        company_name: app.company_name || app.client_id?.company_name || 'Client',
+        company_address: logsheet?.facility_address || app.client_id?.address || '',
+        scope: `Halal Extension Certificate (${extensionDays} Days)`,
+        issue_date: new Date(),
+        expiry_date: newExpiryDate,
+        status: 'active',
+        is_direct_issuance: true,
+        issued_by: req.user.id,
+        notes: notes || `Issued via Extension Application ${app.application_number} for ${extensionDays} days.`
+      });
+
+      try {
+        await cert.save();
+      } catch (saveErr) {
+        if (saveErr.code === 11000 || (saveErr.message && saveErr.message.includes('E11000'))) {
+          cert.certificate_number = generateHfaId(companyForId, 'EX');
+          await cert.save();
+          certNumber = cert.certificate_number;
+        } else {
+          throw saveErr;
+        }
+      }
+    }
 
     // Update ExtensionApplication status to extension_approved
     app.status = 'extension_approved';
