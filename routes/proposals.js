@@ -38,19 +38,149 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+
+async function generateProposalPdfFromDetails({ title, details, companyName, estimatedCost, adminComment }) {
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage([595.28, 841.89]); // A4
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const { width, height } = page.getSize();
+
+  // Header Banner
+  page.drawRectangle({
+    x: 0,
+    y: height - 100,
+    width: width,
+    height: 100,
+    color: rgb(0.05, 0.45, 0.55), // #0e7490
+  });
+
+  page.drawText('HALAL FOOD AUTHORITY (HFA)', {
+    x: 40,
+    y: height - 45,
+    size: 18,
+    font: fontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  page.drawText('CERTIFICATION PROPOSAL', {
+    x: 40,
+    y: height - 70,
+    size: 13,
+    font: fontRegular,
+    color: rgb(0.85, 0.95, 1),
+  });
+
+  let currentY = height - 130;
+
+  page.drawText(`Proposal: ${title || 'Halal Certification Proposal'}`, {
+    x: 40,
+    y: currentY,
+    size: 14,
+    font: fontBold,
+    color: rgb(0.1, 0.15, 0.2),
+  });
+  currentY -= 20;
+
+  if (companyName) {
+    page.drawText(`Prepared for: ${companyName}`, {
+      x: 40,
+      y: currentY,
+      size: 11,
+      font: fontRegular,
+      color: rgb(0.3, 0.35, 0.4),
+    });
+    currentY -= 18;
+  }
+
+  if (estimatedCost) {
+    page.drawText(`Estimated Investment: £${Number(estimatedCost).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`, {
+      x: 40,
+      y: currentY,
+      size: 11,
+      font: fontBold,
+      color: rgb(0.08, 0.5, 0.25),
+    });
+    currentY -= 25;
+  }
+
+  page.drawLine({
+    start: { x: 40, y: currentY },
+    end: { x: width - 40, y: currentY },
+    thickness: 1,
+    color: rgb(0.85, 0.88, 0.92),
+  });
+  currentY -= 25;
+
+  page.drawText('Scope & Proposal Details:', {
+    x: 40,
+    y: currentY,
+    size: 12,
+    font: fontBold,
+    color: rgb(0.1, 0.15, 0.2),
+  });
+  currentY -= 20;
+
+  const lines = (details || '').split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (currentY < 60) {
+      page = pdfDoc.addPage([595.28, 841.89]);
+      currentY = height - 60;
+    }
+    page.drawText(line || ' ', {
+      x: 40,
+      y: currentY,
+      size: 10.5,
+      font: fontRegular,
+      color: rgb(0.2, 0.25, 0.3),
+    });
+    currentY -= 16;
+  }
+
+  if (adminComment) {
+    currentY -= 15;
+    if (currentY < 80) {
+      page = pdfDoc.addPage([595.28, 841.89]);
+      currentY = height - 60;
+    }
+    page.drawText('Notes from HFA Administration:', {
+      x: 40,
+      y: currentY,
+      size: 11,
+      font: fontBold,
+      color: rgb(0.1, 0.15, 0.2),
+    });
+    currentY -= 16;
+    page.drawText(adminComment, {
+      x: 40,
+      y: currentY,
+      size: 10,
+      font: fontRegular,
+      color: rgb(0.4, 0.45, 0.5),
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
+
 router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file'), async (req, res) => {
   try {
     const { application_id, client_id, title, estimated_cost, admin_comment, details } = req.body;
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'Proposal PDF document is required.' });
+    if (!req.file && (!details || !details.trim())) {
+      return res.status(400).json({ error: 'Please upload a Proposal PDF or write proposal details.' });
     }
 
     let resolvedClientId = client_id;
-    if (!resolvedClientId && application_id) {
+    let appDoc = null;
+    if (application_id) {
       const Application = (await import('../models/Application.js')).default;
-      const appDoc = await Application.findById(application_id).lean();
-      if (appDoc?.client_id) {
+      appDoc = await Application.findById(application_id).lean();
+      if (!resolvedClientId && appDoc?.client_id) {
         resolvedClientId = appDoc.client_id.toString();
       }
     }
@@ -63,11 +193,28 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
       ? parseFloat(estimated_cost)
       : 0;
 
-    const proposal_url = await uploadToGridFS(
-      req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype
-    );
+    let proposal_url = '';
+    if (req.file) {
+      proposal_url = await uploadToGridFS(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+    } else if (details && details.trim()) {
+      const companyName = appDoc?.establishment_name || 'Client';
+      const pdfBuffer = await generateProposalPdfFromDetails({
+        title,
+        details,
+        companyName,
+        estimatedCost: parsedCost,
+        adminComment: admin_comment || ''
+      });
+      proposal_url = await uploadToGridFS(
+        pdfBuffer,
+        `proposal_${title ? title.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'hfa'}.pdf`,
+        'application/pdf'
+      );
+    }
 
     // Check if proposal already exists
     let proposal = await Proposal.findOne({ application_id });
