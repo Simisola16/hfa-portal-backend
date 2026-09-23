@@ -199,7 +199,7 @@ router.put('/:id', authenticateToken, upload.fields([
       );
     }
 
-    // Handle digital signature image if uploaded (using GridFS)
+    // Handle digital signature image if uploaded — stored in S3 under 'signatures/'
     if (req.files?.['signature_file']?.[0]) {
       const file = req.files['signature_file'][0];
       agreement.client_signature_url = await uploadToS3(
