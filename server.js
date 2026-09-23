@@ -32,6 +32,7 @@ import addOnApplicationRoutes from './routes/addOnApplications.js';
 import surveillanceRoutes from './routes/surveillance.js';
 import initialProductRoutes from './routes/initialProducts.js';
 import extensionApplicationRoutes from './routes/extensionApplications.js';
+import surveillanceScheduleRoutes from './routes/surveillanceSchedules.js';
 
 dotenv.config();
 
@@ -113,6 +114,7 @@ app.use('/api/add-on-applications', addOnApplicationRoutes);
 app.use('/api/surveillance', surveillanceRoutes);
 app.use('/api/initial-products', initialProductRoutes);
 app.use('/api/extension-applications', extensionApplicationRoutes);
+app.use('/api/surveillance-schedules', surveillanceScheduleRoutes);
 
 app.get('/', (req, res) => {
   res.send('HFA Portal API is running...');
