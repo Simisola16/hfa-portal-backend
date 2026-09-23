@@ -432,6 +432,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
         .populate('site_id', 'name address city postal_code country')
         .populate('assigned_food_tech', 'full_name email phone')
         .populate('assigned_food_techs', 'full_name email phone')
+        .populate('statusHistory.changedBy', 'full_name username email role')
         .populate('logsheet_id');
     } else if (isObjId) {
       item = await InitialProductApplication.findOne({ application_id: req.params.appId })
@@ -441,6 +442,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
         .populate('site_id', 'name address city postal_code country')
         .populate('assigned_food_tech', 'full_name email phone')
         .populate('assigned_food_techs', 'full_name email phone')
+        .populate('statusHistory.changedBy', 'full_name username email role')
         .populate('logsheet_id');
     }
 
@@ -480,6 +482,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('site_id', 'name address city postal_code country')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
       .sort({ createdAt: -1 });
 
@@ -575,6 +578,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('site_id', 'name address city postal_code country')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id');
 
     if (!item) return res.status(404).json({ error: 'Initial product application not found' });

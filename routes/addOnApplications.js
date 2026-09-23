@@ -226,6 +226,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('site_id', 'name address city')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .sort({ createdAt: -1 });
 
     res.json({ data });
@@ -247,6 +248,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('site_id', 'name address city postal_code country')
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id');
 
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
