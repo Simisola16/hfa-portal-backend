@@ -247,6 +247,27 @@ router.post('/', authenticateToken, async (req, res) => {
     const data = await newInitialProduct.save();
     emitInitialProductUpdate(data, 'created');
 
+    // Synchronize parent application status to initial_product if not already past initial product
+    try {
+      const parentStatusesPreAudit = ['submitted', 'under_review', 'approved', 'proposal_sent', 'proposal_approved', 'invoice_sent', 'payment_received', 'initial_product'];
+      if (parentStatusesPreAudit.includes(app.status)) {
+        app.status = 'initial_product';
+        app.initial_payment_confirmed = true;
+        app.initial_invoice_paid = true;
+        app.statusHistory = app.statusHistory || [];
+        app.statusHistory.push({
+          status: 'initial_product',
+          changedAt: new Date(),
+          changedBy: req.user._id,
+          note: `Initial Product "${product.name.trim()}" registered. Evaluation in progress.`
+        });
+        await app.save();
+        emitApplicationUpdate(app, 'initial_product');
+      }
+    } catch (parentSyncErr) {
+      console.warn('[InitialProduct] Failed to update parent app status:', parentSyncErr.message);
+    }
+
     // Notify admins & FT managers (in-app)
     await notifyAdmins(
       'New Initial Product Submitted 📦',

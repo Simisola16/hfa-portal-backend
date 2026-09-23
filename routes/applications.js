@@ -11,6 +11,7 @@ import Agreement from '../models/Agreement.js';
 import Audit from '../models/Audit.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import InitialProduct from '../models/InitialProductApplication.js';
+import Product from '../models/Product.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
 import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
@@ -33,6 +34,17 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 // GET /api/applications
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    // Auto-normalize any New applications where initial payment is confirmed to initial_product
+    await Application.updateMany(
+      {
+        application_type: { $nin: ['renewal', 'surveillance'] },
+        status: 'payment_received'
+      },
+      {
+        $set: { status: 'initial_product' }
+      }
+    ).catch(() => {});
+
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
@@ -56,7 +68,7 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
     const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
     const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
 
-    const appDoc = await Application.findOne(query)
+    let appDoc = await Application.findOne(query)
       .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors')
@@ -64,7 +76,39 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
 
     if (!appDoc) return res.status(404).json({ error: 'Application not found' });
 
+    // Auto-normalize New application status to initial_product if stuck on payment_received
+    const isRenewal = (appDoc.application_type || '').toLowerCase() === 'renewal' || (appDoc.application_type || '').toLowerCase() === 'surveillance';
+    if (!isRenewal && appDoc.status === 'payment_received') {
+      appDoc.status = 'initial_product';
+      Application.findByIdAndUpdate(appDoc._id, { status: 'initial_product' }).catch(() => {});
+    }
+
     const targetAppId = appDoc._id;
+
+    // Resolve client and site IDs for product querying
+    const clientOrSiteIds = [];
+    if (appDoc.client_id) {
+      const cId = (appDoc.client_id && typeof appDoc.client_id === 'object' && appDoc.client_id._id)
+        ? appDoc.client_id._id
+        : appDoc.client_id;
+      if (cId) {
+        clientOrSiteIds.push({ client_id: cId });
+        if (mongoose.Types.ObjectId.isValid(cId.toString())) {
+          clientOrSiteIds.push({ client_id: new mongoose.Types.ObjectId(cId.toString()) });
+        }
+      }
+    }
+    if (appDoc.site_id) {
+      const sId = (appDoc.site_id && typeof appDoc.site_id === 'object' && appDoc.site_id._id)
+        ? appDoc.site_id._id
+        : appDoc.site_id;
+      if (sId) {
+        clientOrSiteIds.push({ site_id: sId });
+        if (mongoose.Types.ObjectId.isValid(sId.toString())) {
+          clientOrSiteIds.push({ site_id: new mongoose.Types.ObjectId(sId.toString()) });
+        }
+      }
+    }
 
     // Fetch all related entities in parallel directly from DB using lean queries
     const [
@@ -76,7 +120,8 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       logsheets,
       initialProducts,
       certificate,
-      site
+      site,
+      products
     ] = await Promise.all([
       Proposal.findOne({ application_id: targetAppId }).lean().catch(() => null),
       Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
@@ -94,7 +139,10 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       Certificate.findOne({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => null),
       (appDoc.site_id && mongoose.Types.ObjectId.isValid(appDoc.site_id))
         ? mongoose.model('Site').findById(appDoc.site_id).lean().catch(() => null)
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      clientOrSiteIds.length > 0
+        ? Product.find({ $or: clientOrSiteIds, status: { $ne: 'rejected' } }).sort({ createdAt: -1 }).lean().catch(() => [])
+        : Promise.resolve([])
     ]);
 
     let finalApp = { ...appDoc };
@@ -120,7 +168,8 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
         audits: audits || [],
         logsheet: mainLogsheet || null,
         initialProduct: initialProductItem || null,
-        certificate: certificate || null
+        certificate: certificate || null,
+        products: products || []
       }
     });
   } catch (err) {
@@ -159,6 +208,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
       data.status = normalized;
       finalData.status = normalized;
       await Application.findByIdAndUpdate(data._id, { status: normalized });
+    }
+
+    // Auto-normalize New application status to initial_product if stuck on payment_received
+    const isRenewalApp = (data.application_type || '').toLowerCase() === 'renewal' || (data.application_type || '').toLowerCase() === 'surveillance';
+    if (!isRenewalApp && data.status === 'payment_received') {
+      data.status = 'initial_product';
+      finalData.status = 'initial_product';
+      await Application.findByIdAndUpdate(data._id, { status: 'initial_product' });
     }
 
     // Auto-sync status if logsheet exists and application status is lagging behind
