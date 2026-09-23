@@ -282,13 +282,20 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
       invoiceData.application_id = validAppId;
     }
 
-    // Resolve client_id
-    if (!invoiceData.client_id && appDoc?.client_id) {
-      invoiceData.client_id = appDoc.client_id.toString();
-    } else if (invoiceData.client_id && typeof invoiceData.client_id === 'object') {
-      invoiceData.client_id = invoiceData.client_id._id || invoiceData.client_id.id || invoiceData.client_id.toString();
-    } else if (!invoiceData.client_id && req.user?._id) {
-      invoiceData.client_id = req.user._id.toString();
+    // Invoice PDF document is strictly required for ALL invoices (no auto-generation)
+    if (!req.file && !invoiceData.invoice_url) {
+      let existingInv = null;
+      if (validAppId) {
+        existingInv = await Invoice.findOne({
+          application_id: validAppId,
+          ...(isFinal
+            ? { $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }] }
+            : { $or: [{ invoice_type: 'initial' }, { stage: 'initial' }, { target_status: { $ne: 'final_invoice_sent' } }] })
+        });
+      }
+      if (!existingInv || !existingInv.invoice_url) {
+        return res.status(400).json({ error: 'Invoice document (PDF) is required. Please upload the invoice file.' });
+      }
     }
 
     // Resolve client and company name
