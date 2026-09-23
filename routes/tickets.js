@@ -20,6 +20,18 @@ const isStaffUser = (user) => {
   return false;
 };
 
+// Returns true if the user is a support manager or superadmin (full ticket visibility)
+const isSupportManagerUser = (user) => {
+  if (!user) return false;
+  const role = user.role || '';
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  return (
+    role === 'superadmin' || roles.includes('superadmin') ||
+    role === 'support_manager' || roles.includes('support_manager') ||
+    Boolean(user.is_support_manager)
+  );
+};
+
 // Sanitize ticket for client so they do NOT know when an admin has been assigned
 // until the assigned agent actually views/connects
 const sanitizeTicketForClient = (ticket) => {
@@ -113,8 +125,21 @@ const populateTicketsSafely = async (tickets) => {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const isStaff = isStaffUser(req.user);
-    const filter = isStaff ? {} : { user_id: req.user.id || req.user._id.toString() };
-    
+    const isManager = isSupportManagerUser(req.user);
+    const userId = req.user.id || req.user._id?.toString();
+
+    let filter;
+    if (!isStaff) {
+      // Client: only their own tickets
+      filter = { user_id: userId };
+    } else if (isManager) {
+      // Support manager / superadmin: see all tickets
+      filter = {};
+    } else {
+      // Regular staff: only tickets assigned to them
+      filter = mongoose.Types.ObjectId.isValid(userId) ? { assigned_to: new mongoose.Types.ObjectId(userId) } : { assigned_to: null };
+    }
+
     const raw = await Ticket.find(filter).sort({ updated_at: -1, created_at: -1 }).lean();
     const tickets = await populateTicketsSafely(raw);
     const result = isStaff ? tickets : (tickets || []).map(t => sanitizeTicketForClient(t));
@@ -162,10 +187,20 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!raw) return res.status(404).json({ error: 'Ticket not found' });
 
     const isStaff = isStaffUser(req.user);
+    const isManager = isSupportManagerUser(req.user);
     const userId = req.user.id || req.user._id.toString();
 
-    if (!isStaff && raw.user_id !== userId) {
+    // Clients can only view their own tickets
+    if (!isStaff && raw.user_id?.toString() !== userId) {
       return res.status(403).json({ error: 'Unauthorized to view this ticket' });
+    }
+
+    // Non-manager staff can only view tickets assigned to them
+    if (isStaff && !isManager) {
+      const assignedTo = raw.assigned_to?.toString();
+      if (assignedTo !== userId) {
+        return res.status(403).json({ error: 'This ticket is not assigned to you' });
+      }
     }
 
     const ticket = await populateTicketsSafely(raw);
@@ -347,7 +382,18 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     const isStaff = isStaffUser(req.user);
+    const isManager = isSupportManagerUser(req.user);
     const userId = req.user.id || req.user._id.toString();
+
+    // Staff access control: only the assigned agent or a support manager can reply
+    if (isStaff && !isManager) {
+      const assignedTo = ticket.assigned_to?.toString();
+      if (assignedTo !== userId) {
+        return res.status(403).json({
+          error: 'You are not authorized to reply to this ticket. Only the assigned agent or a support manager can send messages.'
+        });
+      }
+    }
 
     // Deduplication guard for reply within last 2.5s
     const lastResponse = ticket.responses && ticket.responses[ticket.responses.length - 1];
