@@ -34,6 +34,17 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 // GET /api/applications
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    // Auto-normalize any New applications where initial payment is confirmed to initial_product
+    await Application.updateMany(
+      {
+        application_type: { $nin: ['renewal', 'surveillance'] },
+        status: 'payment_received'
+      },
+      {
+        $set: { status: 'initial_product' }
+      }
+    ).catch(() => {});
+
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
@@ -57,13 +68,20 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
     const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
     const query = isObjectId ? { _id: req.params.id } : { application_number: req.params.id };
 
-    const appDoc = await Application.findOne(query)
+    let appDoc = await Application.findOne(query)
       .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors')
       .lean();
 
     if (!appDoc) return res.status(404).json({ error: 'Application not found' });
+
+    // Auto-normalize New application status to initial_product if stuck on payment_received
+    const isRenewal = (appDoc.application_type || '').toLowerCase() === 'renewal' || (appDoc.application_type || '').toLowerCase() === 'surveillance';
+    if (!isRenewal && appDoc.status === 'payment_received') {
+      appDoc.status = 'initial_product';
+      Application.findByIdAndUpdate(appDoc._id, { status: 'initial_product' }).catch(() => {});
+    }
 
     const targetAppId = appDoc._id;
 
@@ -190,6 +208,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
       data.status = normalized;
       finalData.status = normalized;
       await Application.findByIdAndUpdate(data._id, { status: normalized });
+    }
+
+    // Auto-normalize New application status to initial_product if stuck on payment_received
+    const isRenewalApp = (data.application_type || '').toLowerCase() === 'renewal' || (data.application_type || '').toLowerCase() === 'surveillance';
+    if (!isRenewalApp && data.status === 'payment_received') {
+      data.status = 'initial_product';
+      finalData.status = 'initial_product';
+      await Application.findByIdAndUpdate(data._id, { status: 'initial_product' });
     }
 
     // Auto-sync status if logsheet exists and application status is lagging behind

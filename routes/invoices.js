@@ -599,14 +599,21 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
   let updatedApp = null;
   const targetAppId = invoice.application_id;
   const isFinal = invoice.invoice_type === 'final' || invoice.stage === 'final';
-  const targetStatus = isFinal ? 'final_invoice_paid' : 'payment_received';
 
   if (targetAppId && mongoose.isValidObjectId(targetAppId.toString())) {
+    const targetApp = await Application.findById(targetAppId);
+    const isRenewal = (targetApp?.application_type || '').toLowerCase() === 'renewal' || (targetApp?.application_type || '').toLowerCase() === 'surveillance';
+    const targetStatus = isFinal ? 'final_invoice_paid' : (isRenewal ? 'payment_received' : 'initial_product');
+
     const histEntry = {
       status: targetStatus,
       changedAt: new Date(),
       changedBy: adminUser?._id || null,
-      note: `Payment confirmed by admin for ${isFinal ? 'final ' : ''}invoice ${invoice.invoice_number || ''}.`,
+      note: isFinal
+        ? `Payment confirmed by admin for final invoice ${invoice.invoice_number || ''}.`
+        : (targetStatus === 'initial_product'
+            ? `Initial Payment confirmed by admin. Application advanced to Initial Product Evaluation.`
+            : `Payment confirmed by admin for invoice ${invoice.invoice_number || ''}.`),
     };
 
     const updateData = {
@@ -803,12 +810,16 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
 
     // Fallback if invoice was not found but application_id was provided
     if (application_id && mongoose.isValidObjectId(application_id)) {
-      const targetStatus = 'payment_received';
+      const targetApp = await Application.findById(application_id);
+      const isRenewal = (targetApp?.application_type || '').toLowerCase() === 'renewal' || (targetApp?.application_type || '').toLowerCase() === 'surveillance';
+      const targetStatus = isRenewal ? 'payment_received' : 'initial_product';
       const histEntry = {
         status: targetStatus,
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Payment confirmed by admin.`,
+        note: targetStatus === 'initial_product'
+          ? `Payment confirmed by admin. Application advanced to Initial Product Evaluation.`
+          : `Payment confirmed by admin.`,
       };
       const updatedApp = await Application.findByIdAndUpdate(
         application_id,
