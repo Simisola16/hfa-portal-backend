@@ -266,8 +266,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const catLower = String(data.category || '').toLowerCase();
         const typeLower = String(data.application_type || '').toLowerCase();
         const schemeLower = String(data.scheme || '').toLowerCase();
-        const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(data.is_renewal) || Boolean(data.is_surveillance);
-        const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
+        const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
 
         if (isDualStage) {
           const Audit = mongoose.model('Audit');

@@ -4,6 +4,7 @@ import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
 import Audit from '../models/Audit.js';
 import User from '../models/User.js';
+import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -723,6 +724,41 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
           app.status = 'application_successful';
         }
 
+        if (req.body.next_surveillance_due_date) {
+          const parsedDueDate = new Date(req.body.next_surveillance_due_date);
+          if (!isNaN(parsedDueDate.getTime())) {
+            const adminName = req.body.admin_name || req.user.full_name || req.user.username || 'Admin';
+            app.next_surveillance_due_date = parsedDueDate;
+            app.surveillance_scheduled_by = adminName;
+
+            const compName = req.body.company_name || logsheet.company_name || app.company_name || app.establishment_name || 'Manufacturing Client';
+            const siteName = req.body.site_name || logsheet.site_name || app.site_name || app.establishment_name || 'Main Facility';
+
+            await SurveillanceSchedule.findOneAndUpdate(
+              { application_id: app._id },
+              {
+                $set: {
+                  application_id: app._id,
+                  client_id: app.client_id,
+                  company_name: compName,
+                  site_id: app.site_id || '',
+                  site_name: siteName,
+                  application_number: app.application_number,
+                  application_type: app.application_type || 'new',
+                  category: app.category || 'UAE/GSO Approved Halal Certification For Exporters To UAE',
+                  next_surveillance_due_date: parsedDueDate,
+                  admin_id: req.user?._id || req.user?.id || null,
+                  admin_name: adminName,
+                  notes: req.body.notes || '',
+                  updated_at: new Date()
+                },
+                $setOnInsert: { created_at: new Date(), status: 'scheduled' }
+              },
+              { upsert: true, new: true }
+            );
+          }
+        }
+
         app.updated_at = new Date();
         app.statusHistory.push(...newHistory);
         await app.save();
@@ -1016,15 +1052,52 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
             });
           }
 
+          const updateFields = {
+            status: targetStatus,
+            updated_at: new Date(),
+            $push: {
+              statusHistory: newHistoryEntries
+            }
+          };
+
+          if (req.body.next_surveillance_due_date) {
+            const parsedDueDate = new Date(req.body.next_surveillance_due_date);
+            if (!isNaN(parsedDueDate.getTime())) {
+              const adminName = req.body.admin_name || req.user.full_name || req.user.username || 'Admin';
+              updateFields.next_surveillance_due_date = parsedDueDate;
+              updateFields.surveillance_scheduled_by = adminName;
+
+              const compName = req.body.company_name || logsheet.company_name || currentApp.company_name || currentApp.establishment_name || 'Manufacturing Client';
+              const siteName = req.body.site_name || logsheet.site_name || currentApp.site_name || currentApp.establishment_name || 'Main Facility';
+
+              await SurveillanceSchedule.findOneAndUpdate(
+                { application_id: currentApp._id },
+                {
+                  $set: {
+                    application_id: currentApp._id,
+                    client_id: currentApp.client_id,
+                    company_name: compName,
+                    site_id: currentApp.site_id || '',
+                    site_name: siteName,
+                    application_number: currentApp.application_number,
+                    application_type: currentApp.application_type || 'new',
+                    category: currentApp.category || 'UAE/GSO Approved Halal Certification For Exporters To UAE',
+                    next_surveillance_due_date: parsedDueDate,
+                    admin_id: req.user?._id || req.user?.id || null,
+                    admin_name: adminName,
+                    notes: req.body.notes || '',
+                    updated_at: new Date()
+                  },
+                  $setOnInsert: { created_at: new Date(), status: 'scheduled' }
+                },
+                { upsert: true, new: true }
+              );
+            }
+          }
+
           const app = await Application.findByIdAndUpdate(
             appId,
-            {
-              status: targetStatus,
-              updated_at: new Date(),
-              $push: {
-                statusHistory: newHistoryEntries
-              }
-            },
+            updateFields,
             { new: true }
           );
           if (app) emitApplicationUpdate(app, targetStatus);
