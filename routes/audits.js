@@ -6,7 +6,7 @@ import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -852,7 +852,7 @@ router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (
 
     let document_url = null;
     if (req.file) {
-      document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      document_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'audits');
     }
 
     const ncId = new mongoose.Types.ObjectId();
@@ -954,7 +954,7 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
 
     let correction_document_url = null;
     if (req.file) {
-      correction_document_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      correction_document_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'audits');
     }
 
     if (audit) {
@@ -1010,7 +1010,7 @@ router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_d
     const { audit_id, application_id, reply_text } = req.body;
     let reply_doc_url = null;
     if (req.file) {
-      reply_doc_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      reply_doc_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'audits');
     }
 
     let audit = null;

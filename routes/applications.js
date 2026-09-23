@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import multer from 'multer';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
@@ -454,25 +454,25 @@ router.post('/', authenticateToken, upload.fields([
     }
 
     const documents = {};
-    // Upload each document buffer to MongoDB GridFS
+    // Upload each document buffer to AWS S3
     if (req.files?.halal_policy?.[0]) {
-      documents.halal_policy = await uploadToGridFS(
-        req.files.halal_policy[0].buffer, req.files.halal_policy[0].originalname, req.files.halal_policy[0].mimetype
+      documents.halal_policy = await uploadToS3(
+        req.files.halal_policy[0].buffer, req.files.halal_policy[0].originalname, req.files.halal_policy[0].mimetype, 'applications'
       );
     }
     if (req.files?.ingredient_list?.[0]) {
-      documents.ingredient_list = await uploadToGridFS(
-        req.files.ingredient_list[0].buffer, req.files.ingredient_list[0].originalname, req.files.ingredient_list[0].mimetype
+      documents.ingredient_list = await uploadToS3(
+        req.files.ingredient_list[0].buffer, req.files.ingredient_list[0].originalname, req.files.ingredient_list[0].mimetype, 'applications'
       );
     }
     if (req.files?.floor_plan?.[0]) {
-      documents.floor_plan = await uploadToGridFS(
-        req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, req.files.floor_plan[0].mimetype
+      documents.floor_plan = await uploadToS3(
+        req.files.floor_plan[0].buffer, req.files.floor_plan[0].originalname, req.files.floor_plan[0].mimetype, 'applications'
       );
     }
     if (req.files?.haccp_plan?.[0]) {
-      documents.haccp_plan = await uploadToGridFS(
-        req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, req.files.haccp_plan[0].mimetype
+      documents.haccp_plan = await uploadToS3(
+        req.files.haccp_plan[0].buffer, req.files.haccp_plan[0].originalname, req.files.haccp_plan[0].mimetype, 'applications'
       );
     }
 
@@ -480,7 +480,7 @@ router.post('/', authenticateToken, upload.fields([
     if (req.files?.supporting_docs) {
       newSupportingDocs = await Promise.all(
         req.files.supporting_docs.map(f =>
-          uploadToGridFS(f.buffer, f.originalname, f.mimetype)
+          uploadToS3(f.buffer, f.originalname, f.mimetype, 'applications')
         )
       );
     }
@@ -787,7 +787,7 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
     } = req.body;
 
     if (req.file) {
-      letterUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      letterUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'surveillance');
     } else {
       // Auto-generate official PDF letter with Puppeteer
       const clientProfile = app.profiles || {};
@@ -813,7 +813,7 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
       });
 
       const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
-      letterUrl = await uploadToGridFS(pdfBuffer, fileName, 'application/pdf');
+      letterUrl = await uploadToS3(pdfBuffer, fileName, 'application/pdf', 'surveillance');
     }
 
     const histNote = `Official Surveillance Letter issued (${letter_number || 'HFA-SURV'}). UAE/GSO 3-Year Halal Certification confirmed active.`;
@@ -999,7 +999,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
           const pdfBuffer = await generateCertificate(certData);
           const filename = `${certNumber}.pdf`;
-          const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+          const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
 
           const certificate = new Certificate({
             certificate_number: certNumber,
@@ -1141,7 +1141,7 @@ router.post('/renew', authenticateToken, upload.fields([
     const uploadedDocs = [];
     if (req.files?.supporting_docs) {
       for (const f of req.files.supporting_docs) {
-        const url = await uploadToGridFS(f.buffer, f.originalname, f.mimetype);
+        const url = await uploadToS3(f.buffer, f.originalname, f.mimetype, 'renewals');
         uploadedDocs.push(url);
       }
     }

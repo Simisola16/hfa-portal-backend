@@ -11,7 +11,7 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { generateCertificate } from '../services/certificateGenerator.js';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
@@ -112,7 +112,7 @@ async function regenerateCertPdf(certificate) {
 
     const pdfBuffer = await generateCertificate(certData);
     const filename = `${certificate.certificate_number}.pdf`;
-    const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
     certificate.certificate_url = certificate_url;
     await certificate.save();
     console.log(`[AddOn] Regenerated certificate PDF: ${certificate.certificate_number}`);
@@ -438,7 +438,7 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), as
 
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      form_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      form_file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'addon');
     }
 
     let form_text_val = form_text !== undefined ? form_text.trim() : (app.product_approval_form?.form_text || '');
@@ -545,7 +545,7 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
     let response_url = null;
 
     if (req.file) {
-      response_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      response_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'addon');
     }
 
     if (!app.product_approval_form) {
@@ -600,7 +600,7 @@ const handleRequestMoreInfoRoute = async (req, res) => {
     let file_url = null;
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'addon');
     }
 
     app.status = 'product_approval_form_enabled';
@@ -696,7 +696,7 @@ const handleReplyMoreInfoRoute = async (req, res) => {
 
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      reply_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      reply_file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'addon');
     }
 
     if (!reply_text.trim() && !reply_file_url) {

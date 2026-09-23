@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import Agreement from '../models/Agreement.js';
 import Application from '../models/Application.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
@@ -57,10 +57,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
     const agreementData = { ...req.body };
     let fileUrl = null;
     if (req.file) {
-      fileUrl = await uploadToGridFS(
+      fileUrl = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
-        req.file.mimetype
+        req.file.mimetype,
+        'agreements'
       );
       agreementData.agreement_url = fileUrl;
     }
@@ -190,20 +191,22 @@ router.put('/:id', authenticateToken, upload.fields([
     // Handle signed agreement file (PDF) if uploaded
     if (req.files?.['signed_agreement_file']?.[0]) {
       const file = req.files['signed_agreement_file'][0];
-      agreement.signed_agreement_url = await uploadToGridFS(
+      agreement.signed_agreement_url = await uploadToS3(
         file.buffer,
         file.originalname,
-        file.mimetype
+        file.mimetype,
+        'agreements'
       );
     }
 
     // Handle digital signature image if uploaded (using GridFS)
     if (req.files?.['signature_file']?.[0]) {
       const file = req.files['signature_file'][0];
-      agreement.client_signature_url = await uploadToGridFS(
+      agreement.client_signature_url = await uploadToS3(
         file.buffer,
         file.originalname,
-        file.mimetype
+        file.mimetype,
+        'signatures'
       );
     } else if (signature_url) {
       // Reusing signature model/pattern: client used their saved signature
@@ -332,10 +335,11 @@ router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('fin
 
     let fileUrl = null;
     if (req.file) {
-      fileUrl = await uploadToGridFS(
+      fileUrl = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
-        req.file.mimetype
+        req.file.mimetype,
+        'agreements'
       );
       agreement.final_agreement_url = fileUrl;
     } else if (req.body.final_agreement_url) {
