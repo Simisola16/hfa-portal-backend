@@ -816,27 +816,24 @@ router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (
         const typeLower = String(appForCheck.application_type || '').toLowerCase();
         const schemeLower = String(appForCheck.scheme || '').toLowerCase();
         const isGSO = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
-        const isRenewalOrSurveillance = typeLower === 'renewal' || typeLower === 'surveillance';
 
-        if (isGSO && !isRenewalOrSurveillance) {
+        if (isGSO) {
           // Resolve the actual audit stage to validate
-          const resolvedAuditStage = audit?.stage || 1;
           const allAuditsForApp = await Audit.find({ application_id: appForCheck._id });
           const stage1Audit = allAuditsForApp.find(a => (a.stage || 1) === 1) || allAuditsForApp[0];
           const isStage1Complete = stage1Audit?.status === 'audit_completed' || stage1Audit?.status === 'audit_successful';
+          const stage2Audit = allAuditsForApp.find(a => a.stage === 2);
 
+          // If audit was auto-resolved or targeted to Stage 1 but Stage 1 is complete and Stage 2 exists, re-target to Stage 2
+          if ((!audit || audit.stage === 1) && isStage1Complete && stage2Audit) {
+            audit = stage2Audit;
+          }
+
+          const resolvedAuditStage = audit?.stage || 1;
           if (resolvedAuditStage === 1 || (!isStage1Complete && resolvedAuditStage !== 2)) {
             return res.status(400).json({
               error: 'For GSO/UAE schemes, Non-Conformities (NC) cannot be raised during Stage 1 (Initial Visit). NC findings strictly belong to Stage 2 (Main Audit). Please complete Stage 1 and proceed to Stage 2 before flagging NCs.'
             });
-          }
-
-          // If audit was auto-resolved to Stage 1 but Stage 1 is complete and Stage 2 exists, re-target Stage 2
-          if (resolvedAuditStage === 1 && isStage1Complete) {
-            const stage2Audit = allAuditsForApp.find(a => a.stage === 2);
-            if (stage2Audit) {
-              audit = stage2Audit;
-            }
           }
         }
       }
@@ -848,7 +845,7 @@ router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (
         application_id: targetApp._id,
         client_id: targetApp.client_id?.toString() || targetApp.user_id?.toString(),
         status: 'audit_completed',
-        stage: 1,
+        stage: 2,
         nc_reports: []
       });
     }
@@ -1193,8 +1190,7 @@ router.post('/complete-clean', authenticateToken, async (req, res) => {
     const catLower = String(app?.category || '').toLowerCase();
     const typeLower = String(app?.application_type || '').toLowerCase();
     const schemeLower = String(app?.scheme || '').toLowerCase();
-    const isRenewalOrSurveillance = typeLower.includes('renewal') || typeLower.includes('surveillance') || Boolean(app?.is_renewal) || Boolean(app?.is_surveillance);
-    const isDualStage = (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso')) && !isRenewalOrSurveillance;
+    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
     const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {

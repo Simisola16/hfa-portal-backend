@@ -87,6 +87,8 @@ const applicationSchema = new mongoose.Schema({
   logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet', default: null },
   surveillance_letter_data: { type: mongoose.Schema.Types.Mixed },
   renewed_certificate_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate', default: null },
+  next_surveillance_due_date: { type: Date, default: null },
+  surveillance_scheduled_by: { type: String, default: '' },
   documents: {
     halal_policy: String,
     ingredient_list: String,
