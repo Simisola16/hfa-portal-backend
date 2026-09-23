@@ -886,6 +886,7 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
       source_type: 'addon_application',
       addon_application_id: app._id,
       client_id: app.client_id._id,
+      created_by: req.user._id,
       company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
       contact_person: logsheetData.contact_person || app.contact_name,
       contact_email: logsheetData.contact_email || app.contact_email,

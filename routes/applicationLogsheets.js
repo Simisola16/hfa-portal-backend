@@ -145,7 +145,7 @@ router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) 
     const logsheets = await ApplicationLogsheet.find(filter)
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
-      .populate('created_by', 'full_name email role')
+      .populate('created_by', 'full_name email role username')
       .sort({ created_at: -1, createdAt: -1 });
     res.json({ data: logsheets });
   } catch (err) {
@@ -468,6 +468,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       logsheet.addon_application_id = undefined;
       if (clientIdVal) logsheet.client_id = clientIdVal;
       if (siteIdVal) logsheet.site_id = siteIdVal;
+      if (!logsheet.created_by) logsheet.created_by = req.user._id;
       logsheet.updated_at = new Date();
     } else {
       logsheet = new ApplicationLogsheet({
@@ -475,8 +476,10 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         client_id: clientIdVal,
         site_id: siteIdVal,
         source_type: 'application',
+        created_by: req.user._id,
         ...logsheetData
       });
+      if (!logsheet.created_by) logsheet.created_by = req.user._id;
       logsheet.initial_product_application_id = undefined;
       logsheet.addon_application_id = undefined;
     }
@@ -560,7 +563,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('initial_product_application_id', 'status')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
-      .populate('created_by', 'full_name email role')
+      .populate('created_by', 'full_name email role username')
       .sort({ created_at: -1, createdAt: -1 });
 
     // Auto-sync logsheets where certificate has already been issued
@@ -592,7 +595,7 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
       .populate('application_id')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
-      .populate('created_by', 'full_name email role');
+      .populate('created_by', 'full_name email role username');
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
     res.json({ data: logsheet });
   } catch (err) {
