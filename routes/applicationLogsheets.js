@@ -659,7 +659,7 @@ const countLogsheetSignatures = (logsheet) => {
 // PUT /api/application-logsheets/:id/status (Admin only)
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { status, force } = req.body;
+    const { status, force, certificate_type } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
@@ -671,6 +671,10 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     logsheet.status = status;
+    if (certificate_type) {
+      logsheet.certificate_standard = certificate_type;
+      logsheet.certificate_type = certificate_type;
+    }
     logsheet.updated_at = new Date();
     await logsheet.save();
 
@@ -698,12 +702,14 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
           note: `Committee review completed and endorsed with ${sigCount}/4 signatures.`
         });
 
+        const certTypeNote = certificate_type ? ` [Scheme: ${certificate_type}]` : '';
+
         if (isRenewal) {
           newHistory.push({
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Renewal review completed and verified. Application Successful — ready for Renewal Invoice.'
+            note: `Renewal review completed and verified${certTypeNote}. Application Successful — ready for Renewal Invoice.`
           });
           app.status = 'application_successful';
         } else if (app.application_type === 'surveillance') {
@@ -711,7 +717,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Surveillance review completed and verified. Application Successful — ready for Surveillance Invoice.'
+            note: `Surveillance review completed and verified${certTypeNote}. Application Successful — ready for Surveillance Invoice.`
           });
           app.status = 'application_successful';
         } else {
@@ -719,9 +725,14 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             status: 'application_successful',
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: 'Application Successful — committee review completed. Proceeding to Certification Agreement.'
+            note: `Application Successful — committee review completed${certTypeNote}. Proceeding to Certification Agreement.`
           });
           app.status = 'application_successful';
+        }
+
+        if (certificate_type) {
+          app.certificate_type = certificate_type;
+          app.scheme = certificate_type;
         }
 
         if (req.body.next_surveillance_due_date) {

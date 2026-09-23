@@ -85,6 +85,7 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors')
+      .populate('statusHistory.changedBy', 'full_name name email role')
       .lean();
 
     if (!appDoc) return res.status(404).json({ error: 'Application not found' });
@@ -199,7 +200,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const data = await Application.findOne(query)
       .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
-      .populate('inspectors');
+      .populate('inspectors')
+      .populate('statusHistory.changedBy', 'full_name name email role');
     if (!data) return res.status(404).json({ error: 'Application not found' });
 
     let finalData = data.toObject ? data.toObject() : data;

@@ -75,6 +75,8 @@ const applicationSchema = new mongoose.Schema({
     note: { type: String, default: '' },
   }],
   certificate_url: String,
+  certificate_type: { type: String, default: '' },
+  scheme: { type: String, default: '' },
   initial_payment_confirmed: { type: Boolean, default: false },
   initial_invoice_paid: { type: Boolean, default: false },
   final_payment_confirmed: { type: Boolean, default: false },
