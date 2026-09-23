@@ -316,10 +316,9 @@ router.post('/login', async (req, res) => {
 router.post('/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    // Look up by username or email for staff accounts (case-insensitive)
     const searchVal = username?.trim();
-    if (!searchVal) {
-      return res.status(401).json({ error: 'Username or email is required' });
+    if (!searchVal || !password) {
+      return res.status(401).json({ error: 'Username or email and password are required' });
     }
     const escapedVal = searchVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({
@@ -340,7 +339,12 @@ router.post('/admin/login', async (req, res) => {
       (Array.isArray(user.roles) && user.roles.some(r => staffRoles.includes(r)))
     );
 
-    if (!user || !isStaff || !(await user.comparePassword(password))) {
+    if (!user || !isStaff) {
+      return res.status(401).json({ error: 'Invalid staff credentials' });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
