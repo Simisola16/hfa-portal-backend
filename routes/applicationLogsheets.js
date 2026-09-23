@@ -722,8 +722,28 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
             app.next_surveillance_due_date = parsedDueDate;
             app.surveillance_scheduled_by = adminName;
 
-            const compName = req.body.company_name || logsheet.company_name || app.company_name || app.establishment_name || 'Manufacturing Client';
+            const rawComp = req.body.company_name;
             const siteName = req.body.site_name || logsheet.site_name || app.site_name || app.establishment_name || 'Main Facility';
+            const isSiteColliding = (str) => {
+              if (!str) return true;
+              const s = String(str).trim().toLowerCase();
+              return s === String(siteName).trim().toLowerCase() ||
+                     s === String(app.establishment_name || '').trim().toLowerCase() ||
+                     s === String(app.site_name || '').trim().toLowerCase();
+            };
+
+            let compName = rawComp;
+            if (!compName || isSiteColliding(compName)) {
+              try {
+                const User = mongoose.model('User');
+                const cUser = await User.findById(app.client_id).select('company_name full_name').lean();
+                if (cUser?.company_name) compName = cUser.company_name;
+                else if (cUser?.full_name) compName = cUser.full_name;
+              } catch (e) {}
+            }
+            if (!compName || isSiteColliding(compName)) {
+              compName = logsheet.company_name || app.company_name || 'Manufacturing Client';
+            }
 
             await SurveillanceSchedule.findOneAndUpdate(
               { application_id: app._id },
@@ -1058,8 +1078,28 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
               updateFields.next_surveillance_due_date = parsedDueDate;
               updateFields.surveillance_scheduled_by = adminName;
 
-              const compName = req.body.company_name || logsheet.company_name || currentApp.company_name || currentApp.establishment_name || 'Manufacturing Client';
+              const rawComp = req.body.company_name;
               const siteName = req.body.site_name || logsheet.site_name || currentApp.site_name || currentApp.establishment_name || 'Main Facility';
+              const isSiteColliding = (str) => {
+                if (!str) return true;
+                const s = String(str).trim().toLowerCase();
+                return s === String(siteName).trim().toLowerCase() ||
+                       s === String(currentApp.establishment_name || '').trim().toLowerCase() ||
+                       s === String(currentApp.site_name || '').trim().toLowerCase();
+              };
+
+              let compName = rawComp;
+              if (!compName || isSiteColliding(compName)) {
+                try {
+                  const User = mongoose.model('User');
+                  const cUser = await User.findById(currentApp.client_id).select('company_name full_name').lean();
+                  if (cUser?.company_name) compName = cUser.company_name;
+                  else if (cUser?.full_name) compName = cUser.full_name;
+                } catch (e) {}
+              }
+              if (!compName || isSiteColliding(compName)) {
+                compName = logsheet.company_name || currentApp.company_name || 'Manufacturing Client';
+              }
 
               await SurveillanceSchedule.findOneAndUpdate(
                 { application_id: currentApp._id },

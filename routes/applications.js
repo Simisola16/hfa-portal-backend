@@ -35,10 +35,23 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.query.type) query.application_type = req.query.type;
 
     const data = await Application.find(query)
+      .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors')
       .sort({ created_at: -1 });
-    res.json({ data });
+
+    const results = data.map(doc => {
+      const item = doc.toObject ? doc.toObject() : doc;
+      const client = (item.client_id && typeof item.client_id === 'object')
+        ? item.client_id
+        : (item.profiles && typeof item.profiles === 'object' ? item.profiles : null);
+      if (client?.company_name) {
+        item.company_name = client.company_name;
+      }
+      return item;
+    });
+
+    res.json({ data: results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -56,6 +69,23 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Application not found' });
 
     let finalData = data.toObject ? data.toObject() : data;
+
+    // Attach resolved client organization/company name
+    const clientUser = (finalData.client_id && typeof finalData.client_id === 'object')
+      ? finalData.client_id
+      : (finalData.profiles && typeof finalData.profiles === 'object' ? finalData.profiles : null);
+    if (clientUser?.company_name) {
+      finalData.company_name = clientUser.company_name;
+    } else if (finalData.client_id && mongoose.Types.ObjectId.isValid(finalData.client_id)) {
+      try {
+        const User = mongoose.model('User');
+        const u = await User.findById(finalData.client_id).select('company_name full_name email phone address country postcode city').lean();
+        if (u) {
+          finalData.client_id = u;
+          if (u.company_name) finalData.company_name = u.company_name;
+        }
+      } catch (uErr) {}
+    }
 
     // Attach site details if site_id is present
     if (finalData.site_id) {
