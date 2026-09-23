@@ -144,16 +144,19 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
       }
     }
 
-    if (isFinal && !req.file && !invoiceData.invoice_url) {
-      let existingFinal = null;
+    // Invoice PDF document is strictly required for ALL invoices (no auto-generation)
+    if (!req.file && !invoiceData.invoice_url) {
+      let existingInv = null;
       if (validAppId) {
-        existingFinal = await Invoice.findOne({
+        existingInv = await Invoice.findOne({
           application_id: validAppId,
-          $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }]
+          ...(isFinal
+            ? { $or: [{ invoice_type: 'final' }, { stage: 'final' }, { target_status: 'final_invoice_sent' }] }
+            : { $or: [{ invoice_type: 'initial' }, { stage: 'initial' }, { target_status: { $ne: 'final_invoice_sent' } }] })
         });
       }
-      if (!existingFinal || !existingFinal.invoice_url) {
-        return res.status(400).json({ error: 'Please upload the final invoice PDF document.' });
+      if (!existingInv || !existingInv.invoice_url) {
+        return res.status(400).json({ error: 'Invoice document (PDF) is required. Please upload the invoice file.' });
       }
     }
 
