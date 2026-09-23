@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import SurveillanceRequest from '../models/SurveillanceRequest.js';
 import Certificate from '../models/Certificate.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
@@ -106,7 +106,7 @@ router.put('/:id/fulfill', authenticateToken, requireAdmin, upload.single('lette
 
     let letter_file_url = request.letter_file_url;
     if (req.file) {
-      letter_file_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      letter_file_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'surveillance');
     }
 
     request.status = 'fulfilled';

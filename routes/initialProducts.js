@@ -11,7 +11,7 @@ import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, require
 import { createNotification } from '../lib/notifications.js';
 import { getIO, emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
@@ -695,7 +695,7 @@ router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), as
 
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      form_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      form_file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'initial_products');
     }
 
     let form_text_val = form_text !== undefined ? form_text.trim() : (app.product_approval_form?.form_text || '');
@@ -770,7 +770,7 @@ router.put('/:id/save-response', authenticateToken, upload.any(), async (req, re
 
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      response_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      response_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'initial_products');
     }
 
     let parsedFormData = {};
@@ -898,7 +898,7 @@ router.put('/:id/request-info', authenticateToken, requireStaff, upload.any(), a
     let more_info_file_url = '';
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      more_info_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      more_info_file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'initial_products');
     }
 
     app.product_approval_form.more_info_requested = true;
@@ -937,7 +937,7 @@ router.put('/:id/client-reply', authenticateToken, upload.any(), async (req, res
     let client_reply_file_url = '';
     const uploadedFile = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
     if (uploadedFile) {
-      client_reply_file_url = await uploadToGridFS(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype);
+      client_reply_file_url = await uploadToS3(uploadedFile.buffer, uploadedFile.originalname, uploadedFile.mimetype, 'initial_products');
     }
 
     app.product_approval_form.more_info_requested = false;

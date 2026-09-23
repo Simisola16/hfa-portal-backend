@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import mongoose from 'mongoose';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
@@ -316,10 +316,11 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
 
     // Upload invoice PDF if attached
     if (req.file) {
-      invoiceData.invoice_url = await uploadToGridFS(
+      invoiceData.invoice_url = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
-        req.file.mimetype
+        req.file.mimetype,
+        'invoices'
       );
     }
 
@@ -354,21 +355,10 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         if (invoiceData.invoice_url) {
           existingInvoice.invoice_url = invoiceData.invoice_url;
         } else if (!existingInvoice.invoice_url) {
-          // Generate PDF on the fly if missing
-          const pdfBuffer = await generateInvoicePdf({
-            invoiceNumber: existingInvoice.invoice_number,
-            title: existingInvoice.title || `${isFinal ? 'Final ' : ''}Invoice for ${appDoc?.application_number || 'Application'}`,
-            amount: parsedAmount,
-            notes: existingInvoice.notes,
-            companyName: companyForId,
-            clientEmail: clientUser?.email || ''
-          });
-          existingInvoice.invoice_url = await uploadToGridFS(
-            pdfBuffer,
-            `invoice_${existingInvoice.invoice_number}.pdf`,
-            'application/pdf'
-          );
+          // No existing URL and no new file uploaded — reject
+          return res.status(400).json({ error: 'Invoice PDF is required for this revision. Please upload the invoice file.' });
         }
+        // If existingInvoice.invoice_url is already set and no new file was uploaded, keep the existing URL
         existingInvoice.invoice_type = invoiceType;
         existingInvoice.status = 'unpaid';
         existingInvoice.payment_proof_url = null;
@@ -406,21 +396,10 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
         invoiceData.invoice_number = invNum;
       }
 
+      // Invoice PDF upload is strictly required — enforced by the validation block above.
+      // Reaching here without an invoice_url means the validation was bypassed, so reject.
       if (!invoiceData.invoice_url) {
-        // Auto-generate invoice PDF if not attached
-        const pdfBuffer = await generateInvoicePdf({
-          invoiceNumber: invoiceData.invoice_number,
-          title: invoiceData.title || `${isFinal ? 'Final ' : ''}Invoice for ${appDoc?.application_number || 'Application'}`,
-          amount: parsedAmount,
-          notes: invoiceData.notes,
-          companyName: companyForId,
-          clientEmail: clientUser?.email || ''
-        });
-        invoiceData.invoice_url = await uploadToGridFS(
-          pdfBuffer,
-          `invoice_${invoiceData.invoice_number}.pdf`,
-          'application/pdf'
-        );
+        return res.status(400).json({ error: 'Invoice PDF is required. Please upload the invoice file.' });
       }
 
       invoiceData.status = 'unpaid';
@@ -539,10 +518,11 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
 
     // Upload payment proof if attached
     if (req.file) {
-      invoice.payment_proof_url = await uploadToGridFS(
+      invoice.payment_proof_url = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
-        req.file.mimetype
+        req.file.mimetype,
+        'payment_proofs'
       );
     }
 

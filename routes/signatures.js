@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import { authenticateToken } from '../middleware/auth.js';
 import Signature from '../models/Signature.js';
 import User from '../models/User.js';
@@ -42,7 +42,7 @@ router.post('/', authenticateToken, upload.single('signature_file'), async (req,
 
     let signature_url = null;
     if (req.file) {
-      signature_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      signature_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'signatures');
     }
 
     const sig = new Signature({ name: name.trim(), username: username.trim(), user_id: user_id || undefined, signature_url });
@@ -64,7 +64,7 @@ router.put('/:id', authenticateToken, upload.single('signature_file'), async (re
     if (username) sig.username = username.trim();
     if (user_id) sig.user_id = user_id;
     if (req.file) {
-      sig.signature_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      sig.signature_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'signatures');
     }
     await sig.save();
     res.json(sig);

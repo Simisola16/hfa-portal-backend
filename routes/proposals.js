@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import Proposal from '../models/Proposal.js';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
@@ -195,10 +195,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
 
     let proposal_url = '';
     if (req.file) {
-      proposal_url = await uploadToGridFS(
+      proposal_url = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
-        req.file.mimetype
+        req.file.mimetype,
+        'proposals'
       );
     } else if (details && details.trim()) {
       const companyName = appDoc?.establishment_name || 'Client';
@@ -209,10 +210,11 @@ router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file')
         estimatedCost: parsedCost,
         adminComment: admin_comment || ''
       });
-      proposal_url = await uploadToGridFS(
+      proposal_url = await uploadToS3(
         pdfBuffer,
         `proposal_${title ? title.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'hfa'}.pdf`,
-        'application/pdf'
+        'application/pdf',
+        'proposals'
       );
     }
 

@@ -1,6 +1,5 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import multer from 'multer';
 import ExtensionApplication from '../models/ExtensionApplication.js';
 import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Certificate from '../models/Certificate.js';

@@ -9,7 +9,7 @@ import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
@@ -320,7 +320,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     });
 
     const filename = `${certNo}-preview.pdf`;
-    const previewUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+    const previewUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
 
     res.json({
       success: true,
@@ -845,7 +845,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     let certificate_url = null;
     if (req.file) {
-      certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
     } else {
       // Auto-generate initial PDF preview
       try {
@@ -871,7 +871,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           verificationUrl: `${getClientUrl()}/verify/${certNo}`
         });
         const filename = `${certNo}.pdf`;
-        certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
       } catch (genErr) {
         console.warn('Initial PDF auto-generation in POST /certificates warning:', genErr.message);
       }
@@ -1240,7 +1240,7 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
     }
 
     if (req.file) {
-      const newUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      const newUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
       cert.certificate_url = newUrl;
     }
 
@@ -1327,7 +1327,7 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
     });
 
     const filename = `${cert.certificate_number}.pdf`;
-    const newUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+    const newUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
     cert.certificate_url = newUrl;
     cert.updated_at = new Date();
     await cert.save();
@@ -1435,7 +1435,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req
         verificationUrl: `${getClientUrl()}/verify/${cert.certificate_number}`
       });
       const filename = `${cert.certificate_number}.pdf`;
-      cert.certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+      cert.certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
     } catch (genErr) {
       console.warn('PDF re-render during approve-and-send warning:', genErr.message);
     }
@@ -1562,9 +1562,9 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
     const certData = await buildCertDataFromApplication(application);
     const pdfBuffer = await generateCertificate(certData);
 
-    // Upload to GridFS
+    // Upload to S3
     const filename = `${certData.certificateNumber}.pdf`;
-    const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
 
     // Save certificate record strictly in under_review (Pending Review)
     const certificate = new Certificate({
@@ -1703,9 +1703,9 @@ router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async
 
     const pdfBuffer = await generateCertificate(certData);
 
-    // Upload to GridFS
+    // Upload to S3
     const filename = `${certificate.certificate_number}.pdf`;
-    const certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
 
     // Update certificate URL
     certificate.certificate_url = certificate_url;
@@ -1756,7 +1756,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
         });
 
         const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
-        const uploadedUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+        const uploadedUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
         certificate.certificate_url = uploadedUrl;
         await certificate.save();
       } catch (genErr) {
@@ -1765,15 +1765,23 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
       }
     }
 
-    // Redirect to the internal GridFS file endpoint or direct link
+    // Redirect to the correct file endpoint — handles S3, legacy GridFS, and absolute URLs
     const host = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-    if (certificate.certificate_url.startsWith('/api/files/')) {
-      const fileId = certificate.certificate_url.replace('/api/files/', '');
-      res.redirect(`${host}/api/files/${fileId}`);
-    } else if (certificate.certificate_url.startsWith('/')) {
-      res.redirect(`${host}${certificate.certificate_url}`);
+    const certUrl = certificate.certificate_url;
+
+    if (certUrl.startsWith('http://') || certUrl.startsWith('https://')) {
+      // Absolute URL (e.g. direct S3 or CDN link) — redirect directly
+      res.redirect(certUrl);
+    } else if (certUrl.startsWith('/api/files/s3/')) {
+      // New S3-backed route — stream via the S3 file handler
+      res.redirect(`${host}${certUrl}`);
+    } else if (certUrl.startsWith('/api/files/')) {
+      // Legacy GridFS path — serve via GridFS streaming handler
+      res.redirect(`${host}${certUrl}`);
+    } else if (certUrl.startsWith('/')) {
+      res.redirect(`${host}${certUrl}`);
     } else {
-      res.redirect(certificate.certificate_url);
+      res.redirect(certUrl);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1980,7 +1988,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     let certificate_url = null;
     if (req.file) {
-      certificate_url = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+      certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
       const effectiveBusinessName = company_name_override || targetClient.company_name || targetClient.full_name || 'Valued Client';
       const effectiveScope = product_category || scope_of_certification || 'Halal Food Certification';
@@ -2013,7 +2021,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       try {
         const pdfBuffer = await generateCertificate(certData);
         const filename = `${certNumber}.pdf`;
-        certificate_url = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
       } catch (pdfErr) {
         console.warn('Auto PDF generation warning:', pdfErr.message);
       }

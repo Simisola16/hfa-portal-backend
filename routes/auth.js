@@ -2,7 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { uploadToGridFS } from '../lib/gridfs.js';
+import { uploadToS3 } from '../lib/s3.js';
 import multer from 'multer';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -418,8 +418,8 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
 
   try {
-    // Upload to MongoDB GridFS
-    const avatarUrl = await uploadToGridFS(req.file.buffer, req.file.originalname, req.file.mimetype);
+    // Upload to AWS S3
+    const avatarUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'avatars');
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { avatar_url: avatarUrl },
