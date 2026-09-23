@@ -113,13 +113,35 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     app.next_surveillance_due_date = parsedDate;
     await app.save();
 
+    const resolvedSiteName = site_name || app.site_name || app.establishment_name || 'Main Facility';
+    const isSiteColliding = (str) => {
+      if (!str) return true;
+      const s = String(str).trim().toLowerCase();
+      return s === String(resolvedSiteName).trim().toLowerCase() ||
+             s === String(app.establishment_name || '').trim().toLowerCase() ||
+             s === String(app.site_name || '').trim().toLowerCase();
+    };
+
+    let resolvedCompName = company_name;
+    if (!resolvedCompName || isSiteColliding(resolvedCompName)) {
+      try {
+        const User = mongoose.model('User');
+        const cUser = await User.findById(app.client_id).select('company_name full_name').lean();
+        if (cUser?.company_name) resolvedCompName = cUser.company_name;
+        else if (cUser?.full_name) resolvedCompName = cUser.full_name;
+      } catch (e) {}
+    }
+    if (!resolvedCompName || isSiteColliding(resolvedCompName)) {
+      resolvedCompName = app.company_name || 'Manufacturing Client';
+    }
+
     // Upsert SurveillanceSchedule record
     const scheduleData = {
       application_id: app._id,
       client_id: app.client_id,
-      company_name: company_name || app.establishment_name || app.company_name || 'Manufacturing Client',
+      company_name: resolvedCompName,
       site_id: site_id || app.site_id || '',
-      site_name: site_name || app.site_name || app.establishment_name || 'Main Facility',
+      site_name: resolvedSiteName,
       application_number: app.application_number,
       application_type: app.application_type || 'new',
       category: app.category || 'UAE/GSO Approved Halal Certification For Exporters To UAE',
