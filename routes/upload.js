@@ -1,11 +1,11 @@
 /**
  * POST /api/upload
  *
- * General-purpose Supabase Storage upload endpoint.
+ * General-purpose AWS S3 upload endpoint.
  * Accepts a single file (field name: "file") and an optional "folder" body field.
- * Returns { url } — the permanent public URL from Supabase Storage.
+ * Returns { url } — the internal S3 streaming path (/api/files/s3/<key>).
  *
- * Used by both the admin and client portals to upload PDFs
+ * Used by both the admin and client portals to upload files
  * (certificates, export documents, invoices, etc.) on the fly.
  */
 import express from 'express';
@@ -45,6 +45,11 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file provided' });
     }
+
+    // Optional folder override from form body — defaults to 'uploads'
+    const folder = (req.body?.folder && typeof req.body.folder === 'string')
+      ? req.body.folder.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)
+      : 'uploads';
 
     const url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, folder);
 
