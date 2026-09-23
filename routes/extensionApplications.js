@@ -242,6 +242,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const applications = await ExtensionApplication.find(query)
       .populate('client_id', 'full_name email company_name business_name phone address')
       .populate('site_id', 'name address_1 address_2 city country')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
       .populate('certificate_id')
       .sort({ created_at: -1 });
@@ -260,6 +261,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const app = await ExtensionApplication.findById(req.params.id)
       .populate('client_id', 'full_name email company_name business_name phone address')
       .populate('site_id')
+      .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
       .populate('certificate_id');
 
