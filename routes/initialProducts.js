@@ -1051,7 +1051,23 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
       Object.assign(logsheet, logsheetData);
       if (newName) logsheet.product_name = newName;
       if (newCode !== undefined) logsheet.product_code = newCode;
-      if (!logsheet.status) logsheet.status = 'Waiting for Signature';
+      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+        logsheet.mufti_signature = null;
+        logsheet.mufti_sign_name = null;
+        logsheet.mufti_sign_date = null;
+        logsheet.ceo_signature = null;
+        logsheet.ceo_sign_name = null;
+        logsheet.ceo_sign_date = null;
+        logsheet.manager_signature = null;
+        logsheet.manager_sign_name = null;
+        logsheet.manager_sign_date = null;
+        logsheet.mufti2_signature = null;
+        logsheet.mufti2_sign_name = null;
+        logsheet.mufti2_sign_date = null;
+        logsheet.status = 'Waiting for Signature';
+      } else if (!logsheet.status) {
+        logsheet.status = 'Waiting for Signature';
+      }
     } else {
       logsheet = new ApplicationLogsheet({
         source_type: 'initial_product_application',

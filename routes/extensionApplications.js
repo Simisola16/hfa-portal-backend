@@ -450,6 +450,27 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
     logsheet.signatures_required = sigsRequired;
     if (comments !== undefined) logsheet.comments = comments;
 
+    if (req.body.clear_signatures || req.body.is_redo) {
+      logsheet.single_signature = null;
+      logsheet.single_sign_name = '';
+      logsheet.single_sign_role = 'Authorized Officer / CEO';
+      logsheet.single_sign_date = null;
+      logsheet.mufti_signature = null;
+      logsheet.mufti_sign_name = '';
+      logsheet.mufti_sign_date = null;
+      logsheet.ceo_signature = null;
+      logsheet.ceo_sign_name = '';
+      logsheet.ceo_sign_date = null;
+      logsheet.manager_signature = null;
+      logsheet.manager_sign_name = '';
+      logsheet.manager_sign_date = null;
+      logsheet.mufti2_signature = null;
+      logsheet.mufti2_sign_name = '';
+      logsheet.mufti2_sign_date = null;
+      logsheet.status = 'Waiting for Signature';
+      app.status = 'waiting_signature';
+    }
+
     if (submit_for_signature) {
       logsheet.status = 'Waiting for Signature';
       app.status = 'waiting_signature';
@@ -457,7 +478,7 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
         status: 'waiting_signature',
         changedAt: new Date(),
         changedBy: req.user.id,
-        note: `Logsheet created (${parsedDays} days extension, ${sigsRequired} signature${sigsRequired > 1 ? 's' : ''} required)`
+        note: `Logsheet ${req.body.is_redo ? 'redone and ' : ''}submitted for signatures (${parsedDays} days extension, ${sigsRequired} signature${sigsRequired > 1 ? 's' : ''} required)`
       });
       await app.save();
     } else if (logsheet.status === 'Draft') {
