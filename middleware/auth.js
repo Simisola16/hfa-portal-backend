@@ -77,6 +77,30 @@ export const requireDirectCertificatePermission = async (req, res, next) => {
   next();
 };
 
+export const requireSignaturePrivilege = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isSuperAdmin = req.user.role === 'superadmin' || req.user.roles?.includes('superadmin');
+  const hasPrivilege = isSuperAdmin || Boolean(req.user.can_sign_logsheet);
+  if (!hasPrivilege) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the Signature Privilege required to sign logsheets. Please contact a Superadmin to grant you this privilege.'
+    });
+  }
+  next();
+};
+
+export const requireReviewCertificatePrivilege = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isSuperAdmin = req.user.role === 'superadmin' || req.user.roles?.includes('superadmin');
+  const hasPrivilege = isSuperAdmin || Boolean(req.user.can_review_certificate);
+  if (!hasPrivilege) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the Review Certificate Privilege required to access, review, or send certificates. Please contact a Superadmin to grant you this privilege.'
+    });
+  }
+  next();
+};
+
 export const requireAdmin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 

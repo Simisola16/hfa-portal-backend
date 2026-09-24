@@ -245,17 +245,93 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       resolvedClientId = existingUser._id;
     }
 
-    const directRef = generateHfaId(company_name || 'DL', normalizeHfaTypeCode(logsheet_type || 'NE'));
+    let logsheet;
+    const directTargetId = req.body.logsheet_id || req.body.direct_id || req.body._id;
+    if (directTargetId && mongoose.Types.ObjectId.isValid(directTargetId)) {
+      logsheet = await ApplicationLogsheet.findById(directTargetId);
+    }
 
-    const logsheet = new ApplicationLogsheet({
-      source_type: 'direct',
-      logsheet_type: logsheet_type || 'application',
-      direct_ref: directRef,
-      certificate_standard: certificate_standard || 'GSO MEAT',
-      scope: scope || 'Halal Certification Operations',
-      client_id: resolvedClientId || undefined,
-      site_id: site_id || undefined,
-      created_by: req.user._id,
+    const directRef = logsheet?.direct_ref || generateHfaId(company_name || 'DL', normalizeHfaTypeCode(logsheet_type || 'NE'));
+
+    if (logsheet) {
+      logsheet.certificate_standard = certificate_standard || logsheet.certificate_standard || 'GSO MEAT';
+      logsheet.scope = scope !== undefined ? scope : logsheet.scope;
+      if (resolvedClientId) logsheet.client_id = resolvedClientId;
+      if (site_id) logsheet.site_id = site_id;
+      logsheet.existing_certificate_number = existing_certificate_number !== undefined ? existing_certificate_number : logsheet.existing_certificate_number;
+      logsheet.extension_duration_type = extension_duration_type || logsheet.extension_duration_type;
+      logsheet.extension_days = extension_days !== undefined ? extension_days : logsheet.extension_days;
+      logsheet.extension_reason = extension_reason !== undefined ? extension_reason : logsheet.extension_reason;
+      if (extended_expiry_date) logsheet.extended_expiry_date = extended_expiry_date;
+      logsheet.addon_type = addon_type || logsheet.addon_type;
+      logsheet.raw_materials_approved = raw_materials_approved || logsheet.raw_materials_approved;
+      logsheet.cross_contamination_risk = cross_contamination_risk || logsheet.cross_contamination_risk;
+      logsheet.formulation_checked = formulation_checked || logsheet.formulation_checked;
+      logsheet.lab_test_required = lab_test_required || logsheet.lab_test_required;
+      logsheet.initial_approval_stage = initial_approval_stage || logsheet.initial_approval_stage;
+      logsheet.decision_type = decision_type || logsheet.decision_type;
+      logsheet.site_name = site_name !== undefined ? site_name : logsheet.site_name;
+      logsheet.company_name = company_name !== undefined ? company_name : logsheet.company_name;
+      logsheet.company_address = company_address !== undefined ? company_address : logsheet.company_address;
+      logsheet.manufacturing_address = manufacturing_address !== undefined ? manufacturing_address : logsheet.manufacturing_address;
+      logsheet.contact_person = contact_person !== undefined ? contact_person : logsheet.contact_person;
+      logsheet.contact_email = contact_email !== undefined ? contact_email : logsheet.contact_email;
+      logsheet.nature_of_business = nature_of_business !== undefined ? nature_of_business : logsheet.nature_of_business;
+      logsheet.product_category = product_category !== undefined ? product_category : logsheet.product_category;
+      logsheet.product_name = product_name !== undefined ? product_name : logsheet.product_name;
+      logsheet.product_code = product_code !== undefined ? product_code : logsheet.product_code;
+      if (Array.isArray(products_list)) logsheet.products_list = products_list;
+      if (issue_date) logsheet.issue_date = issue_date;
+      if (expiry_date) logsheet.expiry_date = expiry_date;
+      if (current_cycle_start) logsheet.current_cycle_start = current_cycle_start;
+      if (original_cycle_start) logsheet.original_cycle_start = original_cycle_start;
+      logsheet.audit_type = audit_type !== undefined ? audit_type : logsheet.audit_type;
+      if (audit_date) logsheet.audit_date = audit_date;
+      logsheet.auditors = auditors !== undefined ? auditors : logsheet.auditors;
+      logsheet.ncs_close = ncs_close !== undefined ? ncs_close : logsheet.ncs_close;
+      logsheet.docs_satisfactory = docs_satisfactory !== undefined ? docs_satisfactory : logsheet.docs_satisfactory;
+      logsheet.pork_free_statement = pork_free_statement !== undefined ? pork_free_statement : logsheet.pork_free_statement;
+      logsheet.reviewed_by = reviewed_by !== undefined ? reviewed_by : logsheet.reviewed_by;
+      logsheet.reviewer_name = reviewer_name !== undefined ? reviewer_name : logsheet.reviewer_name;
+      if (review_date) logsheet.review_date = review_date;
+      logsheet.annual_certificate = annual_certificate || logsheet.annual_certificate;
+      logsheet.batch_certificate = batch_certificate || logsheet.batch_certificate;
+      logsheet.new_products_only = new_products_only || logsheet.new_products_only;
+      logsheet.new_site_line = new_site_line || logsheet.new_site_line;
+      logsheet.new_client = is_new_client || logsheet.new_client;
+      logsheet.agreement_signed = agreement_signed || logsheet.agreement_signed;
+      if (status_date) logsheet.status_date = status_date;
+      logsheet.comment = comment !== undefined ? comment : logsheet.comment;
+      if (Array.isArray(document_urls)) logsheet.document_urls = document_urls;
+      if (Array.isArray(audit_reports)) logsheet.audit_reports = audit_reports;
+      if (Array.isArray(nc_reports_files)) logsheet.nc_reports_files = nc_reports_files;
+
+      if (req.body.clear_signatures || req.body.is_redo) {
+        logsheet.mufti_signature = null;
+        logsheet.mufti_sign_name = null;
+        logsheet.mufti_sign_date = null;
+        logsheet.ceo_signature = null;
+        logsheet.ceo_sign_name = null;
+        logsheet.ceo_sign_date = null;
+        logsheet.manager_signature = null;
+        logsheet.manager_sign_name = null;
+        logsheet.manager_sign_date = null;
+        logsheet.mufti2_signature = null;
+        logsheet.mufti2_sign_name = null;
+        logsheet.mufti2_sign_date = null;
+        logsheet.status = 'Waiting for Signature';
+      }
+      logsheet.updated_at = new Date();
+    } else {
+      logsheet = new ApplicationLogsheet({
+        source_type: 'direct',
+        logsheet_type: logsheet_type || 'application',
+        direct_ref: directRef,
+        certificate_standard: certificate_standard || 'GSO MEAT',
+        scope: scope || 'Halal Certification Operations',
+        client_id: resolvedClientId || undefined,
+        site_id: site_id || undefined,
+        created_by: req.user._id,
 
       existing_certificate_number: existing_certificate_number || '',
       extension_duration_type: extension_duration_type || '30_days',
@@ -312,27 +388,36 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
       status: 'Waiting for Signature'
     });
+  }
 
-    // Apply immediate role signature if provided
+    // Apply immediate role signature if provided and user has signature privilege
     if (role && signature_url) {
-      const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
-      const roleLower = role.toLowerCase();
-      if (roleLower === 'mufti') {
-        logsheet.mufti_signature = signature_url;
-        logsheet.mufti_sign_name = signerName;
-        logsheet.mufti_sign_date = new Date();
-      } else if (roleLower === 'ceo') {
-        logsheet.ceo_signature = signature_url;
-        logsheet.ceo_sign_name = signerName;
-        logsheet.ceo_sign_date = new Date();
-      } else if (roleLower === 'manager') {
-        logsheet.manager_signature = signature_url;
-        logsheet.manager_sign_name = signerName;
-        logsheet.manager_sign_date = new Date();
-      } else if (roleLower === 'mufti2') {
-        logsheet.mufti2_signature = signature_url;
-        logsheet.mufti2_sign_name = signerName;
-        logsheet.mufti2_sign_date = new Date();
+      const signerRoles = Array.isArray(req.user?.roles) && req.user.roles.length > 0
+        ? req.user.roles
+        : (req.user?.role ? [req.user.role] : []);
+      const signerIsSuperAdmin = signerRoles.includes('superadmin') || req.user?.role === 'superadmin';
+      const signerHasSignaturePrivilege = signerIsSuperAdmin || Boolean(req.user?.can_sign_logsheet);
+
+      if (signerHasSignaturePrivilege) {
+        const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
+        const roleLower = role.toLowerCase();
+        if (roleLower === 'mufti') {
+          logsheet.mufti_signature = signature_url;
+          logsheet.mufti_sign_name = signerName;
+          logsheet.mufti_sign_date = new Date();
+        } else if (roleLower === 'ceo') {
+          logsheet.ceo_signature = signature_url;
+          logsheet.ceo_sign_name = signerName;
+          logsheet.ceo_sign_date = new Date();
+        } else if (roleLower === 'manager') {
+          logsheet.manager_signature = signature_url;
+          logsheet.manager_sign_name = signerName;
+          logsheet.manager_sign_date = new Date();
+        } else if (roleLower === 'mufti2') {
+          logsheet.mufti2_signature = signature_url;
+          logsheet.mufti2_sign_name = signerName;
+          logsheet.mufti2_sign_date = new Date();
+        }
       }
     }
 
@@ -463,6 +548,21 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
     if (logsheet) {
       Object.assign(logsheet, logsheetData);
+      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+        logsheet.mufti_signature = null;
+        logsheet.mufti_sign_name = null;
+        logsheet.mufti_sign_date = null;
+        logsheet.ceo_signature = null;
+        logsheet.ceo_sign_name = null;
+        logsheet.ceo_sign_date = null;
+        logsheet.manager_signature = null;
+        logsheet.manager_sign_name = null;
+        logsheet.manager_sign_date = null;
+        logsheet.mufti2_signature = null;
+        logsheet.mufti2_sign_name = null;
+        logsheet.mufti2_sign_date = null;
+        logsheet.status = 'Waiting for Signature';
+      }
       logsheet.source_type = 'application';
       logsheet.initial_product_application_id = undefined;
       logsheet.addon_application_id = undefined;
@@ -640,6 +740,23 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
     const { _id, id, ...updates } = req.body;
+    if (updates.clear_signatures || updates.is_redo || req.body.clear_signatures || req.body.is_redo) {
+      logsheet.mufti_signature = null;
+      logsheet.mufti_sign_name = null;
+      logsheet.mufti_sign_date = null;
+      logsheet.ceo_signature = null;
+      logsheet.ceo_sign_name = null;
+      logsheet.ceo_sign_date = null;
+      logsheet.manager_signature = null;
+      logsheet.manager_sign_name = null;
+      logsheet.manager_sign_date = null;
+      logsheet.mufti2_signature = null;
+      logsheet.mufti2_sign_name = null;
+      logsheet.mufti2_sign_date = null;
+      logsheet.status = 'Waiting for Signature';
+      delete updates.clear_signatures;
+      delete updates.is_redo;
+    }
     Object.assign(logsheet, updates);
     logsheet.updated_at = new Date();
     await logsheet.save();
@@ -806,8 +923,24 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/application-logsheets/:id/sign (Admin only)
+// PUT /api/application-logsheets/:id/sign
+// Requires: Signature Privilege (can_sign_logsheet) OR Superadmin
 router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
+  // Enforce Signature Privilege — only superadmin or staff with can_sign_logsheet may digitally sign
+  if (!req.body.sendWithoutSignature) {
+    const signerRoles = Array.isArray(req.user?.roles) && req.user.roles.length > 0
+      ? req.user.roles
+      : (req.user?.role ? [req.user.role] : []);
+    const signerIsSuperAdmin = signerRoles.includes('superadmin') || req.user?.role === 'superadmin';
+    const signerHasSignaturePrivilege = signerIsSuperAdmin || Boolean(req.user?.can_sign_logsheet);
+
+    if (!signerHasSignaturePrivilege) {
+      return res.status(403).json({
+        error: 'Access denied. You do not have the Signature Privilege required to sign logsheets. Please contact a Superadmin to grant you this privilege.'
+      });
+    }
+  }
+
   try {
     const { role, signature_url, signature_name, comment, sendWithoutSignature, finalizeSignOff } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id)

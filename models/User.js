@@ -34,6 +34,8 @@ const userSchema = new mongoose.Schema({
   client_role: { type: String, enum: ['admin', 'editor', 'viewer', 'owner'], default: 'viewer' },
   can_issue_direct_certificate: { type: Boolean, default: false },
   is_support_manager: { type: Boolean, default: false },
+  can_sign_logsheet: { type: Boolean, default: false },
+  can_review_certificate: { type: Boolean, default: false },
   is_active: { type: Boolean, default: true },
   is_verified: { type: Boolean, default: false },
   verification_token: String,

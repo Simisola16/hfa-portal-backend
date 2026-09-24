@@ -10,7 +10,7 @@ import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
 import { uploadToS3 } from '../lib/s3.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
@@ -1174,7 +1174,7 @@ async function performCertificateIssuance({ certificate, application_id, client_
 }
 
 // PUT /api/certificates/:id (Update certificate details during review)
-router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_file'), async (req, res) => {
+router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.single('certificate_file'), async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
@@ -1254,7 +1254,7 @@ router.put('/:id', authenticateToken, requireAdmin, upload.single('certificate_f
 });
 
 // POST /api/certificates/:id/regenerate (Regenerate PDF with updated reviewer values)
-router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivilege, async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
@@ -1345,7 +1345,8 @@ router.post('/:id/regenerate', authenticateToken, requireAdmin, async (req, res)
 });
 
 // POST /api/certificates/:id/approve-and-send (Finalize review, set active, update application, and send to client)
-router.post('/:id/approve-and-send', authenticateToken, requireAdmin, async (req, res) => {
+// Requires: Review Certificate Privilege (can_review_certificate) OR Superadmin
+router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
@@ -1605,7 +1606,7 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
 });
 
 // POST /api/certificates/:certificateId/regenerate
-router.post('/:certificateId/regenerate', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertificatePrivilege, async (req, res) => {
   try {
     const certificate = await Certificate.findById(req.params.certificateId);
     if (!certificate) {

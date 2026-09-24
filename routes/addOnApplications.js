@@ -876,25 +876,41 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrA
       return res.status(400).json({ error: 'All Product Approval Forms must be received before creating a logsheet.' });
     }
 
-    // Check if logsheet already exists
-    const existing = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
-    if (existing) {
-      return res.status(409).json({ error: 'A logsheet already exists for this add-on application.', data: existing });
-    }
-
     const { ...logsheetData } = req.body;
-
-    const logsheet = new ApplicationLogsheet({
-      source_type: 'addon_application',
-      addon_application_id: app._id,
-      client_id: app.client_id._id,
-      created_by: req.user._id,
-      company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
-      contact_person: logsheetData.contact_person || app.contact_name,
-      contact_email: logsheetData.contact_email || app.contact_email,
-      ...logsheetData,
-      status: 'Waiting for Signature'
-    });
+    let logsheet = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
+    if (logsheet) {
+      Object.assign(logsheet, logsheetData);
+      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+        logsheet.mufti_signature = null;
+        logsheet.mufti_sign_name = null;
+        logsheet.mufti_sign_date = null;
+        logsheet.ceo_signature = null;
+        logsheet.ceo_sign_name = null;
+        logsheet.ceo_sign_date = null;
+        logsheet.manager_signature = null;
+        logsheet.manager_sign_name = null;
+        logsheet.manager_sign_date = null;
+        logsheet.mufti2_signature = null;
+        logsheet.mufti2_sign_name = null;
+        logsheet.mufti2_sign_date = null;
+        logsheet.status = 'Waiting for Signature';
+      } else if (!logsheet.status) {
+        logsheet.status = 'Waiting for Signature';
+      }
+      logsheet.updated_at = new Date();
+    } else {
+      logsheet = new ApplicationLogsheet({
+        source_type: 'addon_application',
+        addon_application_id: app._id,
+        client_id: app.client_id._id,
+        created_by: req.user._id,
+        company_name: logsheetData.company_name || app.client_id?.company_name || app.client_id?.full_name,
+        contact_person: logsheetData.contact_person || app.contact_name,
+        contact_email: logsheetData.contact_email || app.contact_email,
+        ...logsheetData,
+        status: 'Waiting for Signature'
+      });
+    }
 
     await logsheet.save();
 
