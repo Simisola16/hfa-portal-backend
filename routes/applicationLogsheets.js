@@ -313,26 +313,34 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       status: 'Waiting for Signature'
     });
 
-    // Apply immediate role signature if provided
+    // Apply immediate role signature if provided and user has signature privilege
     if (role && signature_url) {
-      const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
-      const roleLower = role.toLowerCase();
-      if (roleLower === 'mufti') {
-        logsheet.mufti_signature = signature_url;
-        logsheet.mufti_sign_name = signerName;
-        logsheet.mufti_sign_date = new Date();
-      } else if (roleLower === 'ceo') {
-        logsheet.ceo_signature = signature_url;
-        logsheet.ceo_sign_name = signerName;
-        logsheet.ceo_sign_date = new Date();
-      } else if (roleLower === 'manager') {
-        logsheet.manager_signature = signature_url;
-        logsheet.manager_sign_name = signerName;
-        logsheet.manager_sign_date = new Date();
-      } else if (roleLower === 'mufti2') {
-        logsheet.mufti2_signature = signature_url;
-        logsheet.mufti2_sign_name = signerName;
-        logsheet.mufti2_sign_date = new Date();
+      const signerRoles = Array.isArray(req.user?.roles) && req.user.roles.length > 0
+        ? req.user.roles
+        : (req.user?.role ? [req.user.role] : []);
+      const signerIsSuperAdmin = signerRoles.includes('superadmin') || req.user?.role === 'superadmin';
+      const signerHasSignaturePrivilege = signerIsSuperAdmin || Boolean(req.user?.can_sign_logsheet);
+
+      if (signerHasSignaturePrivilege) {
+        const signerName = signature_name || req.user.full_name || req.user.username || 'Authorized Signatory';
+        const roleLower = role.toLowerCase();
+        if (roleLower === 'mufti') {
+          logsheet.mufti_signature = signature_url;
+          logsheet.mufti_sign_name = signerName;
+          logsheet.mufti_sign_date = new Date();
+        } else if (roleLower === 'ceo') {
+          logsheet.ceo_signature = signature_url;
+          logsheet.ceo_sign_name = signerName;
+          logsheet.ceo_sign_date = new Date();
+        } else if (roleLower === 'manager') {
+          logsheet.manager_signature = signature_url;
+          logsheet.manager_sign_name = signerName;
+          logsheet.manager_sign_date = new Date();
+        } else if (roleLower === 'mufti2') {
+          logsheet.mufti2_signature = signature_url;
+          logsheet.mufti2_sign_name = signerName;
+          logsheet.mufti2_sign_date = new Date();
+        }
       }
     }
 
@@ -806,8 +814,24 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/application-logsheets/:id/sign (Admin only)
+// PUT /api/application-logsheets/:id/sign
+// Requires: Signature Privilege (can_sign_logsheet) OR Superadmin
 router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
+  // Enforce Signature Privilege — only superadmin or staff with can_sign_logsheet may digitally sign
+  if (!req.body.sendWithoutSignature) {
+    const signerRoles = Array.isArray(req.user?.roles) && req.user.roles.length > 0
+      ? req.user.roles
+      : (req.user?.role ? [req.user.role] : []);
+    const signerIsSuperAdmin = signerRoles.includes('superadmin') || req.user?.role === 'superadmin';
+    const signerHasSignaturePrivilege = signerIsSuperAdmin || Boolean(req.user?.can_sign_logsheet);
+
+    if (!signerHasSignaturePrivilege) {
+      return res.status(403).json({
+        error: 'Access denied. You do not have the Signature Privilege required to sign logsheets. Please contact a Superadmin to grant you this privilege.'
+      });
+    }
+  }
+
   try {
     const { role, signature_url, signature_name, comment, sendWithoutSignature, finalizeSignOff } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id)

@@ -189,7 +189,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate, is_support_manager } = req.body;
+  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate } = req.body;
   
   if (!email?.trim()) {
     return res.status(400).json({ error: 'Email address is required.' });
@@ -232,6 +232,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       roles: assignedRoles,
       can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || primaryRole === 'certificate_officer' || assignedRoles.includes('superadmin') || assignedRoles.includes('certificate_officer')),
       is_support_manager: Boolean(is_support_manager || primaryRole === 'superadmin' || primaryRole === 'support_manager' || assignedRoles.includes('superadmin') || assignedRoles.includes('support_manager')),
+      can_sign_logsheet: Boolean(can_sign_logsheet || assignedRoles.includes('superadmin') || primaryRole === 'superadmin'),
+      can_review_certificate: Boolean(can_review_certificate || assignedRoles.includes('superadmin') || primaryRole === 'superadmin'),
       username: username?.trim() || undefined,
       is_verified: true,
       is_active: true
@@ -271,7 +273,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate, is_support_manager } = req.body;
+    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(Boolean);
@@ -291,6 +293,8 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
       updateObj.can_issue_direct_certificate = true;
       updateObj.is_support_manager = true;
+      updateObj.can_sign_logsheet = true;
+      updateObj.can_review_certificate = true;
     } else {
       if (can_issue_direct_certificate !== undefined) {
         updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
@@ -299,6 +303,12 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
         updateObj.is_support_manager = Boolean(is_support_manager);
       } else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) {
         updateObj.is_support_manager = true;
+      }
+      if (can_sign_logsheet !== undefined) {
+        updateObj.can_sign_logsheet = Boolean(can_sign_logsheet);
+      }
+      if (can_review_certificate !== undefined) {
+        updateObj.can_review_certificate = Boolean(can_review_certificate);
       }
     }
 
@@ -374,6 +384,78 @@ router.put('/:id/support-manager-permission', authenticateToken, requireSuperAdm
     const resData = user.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Support Manager privilege ${user.is_support_manager ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/logsheet-sign-permission — Superadmin toggles Signature Privilege
+router.put('/:id/logsheet-sign-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_sign_logsheet } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.can_sign_logsheet = Boolean(can_sign_logsheet);
+    await user.save();
+
+    if (user.can_sign_logsheet) {
+      await createNotification(
+        user._id,
+        'Privilege Granted: Signature Privilege ✍️',
+        'Superadmin has granted you the Signature Privilege. You can now sign HFA logsheets as an authorised signatory.',
+        'success',
+        '/logsheet/waiting-signature'
+      );
+    } else {
+      await createNotification(
+        user._id,
+        'Privilege Revoked: Signature Privilege',
+        'Your Logsheet Signature privilege has been revoked by Superadmin.',
+        'warning',
+        '/dashboard'
+      );
+    }
+
+    const resData = user.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Signature Privilege ${user.can_sign_logsheet ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/review-certificate-permission — Superadmin toggles Review Certificate Privilege
+router.put('/:id/review-certificate-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_review_certificate } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.can_review_certificate = Boolean(can_review_certificate);
+    await user.save();
+
+    if (user.can_review_certificate) {
+      await createNotification(
+        user._id,
+        'Privilege Granted: Review Certificate Privilege 📋',
+        'Superadmin has granted you the Review Certificate Privilege. You can now access and review draft Halal certificates submitted for committee approval.',
+        'success',
+        '/certificates?status=under_review'
+      );
+    } else {
+      await createNotification(
+        user._id,
+        'Privilege Revoked: Review Certificate Privilege',
+        'Your Review Certificate privilege has been revoked by Superadmin.',
+        'warning',
+        '/dashboard'
+      );
+    }
+
+    const resData = user.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Review Certificate Privilege ${user.can_review_certificate ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

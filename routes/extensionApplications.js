@@ -484,6 +484,19 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
 
 // ─── PUT /api/extension-applications/:id/logsheet/sign (Sign Logsheet) ─────────
 router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, res) => {
+  // Enforce Signature Privilege — only superadmin or staff with can_sign_logsheet may sign
+  const signerRoles = Array.isArray(req.user?.roles) && req.user.roles.length > 0
+    ? req.user.roles
+    : (req.user?.role ? [req.user.role] : []);
+  const signerIsSuperAdmin = signerRoles.includes('superadmin') || req.user?.role === 'superadmin';
+  const signerHasSignaturePrivilege = signerIsSuperAdmin || Boolean(req.user?.can_sign_logsheet);
+
+  if (!signerHasSignaturePrivilege) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the Signature Privilege required to sign logsheets. Please contact a Superadmin to grant you this privilege.'
+    });
+  }
+
   try {
     const { signature_role, signature_data, signer_name, comment } = req.body;
     const logsheet = await ExtensionLogsheet.findOne({ extension_application_id: req.params.id });
