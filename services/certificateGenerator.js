@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import zlib from 'zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import QRCode from 'qrcode';
 import { getClientUrl } from '../lib/urls.js';
@@ -474,8 +475,35 @@ export async function generateCertificate(certData) {
 
   // Create destination multi-page PDF document
   const pdfDoc = await PDFDocument.create();
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  pdfDoc.registerFontkit(fontkit);
+
+  // Load Arial font
+  const fontCandidates = [
+    path.join(__dirname, '../assets/fonts/arial.ttf'),
+    path.join(process.cwd(), 'assets/fonts/arial.ttf'),
+    path.join(process.cwd(), 'backend/assets/fonts/arial.ttf'),
+    'C:/Windows/Fonts/arial.ttf',
+    '/usr/share/fonts/truetype/msttcorefonts/arial.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
+  ];
+  let fontRegular;
+  for (const p of fontCandidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const arialBytes = fs.readFileSync(p);
+        fontRegular = await pdfDoc.embedFont(arialBytes);
+        break;
+      } catch (err) {
+        console.warn(`[CertificateGenerator] Could not embed Arial font from ${p}:`, err.message);
+      }
+    }
+  }
+  if (!fontRegular) {
+    fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  }
+
+  // Remove bold: fontBold points to regular Arial font so all text is regular (not bold)
+  const fontBold = fontRegular;
   const fontOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
   // Standard Colors
@@ -554,10 +582,11 @@ export async function generateCertificate(certData) {
     const [page] = await pdfDoc.copyPages(sourceDoc, [0]);
     pdfDoc.addPage(page);
 
-    // 1. Certificate Number (Centered prominently below Halal Certificate header)
+    // 1. Certificate Number (Centered, Arial 12pt, not bold)
+    const certNoSize = 12.0;
     const certNoLabel = 'Certificate No.:';
-    const certNoLabelW = fontBold.widthOfTextAtSize(certNoLabel, 8.5);
-    const certNoValW = fontBold.widthOfTextAtSize(sanitizedCertNo, 9.5);
+    const certNoLabelW = fontRegular.widthOfTextAtSize(certNoLabel, certNoSize);
+    const certNoValW = fontRegular.widthOfTextAtSize(sanitizedCertNo, certNoSize);
     const totalCertNoW = certNoLabelW + 6.0 + certNoValW;
     const certNoStartX = (PAGE_WIDTH - totalCertNoW) / 2;
     const certNoY = isGso ? 633.0 : 635.0;
@@ -565,55 +594,68 @@ export async function generateCertificate(certData) {
     page.drawText(certNoLabel, {
       x: certNoStartX,
       y: certNoY,
-      size: 8.5,
-      font: fontBold,
+      size: certNoSize,
+      font: fontRegular,
       color: cEmerald
     });
     page.drawText(sanitizedCertNo, {
       x: certNoStartX + certNoLabelW + 6.0,
       y: certNoY,
-      size: 9.5,
-      font: fontBold,
+      size: certNoSize,
+      font: fontRegular,
       color: cDark
     });
 
-    // 2. Dates Block (Exact coordinates matching layout standard)
-    const dateLabelSize = 8.0;
-    const dateValSize = 8.5;
+    // 2. Dates Block (Arial 12pt, not bold)
+    const dateSize = 12.0;
 
     if (!isGso) {
       // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC): 3 dates
       const dateY = 610.0;
       
       // Date 1: Issue Date
-      page.drawText('Issue Date:', { x: 45.0, y: dateY, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedIssue, { x: 96.0, y: dateY, size: dateValSize, font: fontBold, color: cDark });
+      const issueLabel = 'Issue Date:';
+      const issueLabelW = fontRegular.widthOfTextAtSize(issueLabel, dateSize);
+      page.drawText(issueLabel, { x: 42.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedIssue, { x: 42.0 + issueLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
 
       // Date 2: Certification Start Date
-      page.drawText('Certification Start Date:', { x: 195.0, y: dateY, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedCertStart, { x: 300.0, y: dateY, size: dateValSize, font: fontBold, color: cDark });
+      const certStartLabel = 'Certification Start Date:';
+      const certStartLabelW = fontRegular.widthOfTextAtSize(certStartLabel, dateSize);
+      page.drawText(certStartLabel, { x: 188.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedCertStart, { x: 188.0 + certStartLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
 
       // Date 3: Expiry Date
-      page.drawText('Expiry Date:', { x: 420.0, y: dateY, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedExpiry, { x: 476.0, y: dateY, size: dateValSize, font: fontBold, color: cDark });
+      const expLabel = 'Expiry Date:';
+      const expLabelW = fontRegular.widthOfTextAtSize(expLabel, dateSize);
+      page.drawText(expLabel, { x: 412.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedExpiry, { x: 412.0 + expLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
     } else {
       // GSO (GSO Meat, GSO Non-Meat): 4 dates
       const dateY1 = 611.0;
       const dateY2 = 590.0;
 
       // Row 1: Issue Date | Current Cycle Start Date | Expiry Date
-      page.drawText('Issue Date:', { x: 45.0, y: dateY1, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedIssue, { x: 96.0, y: dateY1, size: dateValSize, font: fontBold, color: cDark });
+      const issueLabel = 'Issue Date:';
+      const issueLabelW = fontRegular.widthOfTextAtSize(issueLabel, dateSize);
+      page.drawText(issueLabel, { x: 42.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedIssue, { x: 42.0 + issueLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
 
-      page.drawText('Current Cycle Start Date:', { x: 195.0, y: dateY1, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedCurrentCycle, { x: 302.0, y: dateY1, size: dateValSize, font: fontBold, color: cDark });
+      const currLabel = 'Current Cycle Start Date:';
+      const currLabelW = fontRegular.widthOfTextAtSize(currLabel, dateSize);
+      page.drawText(currLabel, { x: 188.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedCurrentCycle, { x: 188.0 + currLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
 
-      page.drawText('Expiry Date:', { x: 420.0, y: dateY1, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedExpiry, { x: 476.0, y: dateY1, size: dateValSize, font: fontBold, color: cDark });
+      const expLabel = 'Expiry Date:';
+      const expLabelW = fontRegular.widthOfTextAtSize(expLabel, dateSize);
+      page.drawText(expLabel, { x: 412.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedExpiry, { x: 412.0 + expLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
 
       // Row 2: Original Cycle Start Date
-      page.drawText('Original Cycle Start Date:', { x: 195.0, y: dateY2, size: dateLabelSize, font: fontBold, color: cEmerald });
-      page.drawText(formattedOrigCycle, { x: 306.0, y: dateY2, size: dateValSize, font: fontBold, color: cDark });
+      const origLabel = 'Original Cycle Start Date:';
+      const origLabelW = fontRegular.widthOfTextAtSize(origLabel, dateSize);
+      page.drawText(origLabel, { x: 188.0, y: dateY2, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedOrigCycle, { x: 188.0 + origLabelW + 5.0, y: dateY2, size: dateSize, font: fontRegular, color: cDark });
     }
 
     if (isFirstPage) {
