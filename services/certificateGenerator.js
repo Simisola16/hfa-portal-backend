@@ -764,29 +764,6 @@ export async function generateCertificate(certData) {
 
     let headerBottomY = isFirstPage ? 326.0 : 511.0;
 
-    if (!isFirstPage) {
-      // Continuation Annex Header for subsequent pages
-      const annexTitle = 'SCHEDULE OF CERTIFIED PRODUCTS (ANNEX)';
-      const annexTitleW = fontBold.widthOfTextAtSize(annexTitle, 10.5);
-      page.drawText(annexTitle, {
-        x: (PAGE_WIDTH - annexTitleW) / 2,
-        y: 556,
-        size: 10.5,
-        font: fontBold,
-        color: cEmerald
-      });
-
-      const annexSub = `Certificate No: ${sanitizedCertNo}   |   ${resolvedName}`;
-      const annexSubW = fontRegular.widthOfTextAtSize(annexSub, 9.0);
-      page.drawText(annexSub, {
-        x: (PAGE_WIDTH - annexSubW) / 2,
-        y: 542,
-        size: 9.0,
-        font: fontRegular,
-        color: cDark
-      });
-    }
-
     // Column definitions based on chosen option:
     // Option 1: NO. (60pt), NAME OF THE PRODUCTS (445pt)
     // Option 2: NO. (50pt), CODE (125pt), DESCRIPTION (330pt)
