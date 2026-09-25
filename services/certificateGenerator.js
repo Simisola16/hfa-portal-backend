@@ -116,25 +116,30 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
   const lines = [];
   let currentLine = '';
 
-  for (const word of words) {
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
     const testLine = currentLine ? `${currentLine} ${word}` : word;
     try {
       if (font.widthOfTextAtSize(testLine, size) <= maxWidth) {
         currentLine = testLine;
       } else {
         if (currentLine) lines.push(currentLine);
+        if (lines.length === maxLines - 1) {
+          const remainingWords = words.slice(i).join(' ');
+          lines.push(truncateToWidth(remainingWords, maxWidth, font, size));
+          currentLine = '';
+          break;
+        }
         currentLine = word;
-        if (lines.length === maxLines - 1) break;
       }
     } catch (e) {
       currentLine = word;
     }
   }
-  if (currentLine) lines.push(currentLine);
-  if (lines.length > maxLines) {
-    lines.length = maxLines;
+  if (currentLine && lines.length < maxLines) {
+    lines.push(truncateToWidth(currentLine, maxWidth, font, size));
   }
-  return lines.map(line => truncateToWidth(line, maxWidth, font, size));
+  return lines;
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -681,76 +686,76 @@ export async function generateCertificate(certData) {
         }
       }
 
-      // 3. Company & Category Info Block
-      // Strict Left Alignment on valStartX = 186.0 with horizontal dividers spanning 45.0 to 550.0 pt
+      // 3. Company & Category Info Block (Arial 12pt, non-bold)
+      // Strict Left Alignment on valStartX = 236.0 with horizontal dividers spanning 45.0 to 550.0 pt
       const labelStartX = 45.0;
-      const valStartX = 186.0;
+      const valStartX = 236.0;
       const dividerLeftX = 45.0;
       const dividerRightX = 550.0;
-      const maxValW = dividerRightX - valStartX; // 364 pt
+      const maxValW = dividerRightX - valStartX; // 314 pt
 
-      const rowLabelSize = 8.5;
-      const rowValSize = 9.0;
+      const rowLabelSize = 12.0;
+      const rowValSize = 12.0;
 
       // Row 1: COMPANY NAME
       const r1Y = 480.0;
-      page.drawText('COMPANY NAME:', { x: labelStartX, y: r1Y, size: rowLabelSize, font: fontBold, color: cDark });
-      const nameLines = wrapTextLines(resolvedName, maxValW, fontBold, rowValSize, 1);
-      page.drawText(nameLines[0] || '—', { x: valStartX, y: r1Y, size: rowValSize, font: fontBold, color: cDark });
+      page.drawText('COMPANY NAME:', { x: labelStartX, y: r1Y, size: rowLabelSize, font: fontRegular, color: cDark });
+      const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, rowValSize, 1);
+      page.drawText(nameLines[0] || '—', { x: valStartX, y: r1Y, size: rowValSize, font: fontRegular, color: cDark });
       page.drawLine({
-        start: { x: dividerLeftX, y: 468.0 },
-        end: { x: dividerRightX, y: 468.0 },
+        start: { x: dividerLeftX, y: 466.0 },
+        end: { x: dividerRightX, y: 466.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 2: COMPANY ADDRESS
-      const r2Y = 450.0;
-      page.drawText('COMPANY ADDRESS:', { x: labelStartX, y: r2Y, size: rowLabelSize, font: fontBold, color: cDark });
-      const addrLines = wrapTextLines(resolvedAddress, maxValW, fontBold, rowValSize, 2);
+      const r2Y = 448.0;
+      page.drawText('COMPANY ADDRESS:', { x: labelStartX, y: r2Y, size: rowLabelSize, font: fontRegular, color: cDark });
+      const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 2);
       if (addrLines.length > 1) {
-        page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontBold, color: cDark });
-        page.drawText(addrLines[1], { x: valStartX, y: r2Y - 12.0, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(addrLines[1], { x: valStartX, y: r2Y - 14.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
-        page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
       }
       page.drawLine({
-        start: { x: dividerLeftX, y: 428.0 },
-        end: { x: dividerRightX, y: 428.0 },
+        start: { x: dividerLeftX, y: 424.0 },
+        end: { x: dividerRightX, y: 424.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 3: MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):
-      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 412.0, size: 7.8, font: fontBold, color: cDark });
-      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 401.0, size: 7.8, font: fontBold, color: cDark });
-      const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontBold, rowValSize, 2);
+      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 406.0, size: rowLabelSize, font: fontRegular, color: cDark });
+      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 392.0, size: rowLabelSize, font: fontRegular, color: cDark });
+      const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 2);
       if (mfgLines.length > 1) {
-        page.drawText(mfgLines[0], { x: valStartX, y: 410.0, size: rowValSize, font: fontBold, color: cDark });
-        page.drawText(mfgLines[1], { x: valStartX, y: 398.0, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(mfgLines[0], { x: valStartX, y: 406.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(mfgLines[1], { x: valStartX, y: 392.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
-        page.drawText(mfgLines[0], { x: valStartX, y: 406.0, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(mfgLines[0], { x: valStartX, y: 399.0, size: rowValSize, font: fontRegular, color: cDark });
       }
       page.drawLine({
-        start: { x: dividerLeftX, y: 388.0 },
-        end: { x: dividerRightX, y: 388.0 },
+        start: { x: dividerLeftX, y: 378.0 },
+        end: { x: dividerRightX, y: 378.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 4: PRODUCT CATEGORY
-      const r4Y = 368.0;
-      page.drawText('PRODUCT CATEGORY:', { x: labelStartX, y: r4Y, size: rowLabelSize, font: fontBold, color: cDark });
-      const scopeLines = wrapTextLines(resolvedScope, maxValW, fontBold, rowValSize, 2);
+      const r4Y = 360.0;
+      page.drawText('PRODUCT CATEGORY:', { x: labelStartX, y: r4Y, size: rowLabelSize, font: fontRegular, color: cDark });
+      const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2);
       if (scopeLines.length > 1) {
-        page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontBold, color: cDark });
-        page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 11.0, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 14.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
-        page.drawText(scopeLines[0] || '—', { x: valStartX, y: r4Y, size: rowValSize, font: fontBold, color: cDark });
+        page.drawText(scopeLines[0] || '—', { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
       }
       page.drawLine({
-        start: { x: dividerLeftX, y: 350.0 },
-        end: { x: dividerRightX, y: 350.0 },
+        start: { x: dividerLeftX, y: 336.0 },
+        end: { x: dividerRightX, y: 336.0 },
         thickness: 0.5,
         color: cDivider
       });
@@ -762,7 +767,7 @@ export async function generateCertificate(certData) {
     const headerHeight = 18.0;
     const rowHeight = 18.0;
 
-    let headerBottomY = isFirstPage ? 326.0 : 511.0;
+    let headerBottomY = isFirstPage ? 312.0 : 511.0;
 
     // Column definitions based on chosen option:
     // Option 1: NO. (60pt), NAME OF THE PRODUCTS (445pt)
@@ -1140,24 +1145,24 @@ export async function buildCertificateHtml(certData) {
           min-height: 297mm;
           margin: 0 auto;
           padding: 24mm 16mm;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          font-family: Arial, "Helvetica Neue", sans-serif;
           color: #111827;
           background: #ffffff;
           position: relative;
         }
         .cert-header { text-align: center; margin-bottom: 12px; }
         .cert-title { font-size: 20pt; font-weight: 700; color: #0b7c47; margin-top: 6px; }
-        .cert-no { font-size: 8.5pt; margin-top: 4px; }
-        .cert-no-label { color: #0b7c47; font-weight: 700; }
-        .dates-row { display: flex; justify-content: space-between; font-size: 8pt; margin-top: 8px; }
-        .dates-row-center { text-align: center; font-size: 8pt; margin-top: 4px; }
-        .date-label { color: #0b7c47; font-weight: 700; }
-        .declaration { font-size: 8.2pt; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
-        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 9.5pt; }
+        .cert-no { font-size: 12pt; font-weight: normal; margin-top: 4px; }
+        .cert-no-label { color: #0b7c47; font-weight: normal; }
+        .dates-row { display: flex; justify-content: space-between; font-size: 12pt; font-weight: normal; margin-top: 8px; }
+        .dates-row-center { text-align: center; font-size: 12pt; font-weight: normal; margin-top: 4px; }
+        .date-label { color: #0b7c47; font-weight: normal; }
+        .declaration { font-size: 12pt; font-weight: normal; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
+        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 12pt; }
         .info-table tr { border-bottom: 1px solid #7cb594; }
         .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
-        .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: 700; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
-        .info-val { color: #111827; font-weight: 700; vertical-align: top; text-align: left; word-break: break-word; padding: 6px 0; margin: 0; box-sizing: border-box; }
+        .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: normal; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
+        .info-val { color: #111827; font-weight: normal; vertical-align: top; text-align: left; word-break: break-word; padding: 6px 0; margin: 0; box-sizing: border-box; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; width: 100%; }
         .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: transparent; }
         .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #0b7c47; }
