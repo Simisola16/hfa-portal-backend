@@ -170,6 +170,10 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       return true;
     }) || null;
 
+    if (!finalApp.suggested_certificate_type && mainLogsheet) {
+      finalApp.suggested_certificate_type = mainLogsheet.suggested_certificate_type || mainLogsheet.certificate_type || mainLogsheet.certificate_standard || '';
+    }
+
     const initialProductItem = (initialProducts && initialProducts.length > 0) ? initialProducts[0] : null;
 
     res.json({
@@ -232,6 +236,22 @@ router.get('/:id', authenticateToken, async (req, res) => {
           if (s) finalData.site = s;
         }
       } catch (sErr) {}
+    }
+
+    // Attach suggested certificate type from logsheet if missing
+    if (!finalData.suggested_certificate_type) {
+      try {
+        const logDoc = await ApplicationLogsheet.findOne({
+          $or: [
+            { application_id: data._id },
+            { application_id: String(data._id) },
+            ...(data.logsheet_id ? [{ _id: data.logsheet_id }] : [])
+          ]
+        }).select('suggested_certificate_type certificate_type certificate_standard').sort({ createdAt: -1 }).lean();
+        if (logDoc) {
+          finalData.suggested_certificate_type = logDoc.suggested_certificate_type || logDoc.certificate_type || logDoc.certificate_standard || '';
+        }
+      } catch (_) {}
     }
 
     // Auto-fix legacy uppercase statuses in DB (e.g. "PAYMENT RECEIVED" -> "payment_received")
