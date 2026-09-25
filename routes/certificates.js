@@ -209,7 +209,12 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 // GET /api/certificates/direct-history (Superadmin & Authorized Staff - MUST be before /:id)
 router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
   try {
-    const certs = await Certificate.find({ is_direct_issuance: true })
+    const certs = await Certificate.find({
+      is_direct_issuance: true,
+      certificate_type: { $ne: 'Extension' },
+      is_extension: { $ne: true },
+      notes: { $not: /Issued via Extension Application/i }
+    })
       .populate('site_id')
       .populate('issued_by', 'full_name email username')
       .sort({ createdAt: -1 })

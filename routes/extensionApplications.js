@@ -662,7 +662,8 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
         issue_date: new Date(),
         expiry_date: newExpiryDate,
         status: 'active',
-        is_direct_issuance: true,
+        is_direct_issuance: false,
+        is_extension: true,
         issued_by: req.user.id,
         notes: notes || `Issued via Extension Application ${app.application_number} for ${extensionDays} days.`
       });
