@@ -686,7 +686,7 @@ export async function generateCertificate(certData) {
         }
       }
 
-      // 3. Company & Category Info Block (Arial 12pt, non-bold)
+      // 3. Company & Category Info Block (Arial 11pt, non-bold)
       // Strict Left Alignment on valStartX = 236.0 with horizontal dividers spanning 45.0 to 550.0 pt
       const labelStartX = 45.0;
       const valStartX = 236.0;
@@ -694,8 +694,8 @@ export async function generateCertificate(certData) {
       const dividerRightX = 550.0;
       const maxValW = dividerRightX - valStartX; // 314 pt
 
-      const rowLabelSize = 12.0;
-      const rowValSize = 12.0;
+      const rowLabelSize = 11.0;
+      const rowValSize = 11.0;
 
       // Row 1: COMPANY NAME
       const r1Y = 480.0;
@@ -715,7 +715,7 @@ export async function generateCertificate(certData) {
       const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 2);
       if (addrLines.length > 1) {
         page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
-        page.drawText(addrLines[1], { x: valStartX, y: r2Y - 14.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(addrLines[1], { x: valStartX, y: r2Y - 13.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
         page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
       }
@@ -728,11 +728,11 @@ export async function generateCertificate(certData) {
 
       // Row 3: MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):
       page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 406.0, size: rowLabelSize, font: fontRegular, color: cDark });
-      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 392.0, size: rowLabelSize, font: fontRegular, color: cDark });
+      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 393.0, size: rowLabelSize, font: fontRegular, color: cDark });
       const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 2);
       if (mfgLines.length > 1) {
         page.drawText(mfgLines[0], { x: valStartX, y: 406.0, size: rowValSize, font: fontRegular, color: cDark });
-        page.drawText(mfgLines[1], { x: valStartX, y: 392.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(mfgLines[1], { x: valStartX, y: 393.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
         page.drawText(mfgLines[0], { x: valStartX, y: 399.0, size: rowValSize, font: fontRegular, color: cDark });
       }
@@ -749,7 +749,7 @@ export async function generateCertificate(certData) {
       const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2);
       if (scopeLines.length > 1) {
         page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
-        page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 14.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 13.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
         page.drawText(scopeLines[0] || '—', { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
       }
@@ -1158,7 +1158,7 @@ export async function buildCertificateHtml(certData) {
         .dates-row-center { text-align: center; font-size: 12pt; font-weight: normal; margin-top: 4px; }
         .date-label { color: #0b7c47; font-weight: normal; }
         .declaration { font-size: 12pt; font-weight: normal; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
-        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 12pt; }
+        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 11pt; }
         .info-table tr { border-bottom: 1px solid #7cb594; }
         .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
         .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: normal; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
