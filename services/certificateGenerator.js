@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import zlib from 'zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { getClientUrl } from '../lib/urls.js';
@@ -441,6 +442,35 @@ export async function generateCertificate(certData) {
 
   const totalPages = pagesProducts.length;
 
+  // Load clean annex base PDF template for multi-page certificates (Page 2+)
+  let annexDoc = null;
+  if (totalPages > 1) {
+    try {
+      const annexBuffer = getBasePdfBuffer('ANNEX_BASE.pdf');
+      annexDoc = await PDFDocument.load(annexBuffer, { ignoreEncryption: true });
+    } catch (e) {
+      try {
+        const clonedBase = await PDFDocument.load(basePdfBuffer, { ignoreEncryption: true });
+        const p = clonedBase.getPage(0);
+        const stream = clonedBase.context.lookup(p.node.Contents());
+        if (stream) {
+          const u8 = stream.asUint8Array ? stream.asUint8Array() : stream.getContents();
+          let decomp = zlib.inflateSync(u8).toString('utf-8');
+          const declRegex = /BT[\r\n\s]+(\/P\s*<<[^>]*>>BDC[\r\n\s]+)?\/C2_0\s+1\s+Tf[\r\n\s]+12\s+0\s+0\s+12\s+56\.9698\s+556\.0353\s+Tm[\s\S]*?ET/g;
+          decomp = decomp.replace(declRegex, '');
+          stream.contents = zlib.deflateSync(Buffer.from(decomp, 'utf-8'));
+          const cleanAnnexBuf = await clonedBase.save();
+          pdfCache.set('ANNEX_BASE.pdf', Buffer.from(cleanAnnexBuf));
+          annexDoc = await PDFDocument.load(cleanAnnexBuf, { ignoreEncryption: true });
+        } else {
+          annexDoc = baseDoc;
+        }
+      } catch (err) {
+        annexDoc = baseDoc;
+      }
+    }
+  }
+
   // Create destination multi-page PDF document
   const pdfDoc = await PDFDocument.create();
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -518,8 +548,9 @@ export async function generateCertificate(certData) {
     const isLastPage = pageIdx === totalPages - 1;
     const currentProducts = pagesProducts[pageIdx];
 
-    // Clone vector base PDF template page
-    const [page] = await pdfDoc.copyPages(baseDoc, [0]);
+    // Clone vector base PDF template page (baseDoc for Page 1, clean annexDoc for Page 2+)
+    const sourceDoc = (isFirstPage || !annexDoc) ? baseDoc : annexDoc;
+    const [page] = await pdfDoc.copyPages(sourceDoc, [0]);
     pdfDoc.addPage(page);
 
     // 1. Certificate Number (Centered prominently below Halal Certificate header)
@@ -670,14 +701,6 @@ export async function generateCertificate(certData) {
 
     if (!isFirstPage) {
       // Continuation Annex Header for subsequent pages
-      page.drawRectangle({
-        x: tableLeftX,
-        y: 190,
-        width: tableWidth,
-        height: 380,
-        color: cWhite
-      });
-
       const annexTitle = 'SCHEDULE OF CERTIFIED PRODUCTS (ANNEX)';
       const annexTitleW = fontBold.widthOfTextAtSize(annexTitle, 10.5);
       page.drawText(annexTitle, {
@@ -923,23 +946,14 @@ export async function generateCertificate(certData) {
     });
 
     // 6. Dynamic Page Numbering: "Page X of Y"
-    if (totalPages > 1) {
-      page.drawRectangle({
-        x: 502,
-        y: 58,
-        width: 72,
-        height: 20,
-        color: cWhite
-      });
-      const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
-      page.drawText(pageNoStr, {
-        x: 509,
-        y: 68.5,
-        size: 8.5,
-        font: fontOblique,
-        color: cDark
-      });
-    }
+    const pageNoStr = `Page ${pageIdx + 1} of ${totalPages}`;
+    page.drawText(pageNoStr, {
+      x: 509,
+      y: 68.5,
+      size: 8.5,
+      font: fontOblique,
+      color: cDark
+    });
   }
 
   const pdfBytes = await pdfDoc.save();
