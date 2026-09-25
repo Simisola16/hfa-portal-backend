@@ -666,7 +666,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     const logsheets = await ApplicationLogsheet.find(filter)
-      .populate('application_id', 'application_number application_type status category')
+      .populate('application_id', 'application_number application_type status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name')
       .populate('addon_application_id', 'status')
       .populate('initial_product_application_id', 'status')
       .populate('client_id', 'full_name company_name email phone address')
