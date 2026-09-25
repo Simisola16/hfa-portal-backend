@@ -619,8 +619,11 @@ export async function generateCertificate(certData) {
     if (isFirstPage) {
       // 2.5 Scheme Declaration Lines (Centered dynamically between Dates and Company details)
       if (scheme.declarationLines && scheme.declarationLines.length > 0) {
-        const declFontSize = 7.9;
-        let declY = isGso ? 562.0 : 565.0;
+        const declFontSize = 12.0;
+        const lineSpacing = 15.5;
+        const totalHeight = (scheme.declarationLines.length - 1) * lineSpacing;
+        const centerDeclY = isGso ? 535.0 : 542.0;
+        let declY = centerDeclY + (totalHeight / 2);
         for (const line of scheme.declarationLines) {
           if (!line.trim()) continue;
           const sanitizedLine = sanitizeForPdf(line);
@@ -632,7 +635,7 @@ export async function generateCertificate(certData) {
             font: fontRegular,
             color: cDark
           });
-          declY -= 11.5;
+          declY -= lineSpacing;
         }
       }
 
