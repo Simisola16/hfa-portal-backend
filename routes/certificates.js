@@ -1987,15 +1987,15 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     const parsedCurrentCycle = current_cycle_start_date ? new Date(current_cycle_start_date) : parsedIssueDate;
     const parsedOrigCycle = original_cycle_start_date ? new Date(original_cycle_start_date) : parsedIssueDate;
 
+    const effectiveBusinessName = company_name_override || targetClient.company_name || targetClient.full_name || 'Valued Client';
+    const effectiveScope = product_category || scope_of_certification || 'Halal Food Certification';
+    const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+    const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : 2;
+
     let certificate_url = null;
     if (req.file) {
       certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
-      const effectiveBusinessName = company_name_override || targetClient.company_name || targetClient.full_name || 'Valued Client';
-      const effectiveScope = product_category || scope_of_certification || 'Halal Food Certification';
-      const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
-      const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
-
       const certData = {
         certificateType: certificate_type || 'GSO MEAT',
         businessName: effectiveBusinessName,
@@ -2027,9 +2027,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         console.warn('Auto PDF generation warning:', pdfErr.message);
       }
     }
-
-    const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
-    const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : 2;
 
     // 6. Save Certificate
     const certificate = new Certificate({
