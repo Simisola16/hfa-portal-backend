@@ -603,6 +603,14 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       application_id,
       {
         logsheet_id: logsheet._id,
+        ...(logsheet.certificate_type || logsheet.certificate_standard ? {
+          certificate_type: logsheet.certificate_type || logsheet.certificate_standard,
+          suggested_certificate_type: logsheet.suggested_certificate_type || logsheet.certificate_type || logsheet.certificate_standard,
+          scheme: logsheet.certificate_type || logsheet.certificate_standard
+        } : {}),
+        ...(logsheet.next_surveillance_due_date ? {
+          next_surveillance_due_date: logsheet.next_surveillance_due_date
+        } : {}),
         status: 'logsheet_created',
         updated_at: new Date(),
         $push: {
@@ -779,9 +787,11 @@ const countLogsheetSignatures = (logsheet) => {
 // PUT /api/application-logsheets/:id/status (Admin only)
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { status, force, certificate_type } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    const { status, force, certificate_type, suggested_certificate_type } = req.body;
+    const certType = certificate_type || suggested_certificate_type || logsheet.suggested_certificate_type || logsheet.certificate_type || logsheet.certificate_standard || '';
 
     if ((status === 'Signed' || status === 'Completed' || status === 'Waiting For Certificate') && !force) {
       const sigCount = countLogsheetSignatures(logsheet);
@@ -791,9 +801,10 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     logsheet.status = status;
-    if (certificate_type) {
-      logsheet.certificate_standard = certificate_type;
-      logsheet.certificate_type = certificate_type;
+    if (certType) {
+      logsheet.certificate_standard = certType;
+      logsheet.certificate_type = certType;
+      logsheet.suggested_certificate_type = certType;
     }
     logsheet.updated_at = new Date();
     await logsheet.save();
@@ -850,9 +861,10 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
           app.status = 'application_successful';
         }
 
-        if (certificate_type) {
-          app.certificate_type = certificate_type;
-          app.scheme = certificate_type;
+        if (certType) {
+          app.certificate_type = certType;
+          app.suggested_certificate_type = certType;
+          app.scheme = certType;
         }
 
         if (req.body.next_surveillance_due_date) {
@@ -942,10 +954,11 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    const { role, signature_url, signature_name, comment, sendWithoutSignature, finalizeSignOff } = req.body;
+    const { role, signature_url, signature_name, comment, sendWithoutSignature, finalizeSignOff, certificate_type, suggested_certificate_type } = req.body;
     const logsheet = await ApplicationLogsheet.findById(req.params.id)
       .populate('application_id', 'application_number');
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+    const certType = certificate_type || suggested_certificate_type || logsheet.suggested_certificate_type || logsheet.certificate_type || logsheet.certificate_standard || '';
 
     if (finalizeSignOff) {
       const sigCount = countLogsheetSignatures(logsheet);
@@ -956,6 +969,11 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       const isInitialProductLogsheet = logsheet.source_type === 'initial_product_application' || Boolean(logsheet.initial_product_application_id) || logsheet.audit_type === 'Initial Product Evaluation';
       const isDirectLogsheet = logsheet.source_type === 'direct';
       logsheet.status = isInitialProductLogsheet ? 'Completed' : (isDirectLogsheet ? 'Waiting For Certificate' : 'Signed');
+      if (certType) {
+        logsheet.certificate_standard = certType;
+        logsheet.certificate_type = certType;
+        logsheet.suggested_certificate_type = certType;
+      }
       await logsheet.save();
 
       const { approved_products } = req.body;
@@ -1226,6 +1244,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
               statusHistory: newHistoryEntries
             }
           };
+
+          if (certType) {
+            updateFields.certificate_type = certType;
+            updateFields.suggested_certificate_type = certType;
+            updateFields.scheme = certType;
+          }
 
           if (req.body.next_surveillance_due_date) {
             const parsedDueDate = new Date(req.body.next_surveillance_due_date);

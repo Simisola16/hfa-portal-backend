@@ -11,6 +11,8 @@ const applicationLogsheetSchema = new mongoose.Schema({
   },
   direct_ref: String, // e.g. DL-2026-XXXX for direct logsheets
   certificate_standard: String, // GSO MEAT, GSO NON MEAT, SMIIC, HFA SCHEME, COSMETICS
+  certificate_type: String,
+  suggested_certificate_type: String,
   scope: String,
   
   // Extension Logsheet Specific Fields
@@ -66,6 +68,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   product_code: String,
   current_cycle_start: Date,
   original_cycle_start: Date,
+  next_surveillance_due_date: Date,
   document_url: String, // from File upload
   document_urls: [{ name: String, url: String, uploaded_at: { type: Date, default: Date.now } }],
   audit_reports: [{ name: String, url: String, uploaded_at: { type: Date, default: Date.now } }],
