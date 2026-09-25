@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import zlib from 'zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import QRCode from 'qrcode';
 import { getClientUrl } from '../lib/urls.js';
 
@@ -202,8 +203,8 @@ export const CERTIFICATE_SCHEMES = {
     docFooter: 'Doc: Halal Certificate (GSO meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
-      'Certification Requirements Manual HFP-1005-20/5, HMP 1105-21/2, and other relavant',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
+      'Certification Requirements Manual HFP-1005-20/5, HMP 1105-21/2, and other relevant',
       'standards including SMIIC -1:2011/UAE.S.993/UAE.S.2055-1:2015.'
     ]
   },
@@ -215,7 +216,7 @@ export const CERTIFICATE_SCHEMES = {
     docFooter: 'Doc: Halal Certificate (GSO non-meat)   Created by: AH   Amended by: TO   Approved by: AM   Version: 16   Date: 28.10.2024',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
       'Certification Requirements Manual HFP-1005-20/5 and UAE.S.2055-1:2015.'
     ]
   },
@@ -227,7 +228,7 @@ export const CERTIFICATE_SCHEMES = {
     docFooter: 'Doc: Halal Certificate (HFA Meat Scheme)   Created by: AH   Amended by: MH   Approved by: AM   Version: 3   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
       'Certification Requirements Manual HFP-1005-20/5 & HMP-1105-21/2.'
     ]
   },
@@ -239,7 +240,7 @@ export const CERTIFICATE_SCHEMES = {
     docFooter: 'Doc: Halal Certificate (HFA non meat Scheme)   Created by: AH   Amended by: MH   Approved by: HI   Version: 9   Date: 11.10.2022',
     declarationLines: [
       'We certify and confirm that the company/manufacturing facility(ies) and the product/s listed',
-      'below has/have been sucessfully evaluated and audited in accordance with HFA Halal',
+      'below has/have been successfully evaluated and audited in accordance with HFA Halal',
       'Certification Requirements Manual HFP-1005-20/5.'
     ]
   },
@@ -616,6 +617,25 @@ export async function generateCertificate(certData) {
     }
 
     if (isFirstPage) {
+      // 2.5 Scheme Declaration Lines (Centered dynamically between Dates and Company details)
+      if (scheme.declarationLines && scheme.declarationLines.length > 0) {
+        const declFontSize = 7.9;
+        let declY = isGso ? 562.0 : 565.0;
+        for (const line of scheme.declarationLines) {
+          if (!line.trim()) continue;
+          const sanitizedLine = sanitizeForPdf(line);
+          const lineW = fontRegular.widthOfTextAtSize(sanitizedLine, declFontSize);
+          page.drawText(sanitizedLine, {
+            x: (PAGE_WIDTH - lineW) / 2,
+            y: declY,
+            size: declFontSize,
+            font: fontRegular,
+            color: cDark
+          });
+          declY -= 11.5;
+        }
+      }
+
       // 3. Company & Category Info Block
       // Strict Left Alignment on valStartX = 186.0 with horizontal dividers spanning 45.0 to 550.0 pt
       const labelStartX = 45.0;
@@ -954,9 +974,42 @@ export async function generateCertificate(certData) {
       font: fontOblique,
       color: cDark
     });
+
+    // 7. Controlled Document Footer (Centered at bottom)
+    if (scheme.docFooter) {
+      const footerText = sanitizeForPdf(scheme.docFooter);
+      const footerW = fontRegular.widthOfTextAtSize(footerText, 6.5);
+      page.drawText(footerText, {
+        x: (PAGE_WIDTH - footerW) / 2,
+        y: 18.0,
+        size: 6.5,
+        font: fontRegular,
+        color: cDark
+      });
+    }
   }
 
   const pdfBytes = await pdfDoc.save();
+
+  // Apply Permissions / Owner Password protection to lock document against unauthorized editing
+  const ownerPassword = process.env.CERTIFICATE_OWNER_PASSWORD || '@Muhayad2000';
+  if (ownerPassword) {
+    try {
+      const encryptedBytes = await encryptPDF(pdfBytes, '', {
+        ownerPassword,
+        allowPrinting: true,
+        allowModifying: false,
+        allowCopying: false,
+        allowAnnotating: false,
+        allowFillingForms: false
+      });
+      return Buffer.from(encryptedBytes);
+    } catch (encErr) {
+      console.error('[CertificateGenerator] Failed to apply permissions password:', encErr?.message || encErr);
+      return Buffer.from(pdfBytes);
+    }
+  }
+
   return Buffer.from(pdfBytes);
 }
 
