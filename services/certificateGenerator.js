@@ -577,8 +577,8 @@ export async function generateCertificate(certData) {
     const isLastPage = pageIdx === totalPages - 1;
     const currentProducts = pagesProducts[pageIdx];
 
-    // Clone vector base PDF template page (baseDoc for Page 1, clean annexDoc for Page 2+)
-    const sourceDoc = (isFirstPage || !annexDoc) ? baseDoc : annexDoc;
+    // Clone vector base PDF template page (for GSO, all pages use baseDoc so background is 100% identical to Page 1)
+    const sourceDoc = (isGso || isFirstPage || !annexDoc) ? baseDoc : annexDoc;
     const [page] = await pdfDoc.copyPages(sourceDoc, [0]);
     pdfDoc.addPage(page);
 
