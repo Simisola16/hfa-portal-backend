@@ -977,19 +977,6 @@ export async function generateCertificate(certData) {
       font: fontOblique,
       color: cDark
     });
-
-    // 7. Controlled Document Footer (Centered at bottom)
-    if (scheme.docFooter) {
-      const footerText = sanitizeForPdf(scheme.docFooter);
-      const footerW = fontRegular.widthOfTextAtSize(footerText, 6.5);
-      page.drawText(footerText, {
-        x: (PAGE_WIDTH - footerW) / 2,
-        y: 18.0,
-        size: 6.5,
-        font: fontRegular,
-        color: cDark
-      });
-    }
   }
 
   const pdfBytes = await pdfDoc.save();
@@ -1269,7 +1256,6 @@ export async function buildCertificateHtml(certData) {
           <div style="font-weight: 700; margin-top: 4px;">TO VERIFY THE CONTENTS OF THIS DOCUMENT, PLEASE SCAN THE QR CODE</div>
         </div>
       </div>
-      <div class="doc-control">${scheme.docFooter}</div>
     </body>
     </html>
   `;
