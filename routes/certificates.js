@@ -1213,6 +1213,9 @@ router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.
     if (req.body.is_add_on !== undefined) {
       cert.is_add_on = req.body.is_add_on === true || req.body.is_add_on === 'true';
     }
+    if (req.body.product_table_columns !== undefined) {
+      cert.product_table_columns = Number(req.body.product_table_columns);
+    }
 
     if (products_covered) {
       if (Array.isArray(products_covered)) {
@@ -1295,7 +1298,7 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
     if (product_details && Array.isArray(product_details)) {
       cert.product_details = product_details;
     }
-    if (req.body.product_table_columns) {
+    if (req.body.product_table_columns !== undefined) {
       cert.product_table_columns = Number(req.body.product_table_columns);
     }
 
@@ -1383,6 +1386,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
     if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
+    if (req.body.product_table_columns !== undefined) {
+      cert.product_table_columns = Number(req.body.product_table_columns);
+    }
 
     if (products_covered) {
       if (Array.isArray(products_covered)) {
