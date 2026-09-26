@@ -35,7 +35,7 @@ const seedAdmin = async () => {
       username: 'admin',
       password: 'password123',
       full_name: 'HFA Admin',
-      role: 'admin',
+      role: 'superadmin',
       is_verified: true,
       is_active: true,
     });
@@ -44,7 +44,7 @@ const seedAdmin = async () => {
     console.log('✅ Admin user created successfully.');
     console.log('   Username : admin');
     console.log('   Password : password123');
-    console.log('   Email    : admin@hfa.com');
+    console.log('   Email    : admin2@hfa.com');
     process.exit(0);
   } catch (error) {
     console.error('Error seeding admin:', error);
