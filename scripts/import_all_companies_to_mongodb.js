@@ -18,6 +18,9 @@ import Application from '../models/Application.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import ExportCertificate from '../models/ExportCertificate.js';
 import AddOnApplication from '../models/AddOnApplication.js';
+import Proposal from '../models/Proposal.js';
+import Agreement from '../models/Agreement.js';
+import Invoice from '../models/Invoice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -447,6 +450,60 @@ async function loadAndIndexSqlTables() {
   });
   console.log(`   ✓ Indexed ${exportCertRows.length} export certificates (${exportItemRows.length} line items)`);
 
+  // Proposals (HalaProsl.dbo.TblProposal)
+  const proposalsByCid = new Map();
+  const proposalsByAppId = new Map();
+  const proposalsByCompName = new Map();
+  const proposalRows = readTable('HalaProsl/tables/dbo.TblProposal.json');
+  proposalRows.forEach(p => {
+    const cid = cleanStr(p.CID);
+    const appId = cleanStr(p.ApplictionID);
+    const cName = cleanStr(p.ComBookName).toLowerCase();
+    if (cid) {
+      if (!proposalsByCid.has(cid)) proposalsByCid.set(cid, []);
+      proposalsByCid.get(cid).push(p);
+    }
+    if (appId) {
+      if (!proposalsByAppId.has(appId)) proposalsByAppId.set(appId, []);
+      proposalsByAppId.get(appId).push(p);
+    }
+    if (cName) {
+      if (!proposalsByCompName.has(cName)) proposalsByCompName.set(cName, []);
+      proposalsByCompName.get(cName).push(p);
+    }
+  });
+  console.log(`   ✓ Indexed ${proposalRows.length} proposals across applications`);
+
+  // Agreements (HalalApp.dbo.Agrdoon)
+  const agreementsByCid = new Map();
+  const agreementsByAppId = new Map();
+  const agreementRows = readTable('HalalApp/tables/dbo.Agrdoon.json');
+  agreementRows.forEach(a => {
+    const cid = cleanStr(a.AppComp);
+    const appId = cleanStr(a.AppID);
+    if (cid) {
+      if (!agreementsByCid.has(cid)) agreementsByCid.set(cid, []);
+      agreementsByCid.get(cid).push(a);
+    }
+    if (appId) {
+      if (!agreementsByAppId.has(appId)) agreementsByAppId.set(appId, []);
+      agreementsByAppId.get(appId).push(a);
+    }
+  });
+  console.log(`   ✓ Indexed ${agreementRows.length} agreements across applications`);
+
+  // Invoices (HalalLisVoce.dbo.LisVoce)
+  const invoicesByCid = new Map();
+  const invoiceRows = readTable('HalalLisVoce/tables/dbo.LisVoce.json');
+  invoiceRows.forEach(v => {
+    const cid = cleanStr(v.CID);
+    if (cid) {
+      if (!invoicesByCid.has(cid)) invoicesByCid.set(cid, []);
+      invoicesByCid.get(cid).push(v);
+    }
+  });
+  console.log(`   ✓ Indexed ${invoiceRows.length} invoices across company CIDs`);
+
   return {
     sitesMap,
     appsMap,
@@ -463,7 +520,13 @@ async function loadAndIndexSqlTables() {
     logsheetsById,
     addOnsMap,
     exportCertsMap,
-    exportItemsMap
+    exportItemsMap,
+    proposalsByCid,
+    proposalsByAppId,
+    proposalsByCompName,
+    agreementsByCid,
+    agreementsByAppId,
+    invoicesByCid
   };
 }
 
@@ -587,6 +650,9 @@ async function runFullCompanyImport() {
       addOnsUpdated: 0,
       exportCertsCreated: 0,
       exportCertsUpdated: 0,
+      proposalsCreated: 0,
+      agreementsCreated: 0,
+      invoicesCreated: 0,
       errors: []
     },
     isComplete: false,
@@ -829,6 +895,7 @@ async function runFullCompanyImport() {
       const survRows = sqlTables.survMap.get(cid) || [];
       const appMapByAppNum = new Map();
       let latestAppId = null;
+      let latestAppStatus = 'under_review';
 
       // 1. Initial New Applications
       for (const a of appRows) {
@@ -863,6 +930,7 @@ async function runFullCompanyImport() {
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;
+        latestAppStatus = appStatus;
         trackerState.stats.appsCreated++;
       }
 
@@ -899,6 +967,7 @@ async function runFullCompanyImport() {
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;
+        latestAppStatus = appStatus;
         trackerState.stats.appsCreated++;
       }
 
@@ -935,6 +1004,7 @@ async function runFullCompanyImport() {
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;
+        latestAppStatus = appStatus;
         trackerState.stats.appsCreated++;
       }
 
@@ -1143,6 +1213,132 @@ async function runFullCompanyImport() {
         trackerState.stats.exportCertsCreated++;
       }
 
+      // -------------------------------------------------------------
+      // I. PROPOSALS (dbo.TblProposal)
+      // -------------------------------------------------------------
+      const compProposals = [
+        ...(sqlTables.proposalsByCid.get(cid) || []),
+        ...(sqlTables.proposalsByCompName.get(companyName.toLowerCase()) || [])
+      ];
+      for (const [appNum] of appMapByAppNum.entries()) {
+        const trailingMatch = appNum.match(/(\d+)$/);
+        if (trailingMatch) {
+          const suffixProps = sqlTables.proposalsByAppId.get(trailingMatch[1]) || [];
+          for (const sp of suffixProps) {
+            if (!compProposals.some(p => p.Proposalid === sp.Proposalid)) {
+              compProposals.push(sp);
+            }
+          }
+        }
+      }
+
+      for (const p of compProposals) {
+        const rawStatus = cleanStr(p.PropoAR);
+        const propStatus = rawStatus === 'Approved' ? 'accepted' : (rawStatus === 'Rejected' ? 'rejected' : 'pending');
+        const pAppId = appMapByAppNum.get(cleanStr(p.ApplictionID)) || latestAppId;
+        const propTitle = cleanStr(p.Subjeer) || `Halal Certification Proposal - ${companyName}`;
+
+        const propDoc = {
+          client_id: userIdStr,
+          application_id: pAppId || undefined,
+          title: propTitle,
+          subject: cleanStr(p.Subjeer) || 'Halal Certification Proposal',
+          details: cleanStr(p.Commenter) || cleanStr(p.CommenterA) || `Proposal for ${companyName}`,
+          amount: 0,
+          currency: 'GBP',
+          status: propStatus,
+          admin_comment: cleanStr(p.AdminR) || '',
+          client_comment: cleanStr(p.ClinR) || '',
+          version: 1,
+          createdAt: safeDate(p.DateSent, new Date()),
+          updatedAt: safeDate(p.DateRecieved, safeDate(p.DateSent, new Date()))
+        };
+
+        await Proposal.findOneAndUpdate(
+          { client_id: userIdStr, title: propTitle },
+          { $set: propDoc },
+          { upsert: true, new: true }
+        );
+        trackerState.stats.proposalsCreated++;
+      }
+
+      // -------------------------------------------------------------
+      // J. AGREEMENTS (dbo.Agrdoon)
+      // -------------------------------------------------------------
+      const compAgreements = [
+        ...(sqlTables.agreementsByCid.get(cid) || [])
+      ];
+      for (const [appNum] of appMapByAppNum.entries()) {
+        const appAgrs = sqlTables.agreementsByAppId.get(appNum) || [];
+        for (const aa of appAgrs) {
+          if (!compAgreements.some(a => a.Massid === aa.Massid && a.AppID === aa.AppID)) {
+            compAgreements.push(aa);
+          }
+        }
+      }
+
+      for (const a of compAgreements) {
+        const aAppId = appMapByAppNum.get(cleanStr(a.AppID)) || latestAppId;
+        const isRead = cleanStr(a.Tatuse).toLowerCase() === 'read';
+        let agrStatus = 'sent';
+        if (latestAppStatus === 'certificate_issued' || latestAppStatus === 'agreement_signed') {
+          agrStatus = 'finalized';
+        } else if (isRead) {
+          agrStatus = 'sent';
+        }
+
+        const agrDoc = {
+          client_id: userIdStr,
+          application_id: aAppId || undefined,
+          title: `Halal Certification Agreement - ${companyName}`,
+          details: `Agreement recorded on ${cleanStr(a.SentDate, 'file date')}`,
+          status: agrStatus,
+          client_signed: agrStatus === 'finalized',
+          client_sign_date: safeDate(a.SentDate, null),
+          createdAt: safeDate(a.SentDate, new Date())
+        };
+
+        await Agreement.findOneAndUpdate(
+          { client_id: userIdStr, title: agrDoc.title },
+          { $set: agrDoc },
+          { upsert: true, new: true }
+        );
+        trackerState.stats.agreementsCreated++;
+      }
+
+      // -------------------------------------------------------------
+      // K. INVOICES (dbo.LisVoce)
+      // -------------------------------------------------------------
+      const compInvoices = sqlTables.invoicesByCid.get(cid) || [];
+      for (const v of compInvoices) {
+        const invNum = `INV-${cleanStr(v.InvID)}`;
+        const vAppId = appMapByAppNum.get(cleanStr(v.KingID)) || latestAppId;
+        const isPaid = latestAppStatus === 'payment_received' || latestAppStatus === 'final_invoice_paid' || latestAppStatus === 'certificate_issued';
+
+        const invDoc = {
+          client_id: userIdStr,
+          application_id: vAppId || undefined,
+          invoice_number: invNum,
+          title: cleanStr(v.Sujb) || `Invoice #${cleanStr(v.InvID)}`,
+          description: cleanStr(v.Mess) || `Halal Certification Invoice for ${companyName}`,
+          invoice_type: 'initial',
+          amount: 0,
+          currency: 'GBP',
+          status: isPaid ? 'paid' : 'unpaid',
+          due_date: safeDate(v.DateSe),
+          paid_at: isPaid ? safeDate(v.DateSe) : undefined,
+          createdAt: safeDate(v.DateSe, new Date()),
+          version: 1
+        };
+
+        await Invoice.findOneAndUpdate(
+          { invoice_number: invNum },
+          { $set: invDoc },
+          { upsert: true, new: true }
+        );
+        trackerState.stats.invoicesCreated++;
+      }
+
       // Progress Update
       trackerState.processedCompanies++;
       updateTrackerFile(cid, companyName);
@@ -1178,6 +1374,9 @@ async function runFullCompanyImport() {
   console.log(`📋 Logsheets Created   : ${trackerState.stats.logsheetsCreated}`);
   console.log(`➕ Add-Ons Created     : ${trackerState.stats.addOnsCreated}`);
   console.log(`🚢 Export Certs Created: ${trackerState.stats.exportCertsCreated}`);
+  console.log(`📄 Proposals Created   : ${trackerState.stats.proposalsCreated}`);
+  console.log(`🤝 Agreements Created  : ${trackerState.stats.agreementsCreated}`);
+  console.log(`💳 Invoices Created    : ${trackerState.stats.invoicesCreated}`);
   console.log(`⚠️  Total Errors        : ${trackerState.stats.errors.length}`);
   console.log('=============================================================================\n');
 

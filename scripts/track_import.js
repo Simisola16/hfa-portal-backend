@@ -41,6 +41,9 @@ function renderTracker() {
     console.log(`║ • 📦 Products Covered    : ${s.productsCreated || 0} products`.padEnd(width - 1) + '║');
     console.log(`║ • ➕ Add-On Applications : ${s.addOnsCreated || 0} add-on requests`.padEnd(width - 1) + '║');
     console.log(`║ • 🚢 Export Certificates : ${s.exportCertsCreated || 0} export certificates`.padEnd(width - 1) + '║');
+    console.log(`║ • 📄 Proposals           : ${s.proposalsCreated || 0} proposals`.padEnd(width - 1) + '║');
+    console.log(`║ • 🤝 Agreements          : ${s.agreementsCreated || 0} agreements`.padEnd(width - 1) + '║');
+    console.log(`║ • 💳 Invoices            : ${s.invoicesCreated || 0} invoices`.padEnd(width - 1) + '║');
     console.log(`║ • ⚠️  Errors Encountered  : ${(s.errors && s.errors.length) || 0}`.padEnd(width - 1) + '║');
     console.log('╠' + '═'.repeat(width - 2) + '╣');
     console.log(`║ Web Dashboard: http://localhost:4040`.padEnd(width - 1) + '║');
