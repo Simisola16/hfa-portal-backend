@@ -727,7 +727,8 @@ export async function generateCertificate(certData) {
     const certNoValW = fontRegular.widthOfTextAtSize(sanitizedCertNo, certNoSize);
     const totalCertNoW = certNoLabelW + 6.0 + certNoValW;
     const certNoStartX = (PAGE_WIDTH - totalCertNoW) / 2;
-    const certNoY = isGso ? 633.0 : 635.0;
+    const isCosmetics = normalizedScheme === 'COSMETICS';
+    const certNoY = isGso ? 633.0 : isCosmetics ? 624.0 : 635.0;
 
     page.drawText(certNoLabel, {
       x: certNoStartX,
@@ -749,7 +750,7 @@ export async function generateCertificate(certData) {
 
     if (!isGso) {
       // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC): 3 dates
-      const dateY = 610.0;
+      const dateY = isCosmetics ? 604.0 : 610.0;
       
       // Date 1: Issue Date
       const issueLabel = 'Issue Date:';
@@ -802,7 +803,7 @@ export async function generateCertificate(certData) {
         const declFontSize = 12.0;
         const lineSpacing = 15.5;
         const totalHeight = (scheme.declarationLines.length - 1) * lineSpacing;
-        const centerDeclY = isGso ? 535.0 : 542.0;
+        const centerDeclY = isGso ? 535.0 : isCosmetics ? 548.0 : 542.0;
         let declY = centerDeclY + (totalHeight / 2);
         for (const line of scheme.declarationLines) {
           if (!line.trim()) continue;
