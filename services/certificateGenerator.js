@@ -145,21 +145,46 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
 /**
  * Dynamically computes optimal table column widths based on the actual length
  * of product codes, descriptions/names, and categories across all products in the certificate.
- * Total table width is 505.0 pt.
+ * Adjusts each column tightly to where the text finishes, and ensures the table is centralized.
+ * Maximum table width is 505.0 pt.
  */
 function computeProductTableColumns(products, numColumns, fontBold, fontRegular) {
-  const tableWidth = 505.0;
-  const noColWidth = 45.0;
-  const availRemaining = tableWidth - noColWidth; // 460.0 pt
-
+  const MAX_TABLE_WIDTH = 505.0;
   const list = Array.isArray(products) && products.length > 0
     ? products
     : [{ name: 'Certified Halal Products' }];
 
+  // 1. Measure NO. column text width
+  const maxIdxStr = String(list.length);
+  let maxNoTextW = 18.0;
+  if (fontBold) {
+    try {
+      const hW = fontBold.widthOfTextAtSize('NO.', 9.0);
+      const valW = fontBold.widthOfTextAtSize(maxIdxStr, 9.0);
+      maxNoTextW = Math.max(hW, valW);
+    } catch (e) {}
+  }
+  const noColWidth = Math.max(38.0, Math.ceil(maxNoTextW + 16.0));
+
   if (numColumns === 1) {
+    let maxNameTextW = 100.0;
+    if (fontRegular) {
+      try {
+        const hW = fontBold ? fontBold.widthOfTextAtSize('NAME OF THE PRODUCTS', 9.0) : 100.0;
+        maxNameTextW = hW;
+        for (const p of list) {
+          const str = sanitizeForPdf(p.name || '');
+          if (str) {
+            const w = fontRegular.widthOfTextAtSize(str, 9.0);
+            if (w > maxNameTextW) maxNameTextW = w;
+          }
+        }
+      } catch (e) {}
+    }
+    const nameColWidth = Math.min(MAX_TABLE_WIDTH - noColWidth, Math.max(220.0, Math.ceil(maxNameTextW + 20.0)));
     return [
-      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
-      { header: 'NAME OF THE PRODUCTS', width: availRemaining, align: 'left', pad: 10.0 }
+      { header: 'NO.', width: noColWidth, align: 'center' },
+      { header: 'NAME OF THE PRODUCTS', width: nameColWidth, align: 'center' }
     ];
   }
 
@@ -177,28 +202,9 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
+  const neededCodeW = Math.max(50.0, Math.ceil(maxCodeTextW + 16.0));
 
-  if (numColumns === 2) {
-    // Option 2: NO. | CODE | DESCRIPTION
-    // Needed code width with 16pt cell padding
-    const neededCodeW = Math.ceil(maxCodeTextW + 18.0);
-    // Clamp CODE column between 65.0 pt and 130.0 pt
-    const codeColWidth = Math.max(65.0, Math.min(130.0, neededCodeW));
-    const descColWidth = availRemaining - codeColWidth;
-
-    return [
-      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
-      { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
-      { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 }
-    ];
-  }
-
-  // Option 3: NO. | CODE | DESCRIPTION | CATEGORY
-  // Clamp CODE between 60.0 pt and 100.0 pt
-  const codeColWidth = Math.max(60.0, Math.min(100.0, Math.ceil(maxCodeTextW + 18.0)));
-  const availForDescAndCat = availRemaining - codeColWidth; // ~360 - 400 pt
-
-  // Measure DESCRIPTION width
+  // Measure max width of DESCRIPTION across all products
   let maxDescTextW = 60.0;
   try {
     if (fontRegular) {
@@ -212,9 +218,29 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededDescW = Math.ceil(maxDescTextW + 18.0);
+  const neededDescW = Math.max(80.0, Math.ceil(maxDescTextW + 18.0));
 
-  // Measure CATEGORY width
+  if (numColumns === 2) {
+    // Option 2: NO. | CODE | DESCRIPTION
+    let codeColWidth = neededCodeW;
+    let descColWidth = neededDescW;
+    const totalNatural = noColWidth + codeColWidth + descColWidth;
+
+    if (totalNatural > MAX_TABLE_WIDTH) {
+      // Exceeds max printable area, scale proportionally
+      const avail = MAX_TABLE_WIDTH - noColWidth;
+      codeColWidth = Math.max(50.0, Math.min(110.0, codeColWidth));
+      descColWidth = avail - codeColWidth;
+    }
+
+    return [
+      { header: 'NO.', width: noColWidth, align: 'center' },
+      { header: 'CODE', width: codeColWidth, align: 'center' },
+      { header: 'DESCRIPTION', width: descColWidth, align: 'center' }
+    ];
+  }
+
+  // Option 3: NO. | CODE | DESCRIPTION | CATEGORY
   let maxCatTextW = 52.0;
   try {
     if (fontRegular) {
@@ -228,48 +254,37 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCatW = Math.ceil(maxCatTextW + 18.0);
+  const neededCatW = Math.max(75.0, Math.ceil(maxCatTextW + 16.0));
 
-  const minDescW = 120.0;
-  const minCatW = 85.0;
+  let codeColWidth = neededCodeW;
+  let descColWidth = neededDescW;
+  let catColWidth = neededCatW;
+  const totalNatural = noColWidth + codeColWidth + descColWidth + catColWidth;
 
-  let descColWidth;
-  let catColWidth;
-
-  if (neededDescW + neededCatW <= availForDescAndCat) {
-    // Both fit on a single line! Distribute surplus space, favoring Description (65%)
-    const surplus = availForDescAndCat - (neededDescW + neededCatW);
-    descColWidth = Math.round(neededDescW + surplus * 0.65);
-    catColWidth = availForDescAndCat - descColWidth;
-
-    if (descColWidth < minDescW) {
-      descColWidth = minDescW;
-      catColWidth = availForDescAndCat - descColWidth;
-    } else if (catColWidth < minCatW) {
-      catColWidth = minCatW;
-      descColWidth = availForDescAndCat - catColWidth;
-    }
-  } else {
-    // Space is constrained. Allocate proportionally to content lengths
-    const totalNeeded = neededDescW + neededCatW;
-    const ratioDesc = neededDescW / totalNeeded;
+  if (totalNatural > MAX_TABLE_WIDTH) {
+    // Scale constrained columns to fit within 505pt
+    const availForThree = MAX_TABLE_WIDTH - noColWidth;
+    codeColWidth = Math.max(50.0, Math.min(90.0, codeColWidth));
+    const availForDescAndCat = availForThree - codeColWidth;
+    const totalNeeded = descColWidth + catColWidth;
+    const ratioDesc = descColWidth / totalNeeded;
     descColWidth = Math.round(availForDescAndCat * ratioDesc);
     catColWidth = availForDescAndCat - descColWidth;
 
-    if (descColWidth < minDescW) {
-      descColWidth = minDescW;
+    if (descColWidth < 100.0) {
+      descColWidth = 100.0;
       catColWidth = availForDescAndCat - descColWidth;
-    } else if (catColWidth < minCatW) {
-      catColWidth = minCatW;
+    } else if (catColWidth < 75.0) {
+      catColWidth = 75.0;
       descColWidth = availForDescAndCat - catColWidth;
     }
   }
 
   return [
-    { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
-    { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
-    { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 },
-    { header: 'CATEGORY', width: catColWidth, align: 'left', pad: 8.0 }
+    { header: 'NO.', width: noColWidth, align: 'center' },
+    { header: 'CODE', width: codeColWidth, align: 'center' },
+    { header: 'DESCRIPTION', width: descColWidth, align: 'center' },
+    { header: 'CATEGORY', width: catColWidth, align: 'center' }
   ];
 }
 
@@ -708,6 +723,8 @@ export async function generateCertificate(certData) {
 
   // Dynamically compute optimal table column widths based on product lengths across all items
   const tableColDefs = computeProductTableColumns(allProducts, numColumns, fontBold, fontRegular);
+  const dynamicTableWidth = tableColDefs.reduce((sum, c) => sum + c.width, 0);
+  const dynamicTableLeftX = Math.round((PAGE_WIDTH - dynamicTableWidth) / 2);
 
   let globalProductIndex = 0;
 
@@ -895,9 +912,9 @@ export async function generateCertificate(certData) {
       });
     }
 
-    // 4. Products Table Layout (Dynamic 1, 2, or 3 columns)
-    const tableLeftX = 45.0;
-    const tableWidth = 505.0;
+    // 4. Products Table Layout (Dynamic 1, 2, or 3 columns, adjusted to text finish and centralized)
+    const tableLeftX = dynamicTableLeftX;
+    const tableWidth = dynamicTableWidth;
     const headerHeight = 18.0;
     const rowHeight = 18.0;
 
@@ -983,7 +1000,7 @@ export async function generateCertificate(certData) {
           });
         }
 
-        // Cell content rendering based on active option
+        // Cell content rendering (centralised in all columns)
         if (cIdx === 0) {
           // NO. column (centered bold)
           const noStr = String(globalProductIndex);
@@ -996,21 +1013,23 @@ export async function generateCertificate(certData) {
             color: cDark
           });
         } else if (numColumns === 1) {
-          // Option 1: NAME OF THE PRODUCTS
-          const nameFit = fitText(p.name, col.width - 20.0, fontRegular, cellFontSize);
+          // Option 1: NAME OF THE PRODUCTS (centered)
+          const nameFit = fitText(p.name, col.width - 16.0, fontRegular, cellFontSize);
+          const nameW = fontRegular.widthOfTextAtSize(nameFit.text, nameFit.size);
           page.drawText(nameFit.text, {
-            x: rowXCursor + col.pad,
+            x: rowXCursor + Math.max(3.0, (col.width - nameW) / 2),
             y: curRowY + (rowHeight - nameFit.size) / 2 + 1.0,
             size: nameFit.size,
             font: fontRegular,
             color: cDark
           });
         } else if (numColumns === 2) {
-          // Option 2: CODE | DESCRIPTION
+          // Option 2: CODE | DESCRIPTION (centered)
           if (cIdx === 1) {
-            const codeFit = fitText(p.code, col.width - 16.0, fontBold, cellFontSize);
+            const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
+            const codeW = fontBold.widthOfTextAtSize(codeFit.text, codeFit.size);
             page.drawText(codeFit.text, {
-              x: rowXCursor + col.pad,
+              x: rowXCursor + Math.max(3.0, (col.width - codeW) / 2),
               y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
               size: codeFit.size,
               font: fontBold,
@@ -1019,8 +1038,9 @@ export async function generateCertificate(certData) {
           } else if (cIdx === 2) {
             const descVal = p.description || p.name;
             const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
+            const descW = fontRegular.widthOfTextAtSize(descFit.text, descFit.size);
             page.drawText(descFit.text, {
-              x: rowXCursor + col.pad,
+              x: rowXCursor + Math.max(3.0, (col.width - descW) / 2),
               y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
               size: descFit.size,
               font: fontRegular,
@@ -1028,11 +1048,12 @@ export async function generateCertificate(certData) {
             });
           }
         } else if (numColumns === 3) {
-          // Option 3: CODE | DESCRIPTION | CATEGORY
+          // Option 3: CODE | DESCRIPTION | CATEGORY (all centered)
           if (cIdx === 1) {
-            const codeFit = fitText(p.code, col.width - 16.0, fontBold, cellFontSize);
+            const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
+            const codeW = fontBold.widthOfTextAtSize(codeFit.text, codeFit.size);
             page.drawText(codeFit.text, {
-              x: rowXCursor + col.pad,
+              x: rowXCursor + Math.max(3.0, (col.width - codeW) / 2),
               y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
               size: codeFit.size,
               font: fontBold,
@@ -1041,8 +1062,9 @@ export async function generateCertificate(certData) {
           } else if (cIdx === 2) {
             const descVal = p.description || p.name;
             const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
+            const descW = fontRegular.widthOfTextAtSize(descFit.text, descFit.size);
             page.drawText(descFit.text, {
-              x: rowXCursor + col.pad,
+              x: rowXCursor + Math.max(3.0, (col.width - descW) / 2),
               y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
               size: descFit.size,
               font: fontRegular,
@@ -1050,8 +1072,9 @@ export async function generateCertificate(certData) {
             });
           } else if (cIdx === 3) {
             const catFit = fitText(p.category || 'Halal Certified', col.width - 16.0, fontRegular, cellFontSize);
+            const catW = fontRegular.widthOfTextAtSize(catFit.text, catFit.size);
             page.drawText(catFit.text, {
-              x: rowXCursor + col.pad,
+              x: rowXCursor + Math.max(3.0, (col.width - catW) / 2),
               y: curRowY + (rowHeight - catFit.size) / 2 + 1.0,
               size: catFit.size,
               font: fontRegular,
@@ -1372,27 +1395,27 @@ export async function buildCertificateHtml(certData) {
       </table>
 
       <div class="products-table-container">
-        <table class="products-table">
+        <table class="products-table" style="width: auto; max-width: 100%; margin: 0 auto; border-collapse: collapse;">
           <thead>
             <tr>
-              ${htmlCols.map((col, idx) => `
-                <th style="width: ${col.width}; text-align: ${col.align}; padding-left: ${col.align === 'center' ? '0' : '8px'};">${col.header}</th>
+              ${htmlCols.map((col) => `
+                <th style="padding: 7px 12px; text-align: center;">${col.header}</th>
               `).join('')}
             </tr>
           </thead>
           <tbody>
             ${productList.map((p, idx) => `
               <tr>
-                <td style="text-align: center; font-weight: 700;">${idx + 1}</td>
+                <td style="text-align: center; font-weight: 700; padding: 6px 12px;">${idx + 1}</td>
                 ${numColumns === 1 ? `
-                  <td style="text-align: left; padding-left: 10px;">${p.name}</td>
+                  <td style="text-align: center; padding: 6px 12px;">${p.name}</td>
                 ` : numColumns === 3 ? `
-                  <td style="text-align: left; padding-left: 8px; font-weight: 700;">${p.code}</td>
-                  <td style="text-align: left; padding-left: 8px;">${p.description || p.name}</td>
-                  <td style="text-align: left; padding-left: 8px;">${p.category || 'Halal Certified'}</td>
+                  <td style="text-align: center; padding: 6px 12px; font-weight: 700;">${p.code}</td>
+                  <td style="text-align: center; padding: 6px 12px;">${p.description || p.name}</td>
+                  <td style="text-align: center; padding: 6px 12px;">${p.category || 'Halal Certified'}</td>
                 ` : `
-                  <td style="text-align: left; padding-left: 8px; font-weight: 700;">${p.code}</td>
-                  <td style="text-align: left; padding-left: 8px;">${p.description || p.name}</td>
+                  <td style="text-align: center; padding: 6px 12px; font-weight: 700;">${p.code}</td>
+                  <td style="text-align: center; padding: 6px 12px;">${p.description || p.name}</td>
                 `}
               </tr>
             `).join('')}
