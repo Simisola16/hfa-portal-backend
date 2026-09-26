@@ -2137,7 +2137,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           ingredients: prod.ingredients || [],
           status: 'active',
           source: 'admin',
-          application_type: 'Direct'
+          application_type: 'Direct',
+          created_by: req.user._id,
+          created_by_name: req.user.full_name || req.user.company_name || req.user.email || 'Admin'
         });
         const savedProd = await newProd.save();
         createdProductDocs.push(savedProd);
