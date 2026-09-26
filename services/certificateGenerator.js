@@ -167,7 +167,26 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
   const noColWidth = Math.max(38.0, Math.ceil(maxNoTextW + 16.0));
 
   if (numColumns === 1) {
-    const nameColWidth = MAX_TABLE_WIDTH - noColWidth;
+    // Option 1: NO. | NAME OF THE PRODUCTS
+    // Balanced centered width: not edge-to-edge 505pt, but dynamically fitted to content (~280pt to 460pt)
+    let maxNameTextW = 120.0;
+    if (fontRegular) {
+      try {
+        const hW = fontBold ? fontBold.widthOfTextAtSize('NAME OF THE PRODUCTS', 9.0) : 120.0;
+        maxNameTextW = hW;
+        for (const p of list) {
+          const str = sanitizeForPdf(p.name || '');
+          if (str) {
+            const w = fontRegular.widthOfTextAtSize(str, 9.0);
+            if (w > maxNameTextW) maxNameTextW = w;
+          }
+        }
+      } catch (e) {}
+    }
+    const nameColWidth = Math.min(
+      MAX_TABLE_WIDTH - noColWidth,
+      Math.max(260.0, Math.ceil(maxNameTextW + 40.0))
+    );
     return [
       { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
       { header: 'NAME OF THE PRODUCTS', width: nameColWidth, align: 'left', pad: 10.0 }
@@ -188,14 +207,30 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCodeW = Math.max(65.0, Math.min(130.0, Math.ceil(maxCodeTextW + 20.0)));
+  const neededCodeW = Math.max(65.0, Math.min(120.0, Math.ceil(maxCodeTextW + 20.0)));
+
+  // Measure max width of DESCRIPTION across all products
+  let maxDescTextW = 60.0;
+  try {
+    if (fontRegular) {
+      maxDescTextW = fontRegular.widthOfTextAtSize('DESCRIPTION', 9.0);
+      for (const p of list) {
+        const descStr = sanitizeForPdf(p.description || p.name || '');
+        if (descStr) {
+          const w = fontRegular.widthOfTextAtSize(descStr, 9.0);
+          if (w > maxDescTextW) maxDescTextW = w;
+        }
+      }
+    }
+  } catch (e) {}
 
   if (numColumns === 2) {
     // Option 2: NO. | CODE | DESCRIPTION
-    // Wide schedule table spanning the full certificate content width (505pt)
-    // CODE is tightly adjusted to the text finish + padding, and DESCRIPTION takes all the generous remaining width
+    // Balanced centered width (~300pt to 480pt)
     const codeColWidth = neededCodeW;
-    const descColWidth = MAX_TABLE_WIDTH - noColWidth - codeColWidth;
+    const maxAvailableDesc = MAX_TABLE_WIDTH - noColWidth - codeColWidth;
+    const neededDescW = Math.max(200.0, Math.ceil(maxDescTextW + 30.0));
+    const descColWidth = Math.min(maxAvailableDesc, neededDescW);
 
     return [
       { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
@@ -218,13 +253,14 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCatW = Math.max(120.0, Math.min(180.0, Math.ceil(maxCatTextW + 20.0)));
+  const neededCatW = Math.max(120.0, Math.min(170.0, Math.ceil(maxCatTextW + 20.0)));
 
-  // Option 3: Wide schedule table (505pt)
-  // CODE and CATEGORY fit to their text finish, DESCRIPTION gets all remaining width
+  // Option 3: Balanced centered table (~360pt to 505pt)
   const codeColWidth = Math.max(55.0, Math.min(95.0, neededCodeW));
   const catColWidth = neededCatW;
-  const descColWidth = MAX_TABLE_WIDTH - noColWidth - codeColWidth - catColWidth;
+  const maxAvailableDesc = MAX_TABLE_WIDTH - noColWidth - codeColWidth - catColWidth;
+  const neededDescW = Math.max(150.0, Math.ceil(maxDescTextW + 24.0));
+  const descColWidth = Math.min(maxAvailableDesc, neededDescW);
 
   return [
     { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
