@@ -293,7 +293,8 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
       name: typeof p === 'string' ? p.trim() : (p.name || '').trim(),
       description: typeof p === 'object' ? (p.description || p.name || '') : '',
-      category: typeof p === 'object' ? (p.category || 'Halal Certified') : 'Halal Certified'
+      category: typeof p === 'object' ? (p.category || 'Halal Certified') : 'Halal Certified',
+      barcode: typeof p === 'object' && p.barcode ? p.barcode : ''
     })).filter(p => p.name);
 
     if (cleanProducts.length === 0) {
