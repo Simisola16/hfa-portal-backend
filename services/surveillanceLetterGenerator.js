@@ -8,23 +8,35 @@ import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 /**
- * Formats a Date object or date string into DD-MMM-YYYY (e.g. 08-Sep-2025).
+ * Formats a Date object or date string into DD-Month-YYYY (e.g. 08-September-2025).
  */
 export function formatDate(dateVal) {
   if (!dateVal) return '—';
-  if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(dateVal.trim())) {
-    return dateVal.trim();
+  // Handle already-formatted strings (abbreviated or full month name)
+  if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]+-\d{4}$/.test(dateVal.trim())) {
+    const parts = dateVal.trim().split('-');
+    const day = parts[0].padStart(2, '0');
+    const year = parts[2];
+    const shortToFull = {
+      jan: 'January', feb: 'February', mar: 'March', apr: 'April',
+      may: 'May', jun: 'June', jul: 'July', aug: 'August',
+      sep: 'September', oct: 'October', nov: 'November', dec: 'December'
+    };
+    const key = parts[1].slice(0, 3).toLowerCase();
+    const month = shortToFull[key] || (parts[1].charAt(0).toUpperCase() + parts[1].slice(1).toLowerCase());
+    return `${day}-${month}-${year}`;
   }
   const date = new Date(dateVal);
   if (isNaN(date.getTime())) return String(dateVal);
   const day = String(date.getDate()).padStart(2, '0');
-  const month = MONTH_NAMES[date.getMonth()] || 'Jan';
+  const month = MONTH_NAMES[date.getMonth()] || 'January';
   const year = date.getFullYear();
   return `${day}-${month}-${year}`;
 }
+
 
 /**
  * Word wraps text into lines fitting within maxWidth.
@@ -199,7 +211,7 @@ export async function generateSurveillanceLetter(letterData = {}) {
     const fullFacility = [recipient_name, recipient_address].filter(Boolean).join(', ').replace(/\s+/g, ' ');
     const resolvedStandards = standards && standards.trim() ? standards.trim() : 'UAE.S.2055-1:2015';
     const p1Text = `The Surveillance audit carried out at ${fullFacility} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
-    
+
     const p1Lines = wrapTextLines(p1Text, fontTimes, 10, maxWidth);
     let p1Y = 417;
     for (const line of p1Lines) {
@@ -218,7 +230,7 @@ export async function generateSurveillanceLetter(letterData = {}) {
       ? `number ${certificate_number.trim()} `
       : 'number ';
     const p2Text = `Therefore, your certification for the process and products stipulated in your halal certificate ${certClause}is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.`;
-    
+
     const p2Lines = wrapTextLines(p2Text, fontTimes, 10, maxWidth);
     let p2Y = 355;
     for (const line of p2Lines) {
