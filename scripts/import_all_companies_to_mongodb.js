@@ -864,7 +864,9 @@ async function runFullCompanyImport() {
       // -------------------------------------------------------------
       const siteRows = sqlTables.sitesMap.get(cid) || [];
       const siteIdMap = new Map(); // SitesID -> MongoDB _id
+      const siteNameMap = new Map(); // SitesID or _id -> Site Name
       let defaultSiteId = null;
+      let defaultSiteName = `${companyName} Main Site`;
 
       if (siteRows.length > 0) {
         for (const s of siteRows) {
@@ -900,8 +902,15 @@ async function runFullCompanyImport() {
             { upsert: true, new: true }
           );
 
-          if (s.SitesID) siteIdMap.set(cleanStr(s.SitesID), site._id);
-          if (!defaultSiteId) defaultSiteId = site._id;
+          if (s.SitesID) {
+            siteIdMap.set(cleanStr(s.SitesID), site._id);
+            siteNameMap.set(cleanStr(s.SitesID), site.name);
+          }
+          siteNameMap.set(String(site._id), site.name);
+          if (!defaultSiteId) {
+            defaultSiteId = site._id;
+            defaultSiteName = site.name;
+          }
           trackerState.stats.sitesCreated++;
         }
       } else {
@@ -925,6 +934,8 @@ async function runFullCompanyImport() {
           { upsert: true, new: true }
         );
         defaultSiteId = defaultSite._id;
+        defaultSiteName = defaultSite.name;
+        siteNameMap.set(String(defaultSite._id), defaultSite.name);
         trackerState.stats.sitesCreated++;
       }
 
@@ -971,12 +982,12 @@ async function runFullCompanyImport() {
       let latestAppId = null;
       let latestAppStatus = 'under_review';
 
-      const compRegDate = safeDate(comp.dateReg || comp.DateReg, new Date());
 
       // 1. Initial New Applications
       for (const a of appRows) {
         const appNum = cleanStr(a.AppNumber) || `APP-${cleanStr(a.ApplicationID || a.ArenewID)}-${cid}`;
         const siteId = siteIdMap.get(cleanStr(a.CiteID)) || defaultSiteId;
+        const siteName = siteNameMap.get(cleanStr(a.CiteID)) || siteNameMap.get(String(siteId)) || defaultSiteName || `${companyName} Main Site`;
         const rawStatus = cleanStr(a.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(a.AppCategory) || 'HFA Scheme';
@@ -986,6 +997,7 @@ async function runFullCompanyImport() {
           application_number: appNum,
           client_id: userIdStr,
           site_id: siteId,
+          site_name: siteName,
           type: 'initial',
           application_type: 'standard',
           is_renewal: false,
@@ -1017,6 +1029,7 @@ async function runFullCompanyImport() {
       for (const r of renewalRows) {
         const appNum = cleanStr(r.AppNumber) || `REN-${cleanStr(r.ArenewID || r.ApplicationID)}-${cid}`;
         const siteId = siteIdMap.get(cleanStr(r.CiteID)) || defaultSiteId;
+        const siteName = siteNameMap.get(cleanStr(r.CiteID)) || siteNameMap.get(String(siteId)) || defaultSiteName || `${companyName} Main Site`;
         const rawStatus = cleanStr(r.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(r.AppCategory) || 'HFA Scheme';
@@ -1026,6 +1039,7 @@ async function runFullCompanyImport() {
           application_number: appNum,
           client_id: userIdStr,
           site_id: siteId,
+          site_name: siteName,
           type: 'renewal',
           application_type: 'renewal',
           is_renewal: true,
@@ -1057,6 +1071,7 @@ async function runFullCompanyImport() {
       for (const s of survRows) {
         const appNum = cleanStr(s.AppNumber) || `SU-${cleanStr(s.ArenewID || s.ApplicationID)}-${cid}`;
         const siteId = siteIdMap.get(cleanStr(s.CiteID)) || defaultSiteId;
+        const siteName = siteNameMap.get(cleanStr(s.CiteID)) || siteNameMap.get(String(siteId)) || defaultSiteName || `${companyName} Main Site`;
         const rawStatus = cleanStr(s.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') || rawStatus.includes('cert') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(s.AppCategory) || 'GSO Scheme';
@@ -1066,6 +1081,7 @@ async function runFullCompanyImport() {
           application_number: appNum,
           client_id: userIdStr,
           site_id: siteId,
+          site_name: siteName,
           type: 'surveillance',
           application_type: 'surveillance',
           is_surveillance: true,
