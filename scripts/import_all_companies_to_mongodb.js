@@ -814,6 +814,7 @@ async function runFullCompanyImport() {
         ]
       });
 
+      const compRegDate = safeDate(comp.dateReg || comp.DateReg, new Date());
       const userFields = {
         email: finalEmail,
         password: defaultPasswordHash,
@@ -828,6 +829,8 @@ async function runFullCompanyImport() {
         is_active: true,
         is_verified: companyCategory !== 'signup',
         email_verified: companyCategory !== 'signup',
+        created_at: compRegDate,
+        createdAt: compRegDate,
         notes: `Imported from legacy HFA portal (CID: ${cid}, Category: ${companyCategory})`
       };
 
@@ -968,6 +971,8 @@ async function runFullCompanyImport() {
       let latestAppId = null;
       let latestAppStatus = 'under_review';
 
+      const compRegDate = safeDate(comp.dateReg || comp.DateReg, new Date());
+
       // 1. Initial New Applications
       for (const a of appRows) {
         const appNum = cleanStr(a.AppNumber) || `APP-${cleanStr(a.ApplicationID || a.ArenewID)}-${cid}`;
@@ -975,6 +980,7 @@ async function runFullCompanyImport() {
         const rawStatus = cleanStr(a.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(a.AppCategory) || 'HFA Scheme';
+        const realAppDate = safeDate(a.AppDate || a.Datee || a.SubmittedDate || a.ApprDate, compRegDate);
 
         const appDoc = {
           application_number: appNum,
@@ -990,14 +996,16 @@ async function runFullCompanyImport() {
           status: appStatus,
           contact_person: cleanStr(a.ContactName) || contactPerson,
           contact_email: cleanStr(a.ContactEmail) || finalEmail,
-          submission_date: safeDate(a.AppDate, safeDate(a.SubmittedDate)),
+          submission_date: realAppDate,
+          created_at: realAppDate,
+          createdAt: realAppDate,
           notes: `Imported new application from legacy HFA database (ID: ${cleanStr(a.ApplicationID)})`
         };
 
         const appRes = await Application.findOneAndUpdate(
           { application_number: appNum },
           { $set: appDoc },
-          { upsert: true, new: true }
+          { upsert: true, new: true, timestamps: false }
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;
@@ -1012,6 +1020,7 @@ async function runFullCompanyImport() {
         const rawStatus = cleanStr(r.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(r.AppCategory) || 'HFA Scheme';
+        const realRenDate = safeDate(r.AppDate || r.FinalizedDate || r.SubmittedDate || r.AuditedDate, compRegDate);
 
         const appDoc = {
           application_number: appNum,
@@ -1027,14 +1036,16 @@ async function runFullCompanyImport() {
           status: appStatus,
           contact_person: cleanStr(r.ContactName) || contactPerson,
           contact_email: cleanStr(r.ContactEmail) || finalEmail,
-          submission_date: safeDate(r.AppDate, safeDate(r.SubmittedDate)),
+          submission_date: realRenDate,
+          created_at: realRenDate,
+          createdAt: realRenDate,
           notes: `Imported renewal application from legacy HFA database (ID: ${cleanStr(r.ArenewID)})`
         };
 
         const appRes = await Application.findOneAndUpdate(
           { application_number: appNum },
           { $set: appDoc },
-          { upsert: true, new: true }
+          { upsert: true, new: true, timestamps: false }
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;
@@ -1049,6 +1060,7 @@ async function runFullCompanyImport() {
         const rawStatus = cleanStr(s.ApplStatus).toLowerCase();
         const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') || rawStatus.includes('cert') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(s.AppCategory) || 'GSO Scheme';
+        const realSurvDate = safeDate(s.AppDate || s.SubmittedDate || s.FinalizedDate || s.AuditedDate, compRegDate);
 
         const survDoc = {
           application_number: appNum,
@@ -1064,14 +1076,16 @@ async function runFullCompanyImport() {
           status: appStatus,
           contact_person: cleanStr(s.ContactName) || contactPerson,
           contact_email: cleanStr(s.ContactEmail) || finalEmail,
-          submission_date: safeDate(s.AppDate, safeDate(s.SubmittedDate)),
+          submission_date: realSurvDate,
+          created_at: realSurvDate,
+          createdAt: realSurvDate,
           notes: `Imported surveillance application from legacy HFA database (ID: ${cleanStr(s.ArenewID)})`
         };
 
         const appRes = await Application.findOneAndUpdate(
           { application_number: appNum },
           { $set: survDoc },
-          { upsert: true, new: true }
+          { upsert: true, new: true, timestamps: false }
         );
         appMapByAppNum.set(appNum, appRes._id);
         latestAppId = appRes._id;

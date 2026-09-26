@@ -46,6 +46,7 @@ const applicationSchema = new mongoose.Schema({
   referral_source: { type: String, default: '' },
   signatory_position: { type: String, default: '' },
   signatory_date: { type: Date },
+  submission_date: { type: Date },
   has_porcine: { type: Boolean, default: false },
   has_intoxicants: { type: Boolean, default: false },
   porcine_details: String,
