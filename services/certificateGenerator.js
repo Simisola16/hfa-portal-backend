@@ -167,21 +167,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
   const noColWidth = Math.max(38.0, Math.ceil(maxNoTextW + 16.0));
 
   if (numColumns === 1) {
-    let maxNameTextW = 100.0;
-    if (fontRegular) {
-      try {
-        const hW = fontBold ? fontBold.widthOfTextAtSize('NAME OF THE PRODUCTS', 9.0) : 100.0;
-        maxNameTextW = hW;
-        for (const p of list) {
-          const str = sanitizeForPdf(p.name || '');
-          if (str) {
-            const w = fontRegular.widthOfTextAtSize(str, 9.0);
-            if (w > maxNameTextW) maxNameTextW = w;
-          }
-        }
-      } catch (e) {}
-    }
-    const nameColWidth = Math.min(MAX_TABLE_WIDTH - noColWidth, Math.max(220.0, Math.ceil(maxNameTextW + 20.0)));
+    const nameColWidth = MAX_TABLE_WIDTH - noColWidth;
     return [
       { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
       { header: 'NAME OF THE PRODUCTS', width: nameColWidth, align: 'left', pad: 10.0 }
@@ -202,36 +188,14 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCodeW = Math.max(50.0, Math.ceil(maxCodeTextW + 16.0));
-
-  // Measure max width of DESCRIPTION across all products
-  let maxDescTextW = 60.0;
-  try {
-    if (fontRegular) {
-      maxDescTextW = fontRegular.widthOfTextAtSize('DESCRIPTION', 9.0);
-      for (const p of list) {
-        const descStr = sanitizeForPdf(p.description || p.name || '');
-        if (descStr) {
-          const w = fontRegular.widthOfTextAtSize(descStr, 9.0);
-          if (w > maxDescTextW) maxDescTextW = w;
-        }
-      }
-    }
-  } catch (e) {}
-  const neededDescW = Math.max(80.0, Math.ceil(maxDescTextW + 18.0));
+  const neededCodeW = Math.max(65.0, Math.min(130.0, Math.ceil(maxCodeTextW + 20.0)));
 
   if (numColumns === 2) {
     // Option 2: NO. | CODE | DESCRIPTION
-    let codeColWidth = neededCodeW;
-    let descColWidth = neededDescW;
-    const totalNatural = noColWidth + codeColWidth + descColWidth;
-
-    if (totalNatural > MAX_TABLE_WIDTH) {
-      // Exceeds max printable area, scale proportionally
-      const avail = MAX_TABLE_WIDTH - noColWidth;
-      codeColWidth = Math.max(50.0, Math.min(110.0, codeColWidth));
-      descColWidth = avail - codeColWidth;
-    }
+    // Wide schedule table spanning the full certificate content width (505pt)
+    // CODE is tightly adjusted to the text finish + padding, and DESCRIPTION takes all the generous remaining width
+    const codeColWidth = neededCodeW;
+    const descColWidth = MAX_TABLE_WIDTH - noColWidth - codeColWidth;
 
     return [
       { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
@@ -254,31 +218,13 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCatW = Math.max(75.0, Math.ceil(maxCatTextW + 16.0));
+  const neededCatW = Math.max(120.0, Math.min(180.0, Math.ceil(maxCatTextW + 20.0)));
 
-  let codeColWidth = neededCodeW;
-  let descColWidth = neededDescW;
-  let catColWidth = neededCatW;
-  const totalNatural = noColWidth + codeColWidth + descColWidth + catColWidth;
-
-  if (totalNatural > MAX_TABLE_WIDTH) {
-    // Scale constrained columns to fit within 505pt
-    const availForThree = MAX_TABLE_WIDTH - noColWidth;
-    codeColWidth = Math.max(50.0, Math.min(90.0, codeColWidth));
-    const availForDescAndCat = availForThree - codeColWidth;
-    const totalNeeded = descColWidth + catColWidth;
-    const ratioDesc = descColWidth / totalNeeded;
-    descColWidth = Math.round(availForDescAndCat * ratioDesc);
-    catColWidth = availForDescAndCat - descColWidth;
-
-    if (descColWidth < 100.0) {
-      descColWidth = 100.0;
-      catColWidth = availForDescAndCat - descColWidth;
-    } else if (catColWidth < 75.0) {
-      catColWidth = 75.0;
-      descColWidth = availForDescAndCat - catColWidth;
-    }
-  }
+  // Option 3: Wide schedule table (505pt)
+  // CODE and CATEGORY fit to their text finish, DESCRIPTION gets all remaining width
+  const codeColWidth = Math.max(55.0, Math.min(95.0, neededCodeW));
+  const catColWidth = neededCatW;
+  const descColWidth = MAX_TABLE_WIDTH - noColWidth - codeColWidth - catColWidth;
 
   return [
     { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
