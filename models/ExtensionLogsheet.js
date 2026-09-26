@@ -14,6 +14,7 @@ const extensionLogsheetSchema = new mongoose.Schema({
   facility_address: { type: String, default: '' }, // Address of certificated facility
   contact_person: { type: String, default: '' },   // Contact Person of the company
   product_category: { type: String, default: '' }, // Product category
+  certificate_type: { type: String, default: '' }, // Auto-detected certificate type
   scheme: { 
     type: String, 
     enum: ['GSO', 'HFA', 'Both'], 

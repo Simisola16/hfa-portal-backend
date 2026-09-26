@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import ExtensionApplication from '../models/ExtensionApplication.js';
 import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Certificate from '../models/Certificate.js';
+import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Site from '../models/Site.js';
 import { generateHfaId } from '../lib/idGenerator.js';
@@ -119,6 +120,63 @@ async function resolveFacilityAddress(siteId, siteName, userId) {
   }
 
   return '';
+}
+
+async function detectCertificateTypeAndScheme(app) {
+  let cert = null;
+  let prevApp = null;
+
+  // 1. Try finding by site_id
+  if (app?.site_id) {
+    const sId = app.site_id?._id || app.site_id;
+    cert = await Certificate.findOne({ site_id: sId }).sort({ expiry_date: -1, createdAt: -1 });
+    if (!cert) {
+      prevApp = await Application.findOne({ site_id: sId, status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+    }
+  }
+
+  // 2. Try finding by client_id
+  if (!cert && !prevApp && app?.client_id) {
+    const cId = String(app.client_id?._id || app.client_id);
+    cert = await Certificate.findOne({ client_id: cId }).sort({ expiry_date: -1, createdAt: -1 });
+    if (!cert) {
+      prevApp = await Application.findOne({ client_id: cId, status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+    }
+  }
+
+  // 3. Try finding by company_name
+  const compName = app?.company_name || app?.client_id?.company_name;
+  if (!cert && !prevApp && compName) {
+    cert = await Certificate.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i') }).sort({ expiry_date: -1, createdAt: -1 });
+    if (!cert) {
+      prevApp = await Application.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i'), status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+    }
+  }
+
+  const rawCertType = cert?.certificate_type || prevApp?.suggested_certificate_type || prevApp?.certificate_type || '';
+  const rawScheme = prevApp?.scheme || '';
+
+  let detectedScheme = 'HFA';
+  const u = (rawCertType + ' ' + rawScheme).toUpperCase();
+  const hasGSO = u.includes('GSO') || u.includes('UAE') || u.includes('GCC');
+  const hasHFA = u.includes('HFA');
+
+  if (hasGSO && hasHFA) {
+    detectedScheme = 'Both';
+  } else if (hasGSO) {
+    detectedScheme = 'GSO';
+  } else if (hasHFA) {
+    detectedScheme = 'HFA';
+  }
+
+  return {
+    certificate: cert,
+    previousApplication: prevApp,
+    certificate_type: rawCertType || (detectedScheme === 'GSO' ? 'GSO SCHEME' : detectedScheme === 'Both' ? 'GSO & HFA SCHEME' : 'HFA SCHEME'),
+    scheme: detectedScheme,
+    expiry_date: cert?.expiry_date || null,
+    product_category: cert?.product_category || prevApp?.category || ''
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -273,7 +331,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized access to this application.' });
     }
 
-    res.json({ success: true, data: app });
+    const detected = await detectCertificateTypeAndScheme(app);
+    const appData = app.toObject ? app.toObject() : { ...app };
+    appData.detected_certificate_type = detected.certificate_type;
+    appData.detected_scheme = detected.scheme;
+    appData.parent_certificate = detected.certificate;
+
+    res.json({ success: true, data: appData });
   } catch (err) {
     console.error('Error fetching extension application details:', err);
     res.status(500).json({ error: 'Failed to load extension application.' });
@@ -371,6 +435,7 @@ router.get('/:id/logsheet', authenticateToken, async (req, res) => {
 
     // Auto-resolve facility address from site / user if not present
     const resolvedAddress = await resolveFacilityAddress(app.site_id, app.site_name, app.client_id?._id || app.client_id);
+    const detected = await detectCertificateTypeAndScheme(app);
 
     if (!logsheet) {
       logsheet = new ExtensionLogsheet({
@@ -380,8 +445,11 @@ router.get('/:id/logsheet', authenticateToken, async (req, res) => {
         company_name: app.company_name || app.client_id?.company_name || '',
         facility_address: resolvedAddress,
         contact_person: app.contact_person,
+        product_category: detected.product_category || '',
+        certificate_type: detected.certificate_type,
+        scheme: detected.scheme,
+        certificate_expiry_date: detected.expiry_date || null,
         justification: app.description,
-        scheme: 'HFA',
         extension_duration_type: '30_days',
         extension_days: 30,
         signatures_required: 1,
@@ -390,9 +458,31 @@ router.get('/:id/logsheet', authenticateToken, async (req, res) => {
       await logsheet.save();
       app.logsheet_id = logsheet._id;
       await app.save();
-    } else if (!logsheet.facility_address && resolvedAddress) {
-      logsheet.facility_address = resolvedAddress;
-      await logsheet.save();
+    } else {
+      let needsSave = false;
+      if (!logsheet.facility_address && resolvedAddress) {
+        logsheet.facility_address = resolvedAddress;
+        needsSave = true;
+      }
+      if (!logsheet.certificate_type || logsheet.certificate_type !== detected.certificate_type) {
+        logsheet.certificate_type = detected.certificate_type;
+        needsSave = true;
+      }
+      if (logsheet.scheme !== detected.scheme) {
+        logsheet.scheme = detected.scheme;
+        needsSave = true;
+      }
+      if (!logsheet.certificate_expiry_date && detected.expiry_date) {
+        logsheet.certificate_expiry_date = detected.expiry_date;
+        needsSave = true;
+      }
+      if (!logsheet.product_category && detected.product_category) {
+        logsheet.product_category = detected.product_category;
+        needsSave = true;
+      }
+      if (needsSave) {
+        await logsheet.save();
+      }
     }
 
     res.json({ success: true, data: logsheet });
@@ -427,6 +517,7 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
     const durationType = extension_duration_type || '30_days';
     const parsedDays = Number(extension_days) || (durationType === '30_days' ? 30 : 60);
     const sigsRequired = durationType === '30_days' || parsedDays <= 30 ? 1 : 4;
+    const detected = await detectCertificateTypeAndScheme(app);
 
     if (!logsheet) {
       logsheet = new ExtensionLogsheet({
@@ -439,8 +530,9 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
     logsheet.company_name = company_name || app.company_name;
     logsheet.facility_address = facility_address || '';
     logsheet.contact_person = contact_person || app.contact_person;
-    logsheet.product_category = product_category || '';
-    logsheet.scheme = scheme || 'HFA';
+    logsheet.product_category = product_category || detected.product_category || '';
+    logsheet.certificate_type = detected.certificate_type || logsheet.certificate_type;
+    logsheet.scheme = detected.scheme || logsheet.scheme || 'HFA'; // Scheme is auto-detected and not changeable
     if (certificate_expiry_date) {
       logsheet.certificate_expiry_date = new Date(certificate_expiry_date);
     }
@@ -621,7 +713,7 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
       newExpiryDate = new Date(Date.now() + extensionDays * 24 * 60 * 60 * 1000);
     }
 
-    const companyForId = app.company_name || app.client_id?.company_name || app.client_id?.full_name || 'HFA';
+    const companyForId = app.company_name || app.client_id?.company_name || app.client_id?.business_name || app.site_name || 'SM';
     let certNumber = certificate_number || generateHfaId(companyForId, 'EX');
 
     let existingCertWithNum = await Certificate.findOne({ certificate_number: certNumber });
