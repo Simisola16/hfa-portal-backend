@@ -44,6 +44,8 @@ function renderTracker() {
     console.log(`║ • 📄 Proposals           : ${s.proposalsCreated || 0} proposals`.padEnd(width - 1) + '║');
     console.log(`║ • 🤝 Agreements          : ${s.agreementsCreated || 0} agreements`.padEnd(width - 1) + '║');
     console.log(`║ • 💳 Invoices            : ${s.invoicesCreated || 0} invoices`.padEnd(width - 1) + '║');
+    console.log(`║ • 🔍 Scheduled Audits    : ${s.auditsCreated || 0} audits`.padEnd(width - 1) + '║');
+    console.log(`║ • 🎫 Support Tickets     : ${s.ticketsCreated || 0} tickets`.padEnd(width - 1) + '║');
     console.log(`║ • ⚠️  Errors Encountered  : ${(s.errors && s.errors.length) || 0}`.padEnd(width - 1) + '║');
     console.log('╠' + '═'.repeat(width - 2) + '╣');
     console.log(`║ Web Dashboard: http://localhost:4040`.padEnd(width - 1) + '║');

@@ -21,6 +21,8 @@ import AddOnApplication from '../models/AddOnApplication.js';
 import Proposal from '../models/Proposal.js';
 import Agreement from '../models/Agreement.js';
 import Invoice from '../models/Invoice.js';
+import Audit from '../models/Audit.js';
+import Ticket from '../models/Ticket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -276,9 +278,11 @@ async function loadAndIndexSqlTables() {
   const sitesMap = new Map();
   const sites1 = readTable('HalalyMain/tables/dbo.TlbSie.json');
   const sites2 = readTable('HalalyMains/tables/dbo.TlbSie.json');
+  const sites3 = readTable('HalalyMain/tables/dbo.TlbSie2.json');
+  const sites4 = readTable('HalalyMains/tables/dbo.TlbSie2.json');
   const siteSeenIds = new Set();
   const allSiteRows = [];
-  [...sites1, ...sites2].forEach(s => {
+  [...sites1, ...sites2, ...sites3, ...sites4].forEach(s => {
     const sid = cleanStr(s.SitesID);
     if (sid && !siteSeenIds.has(sid)) {
       siteSeenIds.add(sid);
@@ -504,6 +508,57 @@ async function loadAndIndexSqlTables() {
   });
   console.log(`   ✓ Indexed ${invoiceRows.length} invoices across company CIDs`);
 
+  // Audits (HalalyMains & HalalyMain dbo.tlbAudlister) - 3,439 Audits!
+  const auditsByAppNum = new Map();
+  const auditRows1 = readTable('HalalyMains/tables/dbo.tlbAudlister.json');
+  const auditRows2 = readTable('HalalyMain/tables/dbo.tlbAudlister.json');
+  [...auditRows1, ...auditRows2].forEach(a => {
+    const appNum = cleanStr(a.AppID);
+    if (appNum) {
+      if (!auditsByAppNum.has(appNum)) auditsByAppNum.set(appNum, []);
+      auditsByAppNum.get(appNum).push(a);
+    }
+  });
+  console.log(`   ✓ Indexed ${auditRows1.length + auditRows2.length} audits across applications`);
+
+  // Add-on Product Line Items (HaProlister.dbo.TlbProist) - 13,654 items!
+  const addOnProductsByAtId = new Map();
+  const proistRows = readTable('HaProlister/tables/dbo.TlbProist.json');
+  proistRows.forEach(p => {
+    const atId = cleanStr(p.Iders);
+    if (atId) {
+      if (!addOnProductsByAtId.has(atId)) addOnProductsByAtId.set(atId, []);
+      addOnProductsByAtId.get(atId).push({
+        name: cleanStr(p.ProNamer) || 'Product',
+        code: cleanStr(p.Coder) || '',
+        type: cleanStr(p.Typer) || 'Add product'
+      });
+    }
+  });
+  console.log(`   ✓ Indexed ${proistRows.length} add-on product line items`);
+
+  // Secondary Contacts (dbo.TblContat)
+  const contactsByCid = new Map();
+  const contactRows1 = readTable('HalalyMains/tables/dbo.TblContat.json');
+  const contactRows2 = readTable('HalalyMain/tables/dbo.TblContat.json');
+  [...contactRows1, ...contactRows2].forEach(c => {
+    const cid = cleanStr(c.CompKing);
+    if (cid && !contactsByCid.has(cid)) contactsByCid.set(cid, c);
+  });
+  console.log(`   ✓ Indexed ${contactsByCid.size} company secondary contacts`);
+
+  // Support Tickets (HalalTick.dbo.tlbtic)
+  const ticketsByCompName = new Map();
+  const ticketRows = readTable('HalalTick/tables/dbo.tlbtic.json');
+  ticketRows.forEach(t => {
+    const cName = cleanStr(t.Subjet || t.CName).toLowerCase();
+    if (cName) {
+      if (!ticketsByCompName.has(cName)) ticketsByCompName.set(cName, []);
+      ticketsByCompName.get(cName).push(t);
+    }
+  });
+  console.log(`   ✓ Indexed ${ticketRows.length} support tickets`);
+
   return {
     sitesMap,
     appsMap,
@@ -526,7 +581,11 @@ async function loadAndIndexSqlTables() {
     proposalsByCompName,
     agreementsByCid,
     agreementsByAppId,
-    invoicesByCid
+    invoicesByCid,
+    auditsByAppNum,
+    addOnProductsByAtId,
+    contactsByCid,
+    ticketsByCompName
   };
 }
 
@@ -653,6 +712,8 @@ async function runFullCompanyImport() {
       proposalsCreated: 0,
       agreementsCreated: 0,
       invoicesCreated: 0,
+      auditsCreated: 0,
+      ticketsCreated: 0,
       errors: []
     },
     isComplete: false,
@@ -769,6 +830,16 @@ async function runFullCompanyImport() {
         email_verified: companyCategory !== 'signup',
         notes: `Imported from legacy HFA portal (CID: ${cid}, Category: ${companyCategory})`
       };
+
+      const secCont = sqlTables.contactsByCid.get(cid);
+      if (secCont) {
+        const c2Name = cleanStr(secCont.ContactName2) || cleanStr(secCont.ContactName1);
+        const c2Email = cleanStr(secCont.Email2) || cleanStr(secCont.Email1);
+        const c2Phone = cleanStr(secCont.WorkTelephoneNo2) || cleanStr(secCont.MobilePhoneNo2) || cleanStr(secCont.WorkTelephoneNo1);
+        if (c2Name && c2Name !== contactPerson) {
+          userFields.notes += ` | Alternate Contact: ${c2Name}${c2Email ? ' (' + c2Email + ')' : ''}${c2Phone ? ' Tel: ' + c2Phone : ''}`;
+        }
+      }
 
       if (!user) {
         user = await User.create(userFields);
@@ -1158,6 +1229,15 @@ async function runFullCompanyImport() {
         const rawStat = cleanStr(a.Statuscomp).toLowerCase();
         const stat = ADDON_STATUS_MAP[rawStat] || (rawStat.includes('accept') ? 'accepted' : 'submitted');
 
+        const atId = cleanStr(a.AtID);
+        const addOnProds = sqlTables.addOnProductsByAtId.get(atId) || [];
+        const productsList = addOnProds.map((p, pIdx) => ({
+          sn: pIdx + 1,
+          name: p.name,
+          code: p.code,
+          type: p.type === 'Add Product' ? 'Add product' : (['Add product', 'Remove product', 'Change name/code', 'Change ingredients', 'Change ingredient'].includes(p.type) ? p.type : 'Add product')
+        }));
+
         const addOnDoc = {
           application_number: refNo,
           client_id: userIdStr,
@@ -1168,6 +1248,7 @@ async function runFullCompanyImport() {
           description: cleanStr(a.ProductLister) || `Add-on products for ${companyName}`,
           contact_person: cleanStr(a.ContactPeNa) || contactPerson,
           contact_email: finalEmail,
+          products: productsList,
           submission_date: safeDate(a.Datere),
           notes: `Imported from legacy HFA database (Record: ${recId})`
         };
@@ -1339,6 +1420,69 @@ async function runFullCompanyImport() {
         trackerState.stats.invoicesCreated++;
       }
 
+      // -------------------------------------------------------------
+      // L. AUDITS (dbo.tlbAudlister) - 3,439 Audits
+      // -------------------------------------------------------------
+      for (const [appNum, aId] of appMapByAppNum.entries()) {
+        const appAudits = sqlTables.auditsByAppNum.get(appNum) || [];
+        for (const aud of appAudits) {
+          const auditDate = safeDate(aud.AuditDate);
+          const isDone = cleanStr(aud.Donert).toLowerCase().includes('done') || auditDate < new Date();
+          const auditType = cleanStr(aud.Statuss) || cleanStr(aud.AuditoType) || 'Annual';
+          const auditorName = cleanStr(aud.AuditorName) || 'HFA Auditor';
+
+          const auditDoc = {
+            application_id: aId,
+            client_id: userIdStr,
+            site_id: defaultSiteId,
+            audit_type: auditType,
+            scheduled_date: auditDate,
+            finalized_date: auditDate,
+            completed_at: isDone ? auditDate : undefined,
+            status: isDone ? 'audit_completed' : 'date_finalized',
+            auditors: [{ name: auditorName, role: 'Lead Auditor' }],
+            notes: `Assigned by: ${cleanStr(aud.AssPerson, 'HFA Admin')}`,
+            stage: auditType.toLowerCase().includes('stage 2') ? 2 : 1
+          };
+
+          await Audit.findOneAndUpdate(
+            { application_id: aId, scheduled_date: auditDate },
+            { $set: auditDoc },
+            { upsert: true, new: true }
+          );
+          trackerState.stats.auditsCreated++;
+        }
+      }
+
+      // -------------------------------------------------------------
+      // M. SUPPORT TICKETS (dbo.tlbtic)
+      // -------------------------------------------------------------
+      const compTickets = sqlTables.ticketsByCompName.get(companyName.toLowerCase()) || [];
+      for (const t of compTickets) {
+        const ticNum = `TCK-${cleanStr(t.Ider)}`;
+        const isDone = cleanStr(t.satus).toLowerCase() === 'done';
+
+        const ticDoc = {
+          ticket_number: ticNum,
+          user_id: userIdStr,
+          subject: cleanStr(t.Subjet) || `Support Request - ${companyName}`,
+          message: cleanStr(t.Mess) || 'Support inquiry',
+          department: 'General',
+          priority: 'medium',
+          status: isDone ? 'resolved' : 'open',
+          source: 'portal',
+          created_at: safeDate(t.Date),
+          resolved_at: isDone ? safeDate(t.Date) : undefined
+        };
+
+        await Ticket.findOneAndUpdate(
+          { ticket_number: ticNum },
+          { $set: ticDoc },
+          { upsert: true, new: true }
+        );
+        trackerState.stats.ticketsCreated++;
+      }
+
       // Progress Update
       trackerState.processedCompanies++;
       updateTrackerFile(cid, companyName);
@@ -1377,6 +1521,8 @@ async function runFullCompanyImport() {
   console.log(`📄 Proposals Created   : ${trackerState.stats.proposalsCreated}`);
   console.log(`🤝 Agreements Created  : ${trackerState.stats.agreementsCreated}`);
   console.log(`💳 Invoices Created    : ${trackerState.stats.invoicesCreated}`);
+  console.log(`🔍 Audits Created      : ${trackerState.stats.auditsCreated}`);
+  console.log(`🎫 Tickets Created     : ${trackerState.stats.ticketsCreated}`);
   console.log(`⚠️  Total Errors        : ${trackerState.stats.errors.length}`);
   console.log('=============================================================================\n');
 
