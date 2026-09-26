@@ -644,8 +644,8 @@ export async function generateCertificate(certData) {
   const cEmerald = rgb(11 / 255, 124 / 255, 71 / 255);       // #0b7c47 Emerald Green
   const cDark = rgb(17 / 255, 24 / 255, 39 / 255);           // #111827 Deep Black/Charcoal
   const cWhite = rgb(1, 1, 1);
-  const cTableGrid = rgb(89 / 255, 91 / 255, 97 / 255);      // Subtle slate gray grid stroke [89, 91, 97]
-  const cDivider = rgb(124 / 255, 181 / 255, 148 / 255);    // Subtle emerald divider lines #7cb594
+  const cTableGrid = cDark;                                   // Deep black grid stroke
+  const cDivider = cDark;                                     // Deep black divider lines under Company Info rows
 
   const sanitizedCertNo = sanitizeForPdf(certificateNumber || certData.certificate_number);
   const formattedIssue = formatDate(issueDate || certData.issue_date);
@@ -1131,7 +1131,7 @@ export async function generateCertificate(certData) {
       y: curRowY,
       width: tableWidth,
       height: (headerBottomY + headerHeight) - curRowY,
-      borderColor: cEmerald,
+      borderColor: cDark,
       borderWidth: 0.85
     });
 
@@ -1377,14 +1377,14 @@ export async function buildCertificateHtml(certData) {
         .date-label { color: #0b7c47; font-weight: normal; }
         .declaration { font-size: 12pt; font-weight: normal; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
         .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 10.5pt; }
-        .info-table tr { border-bottom: 1px solid #7cb594; }
-        .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
+        .info-table tr { border-bottom: 1px solid #111827; }
+        .info-table td { padding: 6px 0; border-bottom: 1px solid #111827; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
         .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: normal; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
         .info-val { color: #111827; font-weight: normal; vertical-align: top; text-align: left; word-break: break-word; padding: 6px 0; margin: 0; box-sizing: border-box; }
         .products-table-container { display: flex; justify-content: center; margin-top: 10px; width: 100%; }
-        .products-table { width: 100%; border-collapse: collapse; border: 1px solid #0b7c47; font-size: 9pt; background: transparent; }
-        .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #0b7c47; }
-        .products-table td { padding: 6px 8px; border: 1px solid #4b5563; color: #111827; background: transparent; }
+        .products-table { width: 100%; border-collapse: collapse; border: 1px solid #111827; font-size: 9pt; background: transparent; }
+        .products-table th { background: #0b7c47; color: #ffffff; padding: 7px 8px; font-weight: 700; border: 1px solid #111827; }
+        .products-table td { padding: 6px 8px; border: 1px solid #111827; color: #111827; background: transparent; }
         .asterisks { text-align: center; margin: 10px 0; font-size: 9.5pt; font-weight: 700; letter-spacing: 2px; }
         .footer-signatures { display: flex; justify-content: space-between; margin-top: 24px; font-size: 8.5pt; }
         .footer-meta { display: flex; align-items: center; margin-top: 20px; font-size: 7.5pt; border-top: 1px solid #7cb594; padding-top: 8px; }
