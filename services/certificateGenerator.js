@@ -183,8 +183,8 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
     }
     const nameColWidth = Math.min(MAX_TABLE_WIDTH - noColWidth, Math.max(220.0, Math.ceil(maxNameTextW + 20.0)));
     return [
-      { header: 'NO.', width: noColWidth, align: 'center' },
-      { header: 'NAME OF THE PRODUCTS', width: nameColWidth, align: 'center' }
+      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+      { header: 'NAME OF THE PRODUCTS', width: nameColWidth, align: 'left', pad: 10.0 }
     ];
   }
 
@@ -234,9 +234,9 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
     }
 
     return [
-      { header: 'NO.', width: noColWidth, align: 'center' },
-      { header: 'CODE', width: codeColWidth, align: 'center' },
-      { header: 'DESCRIPTION', width: descColWidth, align: 'center' }
+      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+      { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
+      { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 }
     ];
   }
 
@@ -281,10 +281,10 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
   }
 
   return [
-    { header: 'NO.', width: noColWidth, align: 'center' },
-    { header: 'CODE', width: codeColWidth, align: 'center' },
-    { header: 'DESCRIPTION', width: descColWidth, align: 'center' },
-    { header: 'CATEGORY', width: catColWidth, align: 'center' }
+    { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+    { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
+    { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 },
+    { header: 'CATEGORY', width: catColWidth, align: 'left', pad: 8.0 }
   ];
 }
 
@@ -837,7 +837,7 @@ export async function generateCertificate(certData) {
         }
       }
 
-      // 3. Company & Category Info Block (Arial 11pt, non-bold)
+      // 3. Company & Category Info Block (Arial 10.5pt, non-bold)
       // Strict Left Alignment on valStartX = 236.0 with horizontal dividers spanning 45.0 to 550.0 pt
       const labelStartX = 45.0;
       const valStartX = 236.0;
@@ -845,8 +845,8 @@ export async function generateCertificate(certData) {
       const dividerRightX = 550.0;
       const maxValW = dividerRightX - valStartX; // 314 pt
 
-      const rowLabelSize = 11.0;
-      const rowValSize = 11.0;
+      const rowLabelSize = 10.5;
+      const rowValSize = 10.5;
 
       // Row 1: COMPANY NAME
       const r1Y = 480.0;
@@ -1000,7 +1000,7 @@ export async function generateCertificate(certData) {
           });
         }
 
-        // Cell content rendering (centralised in all columns)
+        // Cell content rendering: NO. is centered, product columns are left-aligned
         if (cIdx === 0) {
           // NO. column (centered bold)
           const noStr = String(globalProductIndex);
@@ -1013,23 +1013,21 @@ export async function generateCertificate(certData) {
             color: cDark
           });
         } else if (numColumns === 1) {
-          // Option 1: NAME OF THE PRODUCTS (centered)
+          // Option 1: NAME OF THE PRODUCTS (left-aligned)
           const nameFit = fitText(p.name, col.width - 16.0, fontRegular, cellFontSize);
-          const nameW = fontRegular.widthOfTextAtSize(nameFit.text, nameFit.size);
           page.drawText(nameFit.text, {
-            x: rowXCursor + Math.max(3.0, (col.width - nameW) / 2),
+            x: rowXCursor + (col.pad || 8.0),
             y: curRowY + (rowHeight - nameFit.size) / 2 + 1.0,
             size: nameFit.size,
             font: fontRegular,
             color: cDark
           });
         } else if (numColumns === 2) {
-          // Option 2: CODE | DESCRIPTION (centered)
+          // Option 2: CODE | DESCRIPTION (left-aligned)
           if (cIdx === 1) {
             const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
-            const codeW = fontBold.widthOfTextAtSize(codeFit.text, codeFit.size);
             page.drawText(codeFit.text, {
-              x: rowXCursor + Math.max(3.0, (col.width - codeW) / 2),
+              x: rowXCursor + (col.pad || 8.0),
               y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
               size: codeFit.size,
               font: fontBold,
@@ -1038,9 +1036,8 @@ export async function generateCertificate(certData) {
           } else if (cIdx === 2) {
             const descVal = p.description || p.name;
             const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
-            const descW = fontRegular.widthOfTextAtSize(descFit.text, descFit.size);
             page.drawText(descFit.text, {
-              x: rowXCursor + Math.max(3.0, (col.width - descW) / 2),
+              x: rowXCursor + (col.pad || 8.0),
               y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
               size: descFit.size,
               font: fontRegular,
@@ -1048,12 +1045,11 @@ export async function generateCertificate(certData) {
             });
           }
         } else if (numColumns === 3) {
-          // Option 3: CODE | DESCRIPTION | CATEGORY (all centered)
+          // Option 3: CODE | DESCRIPTION | CATEGORY (left-aligned)
           if (cIdx === 1) {
             const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
-            const codeW = fontBold.widthOfTextAtSize(codeFit.text, codeFit.size);
             page.drawText(codeFit.text, {
-              x: rowXCursor + Math.max(3.0, (col.width - codeW) / 2),
+              x: rowXCursor + (col.pad || 8.0),
               y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
               size: codeFit.size,
               font: fontBold,
@@ -1062,9 +1058,8 @@ export async function generateCertificate(certData) {
           } else if (cIdx === 2) {
             const descVal = p.description || p.name;
             const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
-            const descW = fontRegular.widthOfTextAtSize(descFit.text, descFit.size);
             page.drawText(descFit.text, {
-              x: rowXCursor + Math.max(3.0, (col.width - descW) / 2),
+              x: rowXCursor + (col.pad || 8.0),
               y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
               size: descFit.size,
               font: fontRegular,
@@ -1072,9 +1067,8 @@ export async function generateCertificate(certData) {
             });
           } else if (cIdx === 3) {
             const catFit = fitText(p.category || 'Halal Certified', col.width - 16.0, fontRegular, cellFontSize);
-            const catW = fontRegular.widthOfTextAtSize(catFit.text, catFit.size);
             page.drawText(catFit.text, {
-              x: rowXCursor + Math.max(3.0, (col.width - catW) / 2),
+              x: rowXCursor + (col.pad || 8.0),
               y: curRowY + (rowHeight - catFit.size) / 2 + 1.0,
               size: catFit.size,
               font: fontRegular,
@@ -1332,7 +1326,7 @@ export async function buildCertificateHtml(certData) {
         .dates-row-center { text-align: center; font-size: 12pt; font-weight: normal; margin-top: 4px; }
         .date-label { color: #0b7c47; font-weight: normal; }
         .declaration { font-size: 12pt; font-weight: normal; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
-        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 11pt; }
+        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 10.5pt; }
         .info-table tr { border-bottom: 1px solid #7cb594; }
         .info-table td { padding: 6px 0; border-bottom: 1px solid #7cb594; vertical-align: top; line-height: 1.4; box-sizing: border-box; }
         .info-label { width: 280px; min-width: 280px; max-width: 280px; color: #111827; vertical-align: top; font-weight: normal; text-align: left; padding: 6px 14px 6px 0; margin: 0; box-sizing: border-box; }
@@ -1399,7 +1393,7 @@ export async function buildCertificateHtml(certData) {
           <thead>
             <tr>
               ${htmlCols.map((col) => `
-                <th style="padding: 7px 12px; text-align: center;">${col.header}</th>
+                <th style="padding: 7px 12px; text-align: ${col.align};">${col.header}</th>
               `).join('')}
             </tr>
           </thead>
@@ -1408,14 +1402,14 @@ export async function buildCertificateHtml(certData) {
               <tr>
                 <td style="text-align: center; font-weight: 700; padding: 6px 12px;">${idx + 1}</td>
                 ${numColumns === 1 ? `
-                  <td style="text-align: center; padding: 6px 12px;">${p.name}</td>
+                  <td style="text-align: left; padding: 6px 12px;">${p.name}</td>
                 ` : numColumns === 3 ? `
-                  <td style="text-align: center; padding: 6px 12px; font-weight: 700;">${p.code}</td>
-                  <td style="text-align: center; padding: 6px 12px;">${p.description || p.name}</td>
-                  <td style="text-align: center; padding: 6px 12px;">${p.category || 'Halal Certified'}</td>
+                  <td style="text-align: left; padding: 6px 12px; font-weight: 700;">${p.code}</td>
+                  <td style="text-align: left; padding: 6px 12px;">${p.description || p.name}</td>
+                  <td style="text-align: left; padding: 6px 12px;">${p.category || 'Halal Certified'}</td>
                 ` : `
-                  <td style="text-align: center; padding: 6px 12px; font-weight: 700;">${p.code}</td>
-                  <td style="text-align: center; padding: 6px 12px;">${p.description || p.name}</td>
+                  <td style="text-align: left; padding: 6px 12px; font-weight: 700;">${p.code}</td>
+                  <td style="text-align: left; padding: 6px 12px;">${p.description || p.name}</td>
                 `}
               </tr>
             `).join('')}
