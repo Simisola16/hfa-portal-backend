@@ -163,11 +163,11 @@ const handlePublicCertificateAccess = async (req, res) => {
 
     const pdfBuffer = await generateCertificate({
       certificateType: cert.certificate_type || 'GSO MEAT',
-      businessName: cert.company_name || 'Valued Halal Client',
-      businessAddress: cert.company_address || '—',
-      manufacturerAddress: cert.manufacturing_address || 'Same as above',
+      businessName: cert.company_name || '',
+      businessAddress: cert.company_address || '',
+      manufacturerAddress: cert.manufacturing_address || '',
       certificateNumber: cert.certificate_number,
-      scopeOfCertification: cert.scope || 'Halal Food and Consumer Products Certification',
+      scopeOfCertification: cert.scope || '',
       productCategory: cert.scope,
       productCategories: prods,
       products: prods,
@@ -405,8 +405,8 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       const survPdfBuffer = await generateSurveillanceLetter({
         letter_number: certNo,
         issue_date: issue_date ? new Date(issue_date) : new Date(),
-        recipient_name: company_name || 'Valued Halal Client',
-        recipient_address: company_address || 'Registered Business Address',
+        recipient_name: company_name || '',
+        recipient_address: company_address || '',
         recipient_attention: req.body.recipient_attention || '',
         letter_subject: req.body.letter_subject || 'Re: Surveillance Audit Outcome',
         certificate_number: req.body.halal_certificate_number || '',
@@ -424,7 +424,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       });
     }
 
-    const effectiveScope = product_category || scope || 'Halal Food and Consumer Products Certification';
+    const effectiveScope = product_category || scope || '';
     const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
     const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
@@ -435,9 +435,9 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
 
     const pdfBuffer = await generateCertificate({
       certificateType: certificate_type || 'GSO MEAT',
-      businessName: company_name || 'Valued Halal Client',
-      businessAddress: company_address || 'Registered Business Address',
-      manufacturerAddress: manufacturing_address || company_address || 'Manufacturing Facility Address',
+      businessName: company_name || '',
+      businessAddress: company_address || '',
+      manufacturerAddress: manufacturing_address || '',
       certificateNumber: certNo,
       scopeOfCertification: effectiveScope,
       productCategory: effectiveScope,
@@ -971,11 +971,11 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       else resolvedScheme = 'HFA Scheme (meat)';
     }
 
-    let resolvedCompanyName = company_name || cUser?.company_name || app?.establishment_name || addOnApp?.contact_name || 'Halal Certified Client';
-    let resolvedCompanyAddress = company_address || cUser?.address || app?.establishment_address || '—';
-    let resolvedManufacturingAddress = manufacturing_address || app?.manufacturer_address || resolvedCompanyAddress;
-    let resolvedScope = scope || app?.scope || 'Halal Food & Products Certification';
-    let resolvedProductCategory = req.body.product_category || product_category || resolvedScope;
+    let resolvedCompanyName = (company_name || cUser?.company_name || app?.establishment_name || addOnApp?.contact_name || '').trim();
+    let resolvedCompanyAddress = (company_address || cUser?.address || app?.establishment_address || '').trim();
+    let resolvedManufacturingAddress = (manufacturing_address || app?.manufacturer_address || '').trim();
+    let resolvedScope = (scope || app?.scope || '').trim();
+    let resolvedProductCategory = (req.body.product_category || product_category || resolvedScope || '').trim();
 
     let certificate_url = null;
     if (req.file) {
@@ -1470,11 +1470,11 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
 
     const pdfBuffer = await generateCertificate({
       certificateType: cert.certificate_type || 'HFA Scheme',
-      businessName: cert.company_name || 'Halal Certified Client',
-      businessAddress: cert.company_address || '—',
-      manufacturerAddress: cert.manufacturing_address || 'Same as above',
+      businessName: cert.company_name || '',
+      businessAddress: cert.company_address || '',
+      manufacturerAddress: cert.manufacturing_address || '',
       certificateNumber: cert.certificate_number,
-      scopeOfCertification: cert.scope || 'Halal Food Certification',
+      scopeOfCertification: cert.scope || '',
       productCategory: cert.scope,
       productCategories: prods,
       products: prods,
@@ -1591,11 +1591,11 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
 
       const pdfBuffer = await generateCertificate({
         certificateType: cert.certificate_type || 'HFA Scheme',
-        businessName: cert.company_name || 'Halal Certified Client',
-        businessAddress: cert.company_address || '—',
-        manufacturerAddress: cert.manufacturing_address || 'Same as above',
+        businessName: cert.company_name || '',
+        businessAddress: cert.company_address || '',
+        manufacturerAddress: cert.manufacturing_address || '',
         certificateNumber: cert.certificate_number,
-        scopeOfCertification: cert.scope || 'Halal Food Certification',
+        scopeOfCertification: cert.scope || '',
         productCategory: cert.scope,
         productCategories: prods,
         products: prods,
@@ -1694,11 +1694,11 @@ async function buildCertDataFromApplication(application) {
 
     return {
       certificateType: scheme,
-      businessName: client ? (client.company_name || client.full_name) : application.establishment_name,
-      businessAddress: application.establishment_address || '—',
-      manufacturerAddress: application.manufacturer_address || 'Same as above',
+      businessName: client ? (client.company_name || client.full_name || '') : (application.establishment_name || ''),
+      businessAddress: application.establishment_address || '',
+      manufacturerAddress: application.manufacturer_address || '',
       certificateNumber: certNumber,
-      scopeOfCertification: application.scope || 'Halal Food Certification',
+      scopeOfCertification: application.scope || '',
       productCategories,
       products: productCategories,
       issueDate,
@@ -1847,10 +1847,10 @@ router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertif
       }
     }
 
-    const resolvedBusinessName = certificate.company_name || client?.company_name || client?.full_name || application?.establishment_name || 'Halal Certified Client';
-    const resolvedBusinessAddress = certificate.company_address || application?.establishment_address || client?.address || '—';
-    const resolvedManufacturerAddress = certificate.manufacturing_address || application?.manufacturer_address || resolvedBusinessAddress;
-    const resolvedScope = certificate.scope || application?.scope || 'Halal Food Certification';
+    const resolvedBusinessName = (certificate.company_name !== undefined && certificate.company_name !== null ? certificate.company_name : (client?.company_name || client?.full_name || application?.establishment_name || '')).trim();
+    const resolvedBusinessAddress = (certificate.company_address !== undefined && certificate.company_address !== null ? certificate.company_address : (application?.establishment_address || client?.address || '')).trim();
+    const resolvedManufacturerAddress = (certificate.manufacturing_address !== undefined && certificate.manufacturing_address !== null ? certificate.manufacturing_address : (application?.manufacturer_address || '')).trim();
+    const resolvedScope = (certificate.scope !== undefined && certificate.scope !== null ? certificate.scope : (application?.scope || '')).trim();
 
     const prods = (certificate.product_details && certificate.product_details.length > 0)
       ? certificate.product_details
@@ -1929,11 +1929,11 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
         const fullCertUrl = resolveCertificateUrl(certPath);
 
         const pdfBuffer = await generateCertificate({
-          businessName: certificate.company_name || 'Valued Halal Client',
-          businessAddress: certificate.company_address || '—',
-          manufacturerAddress: certificate.manufacturing_address || 'Same as above',
+          businessName: certificate.company_name || '',
+          businessAddress: certificate.company_address || '',
+          manufacturerAddress: certificate.manufacturing_address || '',
           certificateNumber: certificate.certificate_number,
-          scopeOfCertification: certificate.scope || 'Halal Food and Consumer Products Certification',
+          scopeOfCertification: certificate.scope || '',
           scheme: certificate.certificate_type || 'GSO non-meat',
           productCategories: productsList,
           issueDate: certificate.issue_date || new Date(),
@@ -2077,10 +2077,10 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     if (!businessAddress) {
-      businessAddress = 'N/A';
+      businessAddress = '';
     }
 
-    let manufacturerAddr = manufacturer_address || businessAddress || 'Same as above';
+    let manufacturerAddr = (manufacturer_address || '').trim();
 
     if (!targetSiteId && site_name && site_address) {
       const newSite = new Site({
