@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema({
   roles: [{ type: String }],
   parent_client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   client_role: { type: String, enum: ['admin', 'editor', 'viewer', 'owner'], default: 'viewer' },
+  company_category: { type: String, enum: ['certified', 'processing', 'signup'], default: 'signup' },
   can_issue_direct_certificate: { type: Boolean, default: false },
   is_support_manager: { type: Boolean, default: false },
   can_sign_logsheet: { type: Boolean, default: false },

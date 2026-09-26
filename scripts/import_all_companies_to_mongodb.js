@@ -24,11 +24,31 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const LOADCOMP_APIS = [
-  'https://app.hfa-portal.com/api/Crpirs/loadcomp/False/Cert/None',
-  'https://app.hfa-portal.com/api/Crpirs/loadcomp/False/NRL/None',
-  'https://app.hfa-portal.com/api/Crpirs/loadcomp/Yes/None/None',
-  'https://app.hfa-portal.com/api/Crpirs/loadcomp/True/Processing/None'
+const API_ENDPOINTS = [
+  {
+    url: 'https://app.hfa-portal.com/api/Crpirs/loadcomp/False/Cert/None',
+    category: 'certified',
+    name: 'Certified Companies',
+    ignore: false
+  },
+  {
+    url: 'https://app.hfa-portal.com/api/Crpirs/loadcomp/False/NRL/None',
+    category: 'review_nrl',
+    name: 'Review / NRL List (Ignored as instructed)',
+    ignore: true
+  },
+  {
+    url: 'https://app.hfa-portal.com/api/Crpirs/loadcomp/Yes/None/None',
+    category: 'signup',
+    name: 'Sign-ups',
+    ignore: false
+  },
+  {
+    url: 'https://app.hfa-portal.com/api/Crpirs/loadcomp/True/Processing/None',
+    category: 'processing',
+    name: 'Processing List',
+    ignore: false
+  }
 ];
 
 // Helper: Build a single address string from API address components
@@ -62,6 +82,18 @@ function cleanStr(val, defaultVal = '') {
   return s === '' || s === '-' || s === 'None' || s === 'null' ? defaultVal : s;
 }
 
+// Helper: Read SQL Server exported table JSON
+function readSqlTable(relPath) {
+  const fullPath = path.join(EXPORT_DIR, relPath);
+  if (!fs.existsSync(fullPath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    return parsed.rows || (Array.isArray(parsed) ? parsed : []);
+  } catch (err) {
+    return [];
+  }
+}
+
 // Helper: Fetch with retries
 async function fetchWithRetry(url, maxRetries = 5) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -76,45 +108,118 @@ async function fetchWithRetry(url, maxRetries = 5) {
   }
 }
 
-// 1. Fetch or Load All Companies
+// 1. Fetch, Filter, and Load All Companies
 async function loadAllCompanies() {
-  console.log('\n📥 1. Loading company records from HFA APIs...');
+  console.log('\n📥 1. Loading and categorizing company records...');
   
   if (fs.existsSync(CACHE_FILE)) {
     try {
       const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      if (Array.isArray(cached) && cached.length >= 1345) {
-        console.log(`   ✓ Loaded ${cached.length} companies from offline cache (${CACHE_FILE})`);
+      if (Array.isArray(cached) && cached.length >= 1300 && cached[0].category) {
+        console.log(`   ✓ Loaded ${cached.length} categorized companies from offline cache (${CACHE_FILE})`);
         return cached;
       }
     } catch (_) {}
   }
 
   const cidMap = new Map();
-  let totalFetched = 0;
+  const ignoredNrlCids = new Set();
+  let totalApiFetched = 0;
 
-  for (const url of LOADCOMP_APIS) {
-    console.log(`   Fetching ${url}...`);
+  for (const endpoint of API_ENDPOINTS) {
+    console.log(`   Fetching ${endpoint.name} (${endpoint.url})...`);
     try {
-      const records = await fetchWithRetry(url);
-      totalFetched += records.length;
-      console.log(`   ✓ Fetched ${records.length} records`);
-      records.forEach(r => {
-        const cid = cleanStr(r.cid || r.CID);
-        if (cid) cidMap.set(cid, r);
-      });
+      const records = await fetchWithRetry(endpoint.url);
+      totalApiFetched += records.length;
+      console.log(`   ✓ Fetched ${records.length} records for ${endpoint.name}`);
+
+      if (endpoint.ignore) {
+        records.forEach(r => {
+          const cid = cleanStr(r.cid || r.CID);
+          if (cid) ignoredNrlCids.add(cid);
+        });
+        console.log(`   🚫 Flagged ${ignoredNrlCids.size} NRL / Review companies to IGNORE from import`);
+      } else {
+        records.forEach(r => {
+          const cid = cleanStr(r.cid || r.CID);
+          if (cid && !ignoredNrlCids.has(cid)) {
+            cidMap.set(cid, {
+              ...r,
+              cid,
+              category: endpoint.category
+            });
+          }
+        });
+      }
     } catch (err) {
-      console.error(`   ✗ Error fetching ${url}:`, err.message);
+      console.error(`   ✗ Error fetching ${endpoint.url}:`, err.message);
     }
   }
 
+  console.log(`   ✓ Active companies from APIs: ${cidMap.size}`);
+
+  // Scan remaining companies from SQL Server tables outside the APIs
+  console.log('   🔍 Scanning SQL Server tables for remaining companies not in APIs...');
+  const compRegis1 = readSqlTable('HalalyMain/tables/dbo.CompRegis.json');
+  const compRegis2 = readSqlTable('HalalyMains/tables/dbo.CompRegis.json');
+  const certRows = readSqlTable('HalalCert/tables/dbo.tlbcertMas.json');
+  const certCids = new Set(certRows.map(c => cleanStr(c.CName)).filter(Boolean));
+  const appRows = readSqlTable('HalalApp/tables/dbo.AppleReg.json');
+  const appCids = new Set(appRows.map(a => cleanStr(a.CID)).filter(Boolean));
+
+  let addedFromSql = 0;
+  function addRemainingSqlCompany(r, defaultCat = 'signup') {
+    const cid = cleanStr(r.CID || r.cid || r.KingID || r.CName);
+    if (!cid || ignoredNrlCids.has(cid) || cidMap.has(cid)) return;
+
+    let cat = defaultCat;
+    const isNew = cleanStr(r.IsNew);
+    if (isNew === 'Cert' || certCids.has(cid)) cat = 'certified';
+    else if (isNew === 'Processing' || appCids.has(cid)) cat = 'processing';
+    else if (isNew === 'Yes') cat = 'signup';
+
+    cidMap.set(cid, {
+      cid,
+      cCompanyName: cleanStr(r.CCompanyName || r.CompanyName || r.CompName || r.COMPANYNAME),
+      ceaKingp: cleanStr(r.CeaKingp || r.Email || r.email),
+      pcnKinga: cleanStr(r.PcnKinga || r.Phone || r.phone),
+      address1: cleanStr(r.Address1 || r.address1 || r.COMPANYADDRESS),
+      address2: cleanStr(r.Address2 || r.address2),
+      city: cleanStr(r.City || r.city),
+      state: cleanStr(r.State || r.state),
+      postCode: cleanStr(r.PostCode || r.postCode),
+      country: cleanStr(r.Country || r.country || 'United Kingdom'),
+      firstName: cleanStr(r.FirstName || r.firstName),
+      lastName: cleanStr(r.LastName || r.lastName),
+      category: cat,
+      source: 'sql_table_fallback'
+    });
+    addedFromSql++;
+  }
+
+  compRegis2.forEach(r => addRemainingSqlCompany(r));
+  compRegis1.forEach(r => addRemainingSqlCompany(r));
+  certRows.forEach(r => addRemainingSqlCompany({ CID: r.CName, CCompanyName: r.COMPANYNAME, Address1: r.COMPANYADDRESS }, 'certified'));
+  appRows.forEach(r => addRemainingSqlCompany({ CID: r.CID, CCompanyName: r.CompanyName || r.CompName, Email: r.Email }, 'processing'));
+
+  console.log(`   ✓ Added ${addedFromSql} remaining companies from SQL Server tables`);
+
   const companies = Array.from(cidMap.values());
-  console.log(`   ✓ Total unique companies fetched: ${companies.length} (from ${totalFetched} raw records)`);
+  const counts = { certified: 0, processing: 0, signup: 0 };
+  companies.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
+
+  console.log(`   ====================================================`);
+  console.log(`   📊 FINAL IMPORT COMPANY LIST: ${companies.length} TOTAL`);
+  console.log(`      • Certified Companies : ${counts.certified}`);
+  console.log(`      • Processing List     : ${counts.processing}`);
+  console.log(`      • Sign-ups            : ${counts.signup}`);
+  console.log(`      • NRL (Ignored)       : ${ignoredNrlCids.size}`);
+  console.log(`   ====================================================\n`);
 
   try {
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify(companies, null, 2), 'utf8');
-    console.log(`   ✓ Saved cache to ${CACHE_FILE}`);
+    console.log(`   ✓ Saved categorized cache to ${CACHE_FILE}`);
   } catch (err) {
     console.warn(`   ⚠️ Warning saving cache:`, err.message);
   }
@@ -162,20 +267,7 @@ async function streamLoadLogsheets() {
 async function loadAndIndexSqlTables() {
   console.log('\n🗄️  2. Pre-loading & indexing SQL Server exported tables...');
   
-  function readTable(relPath) {
-    const fullPath = path.join(EXPORT_DIR, relPath);
-    if (!fs.existsSync(fullPath)) {
-      console.warn(`   ⚠️ Missing table export: ${relPath}`);
-      return [];
-    }
-    try {
-      const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-      return parsed.rows || (Array.isArray(parsed) ? parsed : []);
-    } catch (err) {
-      console.warn(`   ⚠️ Error reading ${relPath}:`, err.message);
-      return [];
-    }
-  }
+  const readTable = readSqlTable;
 
   // Sites (merge HalalyMain and HalalyMains, deduplicate by SitesID)
   const sitesMap = new Map();
@@ -429,6 +521,9 @@ async function runFullCompanyImport() {
     stats: {
       usersCreated: 0,
       usersUpdated: 0,
+      certifiedImported: 0,
+      processingImported: 0,
+      signupsImported: 0,
       sitesCreated: 0,
       sitesUpdated: 0,
       appsCreated: 0,
@@ -512,6 +607,14 @@ async function runFullCompanyImport() {
       companyName
     );
 
+    const companyCategory = comp.category || 'signup';
+
+    // Guard: ignore NRL review companies
+    if (companyCategory === 'review_nrl' || comp.isNrl) {
+      console.log(`   [${idx + 1}/${companies.length}] ⏭️ Skipping NRL / Review company: ${companyName} (CID: ${cid})`);
+      continue;
+    }
+
     try {
       // -------------------------------------------------------------
       // A. USER (CLIENT ACCOUNT)
@@ -539,14 +642,17 @@ async function runFullCompanyImport() {
         email: finalEmail,
         password: defaultPasswordHash,
         role: 'client',
+        client_role: 'admin',
+        company_category: companyCategory,
         company_name: companyName,
         full_name: contactPerson,
         phone: phone,
         address: address,
-        status: 'active',
-        is_verified: true,
-        email_verified: true,
-        notes: `Imported from legacy HFA portal (CID: ${cid})`
+        status: companyCategory === 'signup' ? 'pending' : 'active',
+        is_active: true,
+        is_verified: companyCategory !== 'signup',
+        email_verified: companyCategory !== 'signup',
+        notes: `Imported from legacy HFA portal (CID: ${cid}, Category: ${companyCategory})`
       };
 
       if (!user) {
@@ -557,6 +663,10 @@ async function runFullCompanyImport() {
         await User.updateOne({ _id: user._id }, { $set: userFields });
         trackerState.stats.usersUpdated++;
       }
+
+      if (companyCategory === 'certified') trackerState.stats.certifiedImported++;
+      else if (companyCategory === 'processing') trackerState.stats.processingImported++;
+      else trackerState.stats.signupsImported++;
 
       const userIdStr = user._id.toString();
 
