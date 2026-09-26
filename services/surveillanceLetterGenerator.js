@@ -87,7 +87,7 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
   const formattedIssueShort = formatShortDate(issue_date);
   const formattedNextDueShort = formatShortDate(next_due_date);
 
-  const qrTarget = resolveCertificateUrl(data.letter_url || data.document_url || data.pdf_url, letter_number, verification_url) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(letter_number)}`;
+  const qrTarget = resolveCertificateUrl(letterData.letter_url || letterData.document_url || letterData.pdf_url, letter_number, verification_url) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(letter_number)}`;
   const qrCodeBase64 = await generateQRCode(qrTarget);
 
   // Default body paragraphs if none provided
