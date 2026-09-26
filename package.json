@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "track:import": "node scripts/track_import.js",
     "import:companies": "node scripts/import_all_companies_to_mongodb.js",
+    "reset:local": "node scripts/reset_and_reseed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

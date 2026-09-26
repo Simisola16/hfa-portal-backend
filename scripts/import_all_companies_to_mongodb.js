@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import readline from 'readline';
 import { fileURLToPath } from 'url';
 import dns from 'dns';
 import bcrypt from 'bcryptjs';
@@ -14,6 +15,7 @@ import Site from '../models/Site.js';
 import Certificate from '../models/Certificate.js';
 import Product from '../models/Product.js';
 import Application from '../models/Application.js';
+import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import ExportCertificate from '../models/ExportCertificate.js';
 import AddOnApplication from '../models/AddOnApplication.js';
 
@@ -28,6 +30,19 @@ const LOADCOMP_APIS = [
   'https://app.hfa-portal.com/api/Crpirs/loadcomp/Yes/None/None',
   'https://app.hfa-portal.com/api/Crpirs/loadcomp/True/Processing/None'
 ];
+
+// Helper: Build a single address string from API address components
+function buildAddress(comp) {
+  const parts = [
+    cleanStr(comp.address1 || comp.Address1 || comp.address || comp.Address),
+    cleanStr(comp.address2 || comp.Address2),
+    cleanStr(comp.city || comp.City),
+    cleanStr(comp.state || comp.State),
+    cleanStr(comp.postCode || comp.PostCode || comp.postcode),
+    cleanStr(comp.country || comp.Country || comp.sCountry)
+  ].filter(p => p && p !== '-');
+  return parts.length > 0 ? parts.join(', ') : 'Address on file';
+}
 
 const EXPORT_DIR = path.resolve(__dirname, '../sql-server-export/export');
 const CACHE_FILE = path.resolve(__dirname, '../scratch/loadcomp_companies_cache.json');
@@ -44,7 +59,7 @@ function safeDate(val, defaultDate = new Date()) {
 function cleanStr(val, defaultVal = '') {
   if (val === null || val === undefined) return defaultVal;
   const s = String(val).trim();
-  return s === '' || s === '-' ? defaultVal : s;
+  return s === '' || s === '-' || s === 'None' || s === 'null' ? defaultVal : s;
 }
 
 // Helper: Fetch with retries
@@ -96,7 +111,6 @@ async function loadAllCompanies() {
   const companies = Array.from(cidMap.values());
   console.log(`   ✓ Total unique companies fetched: ${companies.length} (from ${totalFetched} raw records)`);
 
-  // Cache for offline resilience
   try {
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify(companies, null, 2), 'utf8');
@@ -108,8 +122,44 @@ async function loadAllCompanies() {
   return companies;
 }
 
+// Helper to stream parse tlblogsit.json line-by-line
+async function streamLoadLogsheets() {
+  const filePath = path.join(EXPORT_DIR, 'HalalTick/tables/dbo.tlblogsit.json');
+  if (!fs.existsSync(filePath)) {
+    console.warn(`   ⚠️ Missing tlblogsit.json`);
+    return [];
+  }
+
+  console.log('   ⏳ Streaming 4,586 logsheets from tlblogsit.json (2.3 GB with signatures)...');
+  const t0 = Date.now();
+  const fileStream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 1024 * 1024 });
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  const rows = [];
+  let inRows = false;
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!inRows) {
+      if (trimmed.startsWith('"rows": [')) inRows = true;
+      continue;
+    }
+
+    if (trimmed.startsWith('{') && (trimmed.endsWith('},') || trimmed.endsWith('}'))) {
+      const cleanJson = trimmed.endsWith(',') ? trimmed.slice(0, -1) : trimmed;
+      try {
+        const row = JSON.parse(cleanJson);
+        rows.push(row);
+      } catch (e) {}
+    }
+  }
+
+  console.log(`   ✓ Extracted ${rows.length} complete logsheets in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  return rows;
+}
+
 // 2. Pre-load and Index SQL Server Tables in Memory
-function loadAndIndexSqlTables() {
+async function loadAndIndexSqlTables() {
   console.log('\n🗄️  2. Pre-loading & indexing SQL Server exported tables...');
   
   function readTable(relPath) {
@@ -171,6 +221,36 @@ function loadAndIndexSqlTables() {
   });
   console.log(`   ✓ Indexed ${renewalRows.length} renewal applications across ${renewalsMap.size} company CIDs`);
 
+  // Surveillance Applications (tlbSuvance)
+  const survMap = new Map();
+  const survRows = readTable('HalalAReNew/tables/dbo.tlbSuvance.json');
+  survRows.forEach(s => {
+    const cid = cleanStr(s.KingID);
+    if (cid) {
+      if (!survMap.has(cid)) survMap.set(cid, []);
+      survMap.get(cid).push(s);
+    }
+  });
+  console.log(`   ✓ Indexed ${survRows.length} surveillance applications across ${survMap.size} company CIDs`);
+
+  // Certified Product Line Items (subcert)
+  const subcertByCertNo = new Map();
+  const subcertByMisterId = new Map();
+  const subcertRows = readTable('HalalCert/tables/dbo.subcert.json');
+  subcertRows.forEach(s => {
+    const cNo = cleanStr(s.CerttificateNom);
+    const mId = cleanStr(s.misterID);
+    if (cNo) {
+      if (!subcertByCertNo.has(cNo)) subcertByCertNo.set(cNo, []);
+      subcertByCertNo.get(cNo).push(s);
+    }
+    if (mId) {
+      if (!subcertByMisterId.has(mId)) subcertByMisterId.set(mId, []);
+      subcertByMisterId.get(mId).push(s);
+    }
+  });
+  console.log(`   ✓ Indexed ${subcertRows.length} certified product items across certificates`);
+
   // Halal Certificates (tlbcertMas)
   const certsMap = new Map();
   const certRows = readTable('HalalCert/tables/dbo.tlbcertMas.json');
@@ -183,17 +263,62 @@ function loadAndIndexSqlTables() {
   });
   console.log(`   ✓ Indexed ${certRows.length} certificates across ${certsMap.size} company CIDs`);
 
-  // Products (tldbprotem)
-  const productsMap = new Map();
-  const productRows = readTable('HalalTick/tables/dbo.tldbprotem.json');
-  productRows.forEach(p => {
-    const cid = cleanStr(p.compid);
+  // Master Products Catalogue (HaProlister.dbo.Prolister) - 13,112 Products!
+  const prolisterMap = new Map();
+  const prolisterRows = readTable('HaProlister/tables/dbo.Prolister.json');
+  prolisterRows.forEach(p => {
+    const cid = cleanStr(p.AppComp);
     if (cid) {
-      if (!productsMap.has(cid)) productsMap.set(cid, []);
-      productsMap.get(cid).push(p);
+      if (!prolisterMap.has(cid)) prolisterMap.set(cid, []);
+      prolisterMap.get(cid).push(p);
     }
   });
-  console.log(`   ✓ Indexed ${productRows.length} products across ${productsMap.size} company CIDs`);
+
+  // Ticket Products (HalalTick.dbo.tldbprotem)
+  const tldbprotemRows = readTable('HalalTick/tables/dbo.tldbprotem.json');
+  tldbprotemRows.forEach(p => {
+    const cid = cleanStr(p.compid);
+    if (cid) {
+      if (!prolisterMap.has(cid)) prolisterMap.set(cid, []);
+      prolisterMap.get(cid).push(p);
+    }
+  });
+  console.log(`   ✓ Indexed ${prolisterRows.length + tldbprotemRows.length} total products across ${prolisterMap.size} company CIDs`);
+
+  // Logsheets (HalalTick.dbo.tlblogsit) - 4,586 Logsheets!
+  const logsheets = await streamLoadLogsheets();
+  const logsheetsByCid = new Map();
+  const logsheetsBySiteId = new Map();
+  const logsheetsByAppId = new Map();
+  const logsheetsByCName = new Map();
+  const logsheetsById = new Map();
+
+  logsheets.forEach(l => {
+    const ider = cleanStr(l.ider);
+    const cid = cleanStr(l.CID);
+    const siteId = cleanStr(l.SiteID);
+    const appId = cleanStr(l.AppID);
+    const cName = cleanStr(l.CName).toLowerCase();
+
+    if (ider) logsheetsById.set(ider, l);
+    if (cid) {
+      if (!logsheetsByCid.has(cid)) logsheetsByCid.set(cid, []);
+      logsheetsByCid.get(cid).push(l);
+    }
+    if (siteId) {
+      if (!logsheetsBySiteId.has(siteId)) logsheetsBySiteId.set(siteId, []);
+      logsheetsBySiteId.get(siteId).push(l);
+    }
+    if (appId) {
+      if (!logsheetsByAppId.has(appId)) logsheetsByAppId.set(appId, []);
+      logsheetsByAppId.get(appId).push(l);
+    }
+    if (cName) {
+      if (!logsheetsByCName.has(cName)) logsheetsByCName.set(cName, []);
+      logsheetsByCName.get(cName).push(l);
+    }
+  });
+  console.log(`   ✓ Indexed ${logsheets.length} logsheets by CID, SiteID, AppID, and Company Name`);
 
   // Add-On Applications (ProAder)
   const addOnsMap = new Map();
@@ -228,14 +353,22 @@ function loadAndIndexSqlTables() {
       exportItemsMap.get(mid).push(i);
     }
   });
-  console.log(`   ✓ Indexed ${exportCertRows.length} export certificates across ${exportCertsMap.size} company CIDs (${exportItemRows.length} line items)`);
+  console.log(`   ✓ Indexed ${exportCertRows.length} export certificates (${exportItemRows.length} line items)`);
 
   return {
     sitesMap,
     appsMap,
     renewalsMap,
+    survMap,
     certsMap,
-    productsMap,
+    subcertByCertNo,
+    subcertByMisterId,
+    prolisterMap,
+    logsheetsByCid,
+    logsheetsBySiteId,
+    logsheetsByAppId,
+    logsheetsByCName,
+    logsheetsById,
     addOnsMap,
     exportCertsMap,
     exportItemsMap
@@ -258,55 +391,41 @@ const APP_STATUS_MAP = {
 const ADDON_STATUS_MAP = {
   'request submited': 'submitted',
   'request accepted': 'accepted',
-  'product approval forms received': 'all_forms_received',
-  'certificate processing': 'ready_for_certificate',
-  'certificate sent': 'completed',
-  'completed': 'completed',
-  'rejected': 'rejected'
+  'product form submitted': 'under_review',
+  'invoice sent': 'invoice_sent',
+  'payment received': 'payment_received',
+  'certificate processing': 'processing',
+  'certificate sent': 'completed'
 };
 
-function resolveCertScheme(gfpStr) {
-  const gfp = (gfpStr || '').toUpperCase();
-  if (gfp.includes('COSMETIC')) return 'COSMETICS';
-  if (gfp.includes('SMIIC')) return 'SMIIC';
-  if (gfp.includes('NON') || gfp.includes('BAKERY') || gfp.includes('FOOD')) return 'GSO non-meat';
-  if (gfp.includes('GSO') || gfp.includes('MEAT')) return 'GSO meat';
-  return 'HFA Scheme';
-}
-
-// 4. Main Migration Engine
+// 4. Main Import Runner
 async function runFullCompanyImport() {
-  const startTime = Date.now();
   console.log('=============================================================================');
-  console.log('🚀 STARTING FULL HFA COMPANY DATABASE IMPORT TO MONGODB');
+  console.log('🚀 STARTING COMPREHENSIVE HFA DATABASE MIGRATION TO MONGODB');
   console.log('=============================================================================');
 
-  // Connect to MongoDB
   const mongoUri = process.env.MONGODB_URI;
-  if (!mongoUri) throw new Error('MONGODB_URI is not set in environment or .env file');
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI is not set in .env');
+  }
+
   console.log('Connecting to MongoDB...');
-  await mongoose.connect(mongoUri);
-  console.log('✅ Connected to MongoDB:', mongoose.connection.name);
+  await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 30000 });
+  console.log(`✅ Connected to MongoDB: ${mongoose.connection.name}`);
 
-  // Load Companies & SQL Tables
   const companies = await loadAllCompanies();
-  const sqlTables = loadAndIndexSqlTables();
+  const sqlTables = await loadAndIndexSqlTables();
 
-  // Pre-generate standard default password hash for high throughput
-  console.log('\n🔐 Pre-hashing default password for imported client accounts...');
-  const defaultPasswordHash = await bcrypt.hash('Password123!', 10);
-  console.log('   ✓ Default password hash ready ("Password123!")');
-
-  // Live Tracking State
+  const startTime = Date.now();
   const trackerState = {
     startTime: new Date().toISOString(),
     totalCompanies: companies.length,
     processedCompanies: 0,
-    currentCompany: 'Initializing...',
+    currentCompany: '',
     currentCid: '',
     percent: '0.0%',
     elapsedMinutes: '0.0',
-    estimatedRemainingMinutes: 'Calculating...',
+    estimatedRemainingMinutes: 'N/A',
     stats: {
       usersCreated: 0,
       usersUpdated: 0,
@@ -318,6 +437,8 @@ async function runFullCompanyImport() {
       certsUpdated: 0,
       productsCreated: 0,
       productsUpdated: 0,
+      logsheetsCreated: 0,
+      logsheetsUpdated: 0,
       addOnsCreated: 0,
       addOnsUpdated: 0,
       exportCertsCreated: 0,
@@ -328,46 +449,40 @@ async function runFullCompanyImport() {
     lastUpdated: new Date().toISOString()
   };
 
-  fs.mkdirSync(path.dirname(TRACKER_FILE), { recursive: true });
-  fs.writeFileSync(TRACKER_FILE, JSON.stringify(trackerState, null, 2), 'utf8');
-
-  function updateTrackerFile(cid, compName, isDone = false) {
-    const elapsedSec = (Date.now() - startTime) / 1000;
-    const processed = trackerState.processedCompanies;
-    const total = trackerState.totalCompanies;
-    const pct = total > 0 ? ((processed / total) * 100).toFixed(1) : '0.0';
+  function updateTrackerFile(cid, companyName, isComplete = false) {
+    const elapsedMs = Date.now() - startTime;
+    const elapsedMinutes = (elapsedMs / 60000).toFixed(1);
+    const pct = ((trackerState.processedCompanies / trackerState.totalCompanies) * 100).toFixed(1);
     
-    let etaMin = '0.0';
-    if (processed > 0 && !isDone) {
-      const avgSecPerComp = elapsedSec / processed;
-      const remainingSec = avgSecPerComp * (total - processed);
-      etaMin = (remainingSec / 60).toFixed(1);
+    let estRemaining = 'N/A';
+    if (trackerState.processedCompanies > 5) {
+      const msPerComp = elapsedMs / trackerState.processedCompanies;
+      const remCompanies = trackerState.totalCompanies - trackerState.processedCompanies;
+      estRemaining = ((remCompanies * msPerComp) / 60000).toFixed(1);
     }
 
+    trackerState.currentCompany = companyName;
     trackerState.currentCid = cid;
-    trackerState.currentCompany = compName;
     trackerState.percent = `${pct}%`;
-    trackerState.elapsedMinutes = (elapsedSec / 60).toFixed(1);
-    trackerState.estimatedRemainingMinutes = isDone ? '0.0' : etaMin;
-    trackerState.isComplete = isDone;
+    trackerState.elapsedMinutes = elapsedMinutes;
+    trackerState.estimatedRemainingMinutes = estRemaining;
+    trackerState.isComplete = isComplete;
     trackerState.lastUpdated = new Date().toISOString();
 
     try {
+      fs.mkdirSync(path.dirname(TRACKER_FILE), { recursive: true });
       fs.writeFileSync(TRACKER_FILE, JSON.stringify(trackerState, null, 2), 'utf8');
     } catch (_) {}
   }
 
-  // Set to track used emails in this session to prevent MongoDB duplicate key errors
-  const usedEmails = new Set();
-  
-  // Pre-populate usedEmails from existing DB users to maintain total integrity
-  try {
-    const existingUsers = await User.find({}, { email: 1 }).lean();
-    existingUsers.forEach(u => {
-      if (u.email) usedEmails.add(u.email.toLowerCase().trim());
-    });
-    console.log(`   ✓ Loaded ${existingUsers.length} existing database user emails into memory`);
-  } catch (_) {}
+  // Pre-hash default password
+  console.log('\n🔐 Pre-hashing default password for imported client accounts...');
+  const defaultPasswordHash = await bcrypt.hash('Password123!', 10);
+  console.log('   ✓ Default password hash ready ("Password123!")');
+
+  const existingUsers = await User.find({}, 'email').lean();
+  const existingEmailSet = new Set(existingUsers.map(u => (u.email || '').toLowerCase().trim()));
+  console.log(`   ✓ Loaded ${existingUsers.length} existing database user emails into memory`);
 
   console.log(`\n▶️  Processing ${companies.length} companies...`);
   console.log('─────────────────────────────────────────────────────────────────────────────');
@@ -375,378 +490,451 @@ async function runFullCompanyImport() {
   for (let idx = 0; idx < companies.length; idx++) {
     const comp = companies[idx];
     const cid = cleanStr(comp.cid || comp.CID);
-    const rawCompanyName = cleanStr(comp.cCompanyName) || `Company ${cid}`;
-    const companyName = rawCompanyName;
+
+    // ── API field mappings (ceaKingp = email, cCompanyName = company name) ──
+    const companyName = cleanStr(
+      comp.cCompanyName || comp.company_name || comp.CompanyName,
+      `Company ${cid}`
+    );
+    const emailCandidate = cleanStr(
+      comp.ceaKingp || comp.email || comp.Email || comp.contact_email
+    );
+    const phone = cleanStr(
+      comp.pcnKinga || comp.phone || comp.Phone || comp.contact_phone || '0000000000'
+    );
+    const address = buildAddress(comp);
+    const firstNameRaw = cleanStr(comp.firstName || comp.first_name || '');
+    const lastNameRaw  = cleanStr(comp.lastName  || comp.last_name  || '');
+    const contactPerson = cleanStr(
+      firstNameRaw && lastNameRaw ? `${firstNameRaw} ${lastNameRaw}` :
+      firstNameRaw || lastNameRaw ||
+      comp.contact_person || comp.ContactPerson || comp.name ||
+      companyName
+    );
 
     try {
       // -------------------------------------------------------------
-      // A. USER ACCOUNT
+      // A. USER (CLIENT ACCOUNT)
       // -------------------------------------------------------------
-      let rawEmail = cleanStr(comp.ceaKingp).toLowerCase();
-      let cleanEmail = '';
-
-      if (!rawEmail || !rawEmail.includes('@') || rawEmail.includes(' ')) {
-        // Fallback email for invalid / website formats
-        cleanEmail = `client_${cid}@hfa-portal.com`;
-      } else {
-        cleanEmail = rawEmail;
+      let finalEmail = emailCandidate.toLowerCase().trim();
+      if (!finalEmail || !finalEmail.includes('@')) {
+        finalEmail = `client_${cid}@hfa-client.org`;
       }
 
-      // Handle duplicate email collisions across different CIDs
-      if (usedEmails.has(cleanEmail)) {
-        // Check if this existing email belongs to this exact company in the database
-        const existingUser = await User.findOne({ email: cleanEmail }).lean();
-        if (existingUser && existingUser.company_name?.toLowerCase().trim() === companyName.toLowerCase().trim()) {
-          // Same company — keep cleanEmail
-        } else {
-          // Different company using same email — create distinct alias
-          const [uPart, dPart] = cleanEmail.split('@');
-          cleanEmail = `${uPart}+cid${cid}@${dPart}`;
+      if (existingEmailSet.has(finalEmail)) {
+        const existingDoc = await User.findOne({ email: finalEmail });
+        if (existingDoc && cleanStr(existingDoc.company_name) !== companyName) {
+          finalEmail = `client_${cid}_${finalEmail.replace('@', '_at_')}@hfa-client.org`;
         }
       }
-      usedEmails.add(cleanEmail);
 
-      const fullName = [cleanStr(comp.firstName), cleanStr(comp.lastName)].filter(Boolean).join(' ') || companyName || 'Authorized Contact';
-      const phone = cleanStr(comp.pcnKinga, '+44 0000 000000');
-      const address = [cleanStr(comp.address1), cleanStr(comp.address2)].filter(Boolean).join(', ') || 'Address on file';
-      const city = cleanStr(comp.city, 'London');
-      const postcode = cleanStr(comp.postCode, 'SE15 2SW');
-      const country = cleanStr(comp.country, 'United Kingdom');
+      let user = await User.findOne({
+        $or: [
+          { email: finalEmail },
+          { company_name: companyName }
+        ]
+      });
 
-      const userProfileData = {
-        email: cleanEmail,
-        full_name: fullName,
-        company_name: companyName,
-        phone,
-        address,
-        postcode,
-        country,
+      const userFields = {
+        email: finalEmail,
+        password: defaultPasswordHash,
         role: 'client',
-        client_role: 'owner',
-        roles: ['client'],
-        is_active: true,
+        company_name: companyName,
+        full_name: contactPerson,
+        phone: phone,
+        address: address,
+        status: 'active',
         is_verified: true,
+        email_verified: true,
+        notes: `Imported from legacy HFA portal (CID: ${cid})`
       };
 
-      let user = await User.findOne({ email: cleanEmail });
       if (!user) {
-        user = new User({
-          ...userProfileData,
-          password: defaultPasswordHash
-        });
-        await user.save();
+        user = await User.create(userFields);
         trackerState.stats.usersCreated++;
+        existingEmailSet.add(finalEmail);
       } else {
-        Object.assign(user, userProfileData);
-        if (!user.password) user.password = defaultPasswordHash;
-        await user.save();
+        await User.updateOne({ _id: user._id }, { $set: userFields });
         trackerState.stats.usersUpdated++;
       }
 
-      const userId = user._id;
       const userIdStr = user._id.toString();
 
       // -------------------------------------------------------------
-      // B. MANUFACTURING SITES
+      // B. SITES
       // -------------------------------------------------------------
       const siteRows = sqlTables.sitesMap.get(cid) || [];
-      const siteMap = {};
+      const siteIdMap = new Map(); // SitesID -> MongoDB _id
+      let defaultSiteId = null;
 
       if (siteRows.length > 0) {
         for (const s of siteRows) {
-          const clientCode = cleanStr(s.SitesID) || `SITE-${cid}`;
-          const siteName = cleanStr(s.SiteName) || `${companyName} Site ${clientCode}`;
-          const sAddress1 = cleanStr(s.Address1) || address;
-          const sAddress2 = cleanStr(s.Address2);
-          const sCity = cleanStr(s.City) || city;
-          const sPostcode = cleanStr(s.Postcode) || postcode;
-          const sCountry = cleanStr(s.Country) || country;
-          const estName = cleanStr(s.NameEstablishment) || companyName;
-          const tradingName = cleanStr(s.TradingN) || cleanStr(comp.tradingName) || companyName;
-          const regNumber = cleanStr(s.SiteRegNum) || cleanStr(comp.businessRegNo);
-          const vatNumber = cleanStr(s.VATNum) || cleanStr(comp.vatNo);
+          const sName = cleanStr(s.SiteName) || cleanStr(s.establishment_name) || `${companyName} Facility`;
+          const sAddr1 = cleanStr(s.Address1) || cleanStr(s.address_1) || address;
+          const sCity = cleanStr(s.City) || cleanStr(s.city) || 'UK';
+          const sPost = cleanStr(s.PostCode) || cleanStr(s.postcode) || 'N/A';
+          const sCountry = cleanStr(s.Country) || cleanStr(s.country) || 'United Kingdom';
+          const sContact = cleanStr(s.ContactPerson) || contactPerson;
+          const sPhone = cleanStr(s.ContactPhone) || phone;
+          const sEmail = cleanStr(s.ContactEmail) || finalEmail;
 
           const siteDoc = {
-            client_id: userId,
-            name: siteName,
-            client_code: clientCode,
-            address_1: sAddress1,
-            address_2: sAddress2,
+            client_id: userIdStr,
+            name: sName,
+            est_name: cleanStr(s.establishment_name) || sName,
+            address_1: sAddr1,
+            address_2: cleanStr(s.Address2) || '',
             city: sCity,
-            postcode: sPostcode,
+            state: cleanStr(s.State) || '',
+            postcode: sPost,
             country: sCountry,
-            est_name: estName,
-            trading_name: tradingName,
-            reg_number: regNumber,
-            vat_number: vatNumber,
+            contact_name: sContact,
+            contact_phone_number: sPhone,
+            email: sEmail,
+            client_code: cid,
             status: 'active'
           };
 
-          const savedSite = await Site.findOneAndUpdate(
-            { client_id: userId, client_code: clientCode },
+          const site = await Site.findOneAndUpdate(
+            { client_id: userIdStr, name: sName },
             { $set: siteDoc },
             { upsert: true, new: true }
           );
 
-          siteMap[clientCode] = savedSite;
-          siteMap[siteName] = savedSite;
+          if (s.SitesID) siteIdMap.set(cleanStr(s.SitesID), site._id);
+          if (!defaultSiteId) defaultSiteId = site._id;
           trackerState.stats.sitesCreated++;
         }
       } else {
-        // Fallback primary site if no explicit sites in SQL
-        const defaultClientCode = `10000-${cid}`;
-        const defaultSiteName = `${companyName} Main Facility`;
-        const siteDoc = {
-          client_id: userId,
-          name: defaultSiteName,
-          client_code: defaultClientCode,
-          address_1: address,
-          address_2: '',
-          city,
-          postcode,
-          country,
-          est_name: companyName,
-          trading_name: cleanStr(comp.tradingName) || companyName,
-          reg_number: cleanStr(comp.businessRegNo),
-          vat_number: cleanStr(comp.vatNo),
-          status: 'active'
-        };
-
-        const savedSite = await Site.findOneAndUpdate(
-          { client_id: userId, client_code: defaultClientCode },
-          { $set: siteDoc },
+        const defaultSite = await Site.findOneAndUpdate(
+          { client_id: userIdStr, name: `${companyName} Main Site` },
+          {
+            $set: {
+              client_id: userIdStr,
+              name: `${companyName} Main Site`,
+              est_name: companyName,
+              address_1: address,
+              city: 'UK',
+              country: 'United Kingdom',
+              contact_name: contactPerson,
+              contact_phone_number: phone,
+              email: finalEmail,
+              client_code: cid,
+              status: 'active'
+            }
+          },
           { upsert: true, new: true }
         );
-
-        siteMap[defaultClientCode] = savedSite;
-        siteMap[defaultSiteName] = savedSite;
+        defaultSiteId = defaultSite._id;
         trackerState.stats.sitesCreated++;
       }
 
-      const defaultSite = Object.values(siteMap)[0];
-
       // -------------------------------------------------------------
-      // C. APPLICATIONS & RENEWALS
+      // C. COMPLETE PRODUCTS CATALOGUE (dbo.Prolister & dbo.tldbprotem)
       // -------------------------------------------------------------
-      const appRows = sqlTables.appsMap.get(cid) || [];
-      const renewalRows = sqlTables.renewalsMap.get(cid) || [];
-      const appMap = {};
-
-      if (appRows.length > 0 || renewalRows.length > 0) {
-        // 1. Original Applications
-        for (const a of appRows) {
-          const appNum = cleanStr(a.AppNumber) || `APP-${cid}-${a.Aider || '01'}`;
-          const rawStatus = cleanStr(a.ApplStatus).toLowerCase();
-          const status = APP_STATUS_MAP[rawStatus] || 'under_review';
-          const matchedSite = siteMap[cleanStr(a.CiteID)] || siteMap[cleanStr(a.SiteName)] || defaultSite;
-          const subDate = safeDate(a.AppDate || a.Datee);
-
-          const appDoc = {
-            application_number: appNum,
-            client_id: userId,
-            application_type: cleanStr(a.ApplicationTyp) || 'New Application',
-            category: cleanStr(a.AppCategory) || 'Annual Certification – Food and General processing',
-            establishment_name: cleanStr(a.NameEstablishmen1) || companyName,
-            establishment_address: cleanStr(a.SiteFactoryAddress) || address,
-            site_name: matchedSite?.name || cleanStr(a.SiteName),
-            site_id: matchedSite ? matchedSite._id.toString() : null,
-            reg_number: cleanStr(a.RegistrationNo) || cleanStr(comp.businessRegNo),
-            vat_number: cleanStr(a.VATNumber1) || cleanStr(comp.vatNo),
-            managing_director: cleanStr(a.Nameer) || fullName,
-            employee_count: parseInt(a.NumberEmployees1 || a.NumberOFBusinest1) || 4,
-            products: [],
-            status,
-            created_at: subDate,
-            notes: `Imported from legacy HFA database (CID: ${cid})`
-          };
-
-          const savedApp = await Application.findOneAndUpdate(
-            { application_number: appNum },
-            { $set: appDoc },
-            { upsert: true, new: true }
-          );
-          appMap[appNum] = savedApp;
-          trackerState.stats.appsCreated++;
-        }
-
-        // 2. Renewal Applications
-        for (const r of renewalRows) {
-          const renewalNum = `RN-${cleanStr(r.ArenewID) || cleanStr(r.AppNumber)}`;
-          const rawStatus = cleanStr(r.ApplStatus).toLowerCase();
-          const status = APP_STATUS_MAP[rawStatus] || 'certificate_issued';
-          const matchedSite = siteMap[cleanStr(r.CiteID)] || siteMap[cleanStr(r.SiteName)] || defaultSite;
-          const subDate = safeDate(r.AppDate);
-
-          const appDoc = {
-            application_number: renewalNum,
-            client_id: userId,
-            application_type: 'Renewal Application',
-            category: cleanStr(r.AppCategory) || 'Annual Certification – Food and General processing',
-            establishment_name: companyName,
-            establishment_address: address,
-            site_name: matchedSite?.name || cleanStr(r.SiteName),
-            site_id: matchedSite ? matchedSite._id.toString() : null,
-            managing_director: cleanStr(r.ContactName) || fullName,
-            employee_count: 4,
-            products: [],
-            status,
-            created_at: subDate,
-            notes: `Renewal application #${cleanStr(r.ArenewID)} for original ${cleanStr(r.AppNumber)}`
-          };
-
-          const savedRenewal = await Application.findOneAndUpdate(
-            { application_number: renewalNum },
-            { $set: appDoc },
-            { upsert: true, new: true }
-          );
-          appMap[renewalNum] = savedRenewal;
-          trackerState.stats.appsCreated++;
-        }
-      } else {
-        // Fallback base application so all companies have complete portal state
-        const defaultAppNum = `APP-${cid}`;
-        const isCert = cleanStr(comp.isNew) === 'Cert';
-        const isProc = cleanStr(comp.isNew) === 'Processing';
-        const status = isCert ? 'certificate_issued' : (isProc ? 'under_review' : 'submitted');
-
-        const appDoc = {
-          application_number: defaultAppNum,
-          client_id: userId,
-          application_type: 'New Application',
-          category: 'Annual Certification – Food and General processing',
-          establishment_name: companyName,
-          establishment_address: address,
-          site_name: defaultSite?.name || 'Main Facility',
-          site_id: defaultSite ? defaultSite._id.toString() : null,
-          reg_number: cleanStr(comp.businessRegNo),
-          vat_number: cleanStr(comp.vatNo),
-          managing_director: fullName,
-          employee_count: parseInt(comp.totalNoOfEmployees) || 5,
-          products: [],
-          status,
-          created_at: safeDate(comp.dateReg),
-          notes: `Imported from legacy HFA database (CID: ${cid}, Status: ${comp.isNew || 'N/A'})`
-        };
-
-        const savedApp = await Application.findOneAndUpdate(
-          { application_number: defaultAppNum },
-          { $set: appDoc },
-          { upsert: true, new: true }
-        );
-        appMap[defaultAppNum] = savedApp;
-        trackerState.stats.appsCreated++;
-      }
-
-      const defaultApp = Object.values(appMap)[0];
-
-      // -------------------------------------------------------------
-      // D. HALAL CERTIFICATES
-      // -------------------------------------------------------------
-      const certRows = sqlTables.certsMap.get(cid) || [];
-      const certMap = {};
-
-      for (const c of certRows) {
-        const certNo = cleanStr(c.CertificateNo);
-        if (!certNo) continue;
-
-        const issueDate = safeDate(c.IssueDate);
-        const expiryDate = safeDate(c.ExpiryDate);
-        const cycleStartDate = safeDate(c.CurrentCyStartDate, issueDate);
-        const matchedSite = siteMap[cleanStr(c.SiteID)] || siteMap[cleanStr(c.SiteName)] || defaultSite;
-        const scheme = resolveCertScheme(c.GFP);
-        const status = expiryDate > new Date() ? 'active' : 'expired';
-        const scope = cleanStr(c.PRODUCTCATEGORY) || 'Halal Food and General Processing';
-
-        const certDoc = {
-          certificate_number: certNo,
-          client_id: userIdStr,
-          application_id: defaultApp ? defaultApp._id : null,
-          site_id: matchedSite ? matchedSite._id : null,
-          company_name: companyName,
-          company_address: cleanStr(c.COMPANYADDRESS) || address,
-          manufacturing_address: cleanStr(c.MANUFATURINGFACILITY) || address,
-          scope,
-          certificate_type: scheme,
-          issue_date: issueDate,
-          expiry_date: expiryDate,
-          current_cycle_start_date: cycleStartDate,
-          status,
-          products_covered: ['General Certified Halal Products'],
-          notes: `Imported from legacy HFA database (CID: ${cid}, Site: ${cleanStr(c.SiteName)})`
-        };
-
-        const savedCert = await Certificate.findOneAndUpdate(
-          { certificate_number: certNo },
-          { $set: certDoc },
-          { upsert: true, new: true }
-        );
-        certMap[certNo] = savedCert;
-        trackerState.stats.certsCreated++;
-      }
-
-      const primaryCert = Object.values(certMap)[0];
-
-      // -------------------------------------------------------------
-      // E. PRODUCTS
-      // -------------------------------------------------------------
-      const productRows = sqlTables.productsMap.get(cid) || [];
+      const productRows = sqlTables.prolisterMap.get(cid) || [];
       for (const p of productRows) {
-        const pName = cleanStr(p.ProductNamerr) || 'Halal Product';
-        const pCode = cleanStr(p.ProductCoder) || `PRD-${cid}-${cleanStr(p.ider || '01')}`;
-        const matchedSite = siteMap[cleanStr(p.sitid)] || siteMap[cleanStr(p.sitename)] || defaultSite;
+        const pName = cleanStr(p.ProName || p.pro_name || p.proname);
+        if (!pName) continue;
+        const pCode = cleanStr(p.ProCoder || p.procoder || p.ProID || p.proid);
+        const assignedSiteId = siteIdMap.get(cleanStr(p.CiteID)) || defaultSiteId;
+        const pCategory = cleanStr(p.Status || p.category) || 'General';
 
-        const pDoc = {
-          client_id: userId,
+        const prodDoc = {
+          client_id: userIdStr,
+          site_id: assignedSiteId,
           name: pName,
           code: pCode,
-          category: cleanStr(p.Category) || 'General',
-          certificate_id: cleanStr(p.certId) || (primaryCert ? primaryCert.certificate_number : ''),
-          site_id: matchedSite ? matchedSite._id : null,
-          status: 'active',
-          notes: `Imported from legacy HFA database. Product code: ${pCode}`
+          category: pCategory,
+          status: 'approved',
+          product_type: 'General',
+          ingredients: cleanStr(p.FileNamee) || '',
+          barcode: pCode,
+          halal_status: 'Halal Certified',
+          notes: `Imported from legacy HFA database (ProID: ${cleanStr(p.ProID)})`
         };
 
         await Product.findOneAndUpdate(
-          { client_id: userId, name: pName, code: pCode },
-          { $set: pDoc },
+          { client_id: userIdStr, name: pName },
+          { $set: prodDoc },
           { upsert: true, new: true }
         );
         trackerState.stats.productsCreated++;
       }
 
       // -------------------------------------------------------------
-      // F. ADD-ON APPLICATIONS
+      // D. APPLICATIONS & RENEWALS & SURVEILLANCES
+      // -------------------------------------------------------------
+      const appRows = sqlTables.appsMap.get(cid) || [];
+      const renewalRows = sqlTables.renewalsMap.get(cid) || [];
+      const survRows = sqlTables.survMap.get(cid) || [];
+      const appMapByAppNum = new Map();
+      let latestAppId = null;
+
+      // 1. Initial New Applications
+      for (const a of appRows) {
+        const appNum = cleanStr(a.AppNumber) || `APP-${cleanStr(a.ApplicationID || a.ArenewID)}-${cid}`;
+        const siteId = siteIdMap.get(cleanStr(a.CiteID)) || defaultSiteId;
+        const rawStatus = cleanStr(a.ApplStatus).toLowerCase();
+        const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
+        const scheme = cleanStr(a.AppCategory) || 'HFA Scheme';
+
+        const appDoc = {
+          application_number: appNum,
+          client_id: userIdStr,
+          site_id: siteId,
+          type: 'initial',
+          application_type: 'standard',
+          is_renewal: false,
+          is_surveillance: false,
+          scheme: scheme,
+          category: scheme,
+          company_name: companyName,
+          status: appStatus,
+          contact_person: cleanStr(a.ContactName) || contactPerson,
+          contact_email: cleanStr(a.ContactEmail) || finalEmail,
+          submission_date: safeDate(a.AppDate, safeDate(a.SubmittedDate)),
+          notes: `Imported new application from legacy HFA database (ID: ${cleanStr(a.ApplicationID)})`
+        };
+
+        const appRes = await Application.findOneAndUpdate(
+          { application_number: appNum },
+          { $set: appDoc },
+          { upsert: true, new: true }
+        );
+        appMapByAppNum.set(appNum, appRes._id);
+        latestAppId = appRes._id;
+        trackerState.stats.appsCreated++;
+      }
+
+      // 2. Renewal Applications
+      for (const r of renewalRows) {
+        const appNum = cleanStr(r.AppNumber) || `REN-${cleanStr(r.ArenewID || r.ApplicationID)}-${cid}`;
+        const siteId = siteIdMap.get(cleanStr(r.CiteID)) || defaultSiteId;
+        const rawStatus = cleanStr(r.ApplStatus).toLowerCase();
+        const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') ? 'certificate_issued' : 'under_review');
+        const scheme = cleanStr(r.AppCategory) || 'HFA Scheme';
+
+        const appDoc = {
+          application_number: appNum,
+          client_id: userIdStr,
+          site_id: siteId,
+          type: 'renewal',
+          application_type: 'renewal',
+          is_renewal: true,
+          is_surveillance: false,
+          scheme: scheme,
+          category: scheme,
+          company_name: companyName,
+          status: appStatus,
+          contact_person: cleanStr(r.ContactName) || contactPerson,
+          contact_email: cleanStr(r.ContactEmail) || finalEmail,
+          submission_date: safeDate(r.AppDate, safeDate(r.SubmittedDate)),
+          notes: `Imported renewal application from legacy HFA database (ID: ${cleanStr(r.ArenewID)})`
+        };
+
+        const appRes = await Application.findOneAndUpdate(
+          { application_number: appNum },
+          { $set: appDoc },
+          { upsert: true, new: true }
+        );
+        appMapByAppNum.set(appNum, appRes._id);
+        latestAppId = appRes._id;
+        trackerState.stats.appsCreated++;
+      }
+
+      // 3. Surveillance Applications
+      for (const s of survRows) {
+        const appNum = cleanStr(s.AppNumber) || `SU-${cleanStr(s.ArenewID || s.ApplicationID)}-${cid}`;
+        const siteId = siteIdMap.get(cleanStr(s.CiteID)) || defaultSiteId;
+        const rawStatus = cleanStr(s.ApplStatus).toLowerCase();
+        const appStatus = rawStatus.includes('sent') || rawStatus.includes('cert') ? 'certificate_issued' : 'under_review';
+        const scheme = cleanStr(s.AppCategory) || 'GSO Scheme';
+
+        const survDoc = {
+          application_number: appNum,
+          client_id: userIdStr,
+          site_id: siteId,
+          type: 'surveillance',
+          application_type: 'surveillance',
+          is_surveillance: true,
+          is_renewal: false,
+          scheme: scheme,
+          category: scheme,
+          company_name: companyName,
+          status: appStatus,
+          contact_person: cleanStr(s.ContactName) || contactPerson,
+          contact_email: cleanStr(s.ContactEmail) || finalEmail,
+          submission_date: safeDate(s.AppDate, safeDate(s.SubmittedDate)),
+          notes: `Imported surveillance application from legacy HFA database (ID: ${cleanStr(s.ArenewID)})`
+        };
+
+        const appRes = await Application.findOneAndUpdate(
+          { application_number: appNum },
+          { $set: survDoc },
+          { upsert: true, new: true }
+        );
+        appMapByAppNum.set(appNum, appRes._id);
+        latestAppId = appRes._id;
+        trackerState.stats.appsCreated++;
+      }
+
+      // -------------------------------------------------------------
+      // E. HALAL CERTIFICATES & CERTIFIED PRODUCTS (tlbcertMas & subcert)
+      // -------------------------------------------------------------
+      const certRows = sqlTables.certsMap.get(cid) || [];
+      for (const c of certRows) {
+        const certNo = cleanStr(c.CertificateNo) || cleanStr(c.CertficatNo) || `CERT-${c.ider}`;
+        const cId = cleanStr(c.ider);
+        const siteId = siteIdMap.get(cleanStr(c.SiteID)) || defaultSiteId;
+
+        // Certified products from subcert
+        const subItems = sqlTables.subcertByCertNo.get(certNo) || sqlTables.subcertByMisterId.get(cId) || [];
+        const productsCovered = subItems.map(s => cleanStr(s.DESCRIPTION)).filter(Boolean);
+        const productDetails = subItems.map(s => ({
+          name: cleanStr(s.DESCRIPTION),
+          code: cleanStr(s.CODE),
+          category: cleanStr(c.PRODUCTCATEGORY) || 'General',
+          description: cleanStr(s.SIZE) || ''
+        })).filter(p => p.name);
+
+        const expDate = safeDate(c.ExpiryDate, new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+        const isExpired = expDate < new Date();
+
+        const certDoc = {
+          certificate_number: certNo,
+          client_id: userIdStr,
+          application_id: latestAppId || undefined,
+          site_id: siteId,
+          certificate_type: cleanStr(c.CateficateType) || 'Halal Certification',
+          company_name: companyName,
+          company_address: cleanStr(c.COMPANYADDRESS) || address,
+          manufacturing_address: cleanStr(c.MANUFATURINGFACILITY) || address,
+          product_category: cleanStr(c.PRODUCTCATEGORY) || 'Food & Beverage',
+          scope: `Halal certification of ${cleanStr(c.PRODUCTCATEGORY) || 'compliant products'}`,
+          products_covered: productsCovered,
+          product_details: productDetails,
+          product_table_columns: 2,
+          issue_date: safeDate(c.IssueDate, safeDate(c.Dateer)),
+          expiry_date: expDate,
+          certification_start_date: safeDate(c.CurrentCyStartDate, safeDate(c.IssueDate)),
+          original_cycle_start_date: safeDate(c.OriginalCyStartDate, safeDate(c.IssueDate)),
+          status: isExpired ? 'expired' : 'active',
+          is_direct_issuance: false,
+          notes: `Imported from legacy HFA database (Ref: ${cleanStr(c.Qcoder) || certNo})`
+        };
+
+        await Certificate.findOneAndUpdate(
+          { certificate_number: certNo },
+          { $set: certDoc },
+          { upsert: true, new: true }
+        );
+        trackerState.stats.certsCreated++;
+      }
+
+      // -------------------------------------------------------------
+      // F. APPLICATION LOGSHEETS (dbo.tlblogsit) - 4,586 Logsheets!
+      // -------------------------------------------------------------
+      const compLogsheets = sqlTables.logsheetsByCid.get(cid) ||
+        sqlTables.logsheetsByCName.get(companyName.toLowerCase()) || [];
+
+      for (const l of compLogsheets) {
+        const logId = cleanStr(l.ider);
+        const lSiteId = siteIdMap.get(cleanStr(l.SiteID)) || defaultSiteId;
+        const lAppId = appMapByAppNum.get(cleanStr(l.AppID)) || latestAppId;
+
+        const isSigned = l.ceoby || l.MufityBy || l.Singnaturee || cleanStr(l.Statuss).toLowerCase().includes('sign');
+
+        const logDoc = {
+          source_type: 'application',
+          logsheet_type: 'application',
+          application_id: lAppId || undefined,
+          client_id: userIdStr,
+          site_id: lSiteId,
+          site_name: cleanStr(l.SiteName) || companyName,
+          company_name: companyName,
+          company_address: cleanStr(l.CAddress) || address,
+          manufacturing_address: cleanStr(l.ManufactAddss) || address,
+          contact_person: cleanStr(l.ContactPerson) || contactPerson,
+          contact_email: cleanStr(l.Conemail) || finalEmail,
+          nature_of_business: cleanStr(l.NatureOFBus) || 'Manufacturing',
+          product_category: cleanStr(l.ProCate) || 'General',
+          certificate_standard: cleanStr(l.ApplicationCategory) || 'HFA Standard',
+          certificate_type: cleanStr(l.ApplicationType) || cleanStr(l.ApplicationCategory) || 'Halal Certification',
+          issue_date: safeDate(l.IssDateOCert, null),
+          expiry_date: safeDate(l.ExPiryDatCert, null),
+          audit_type: cleanStr(l.AuditTy) || 'Annual',
+          audit_date: safeDate(l.Audidate, null),
+          auditors: cleanStr(l.Auditors) || '',
+          ncs_close: cleanStr(l.NCsCloseifany) || '',
+          docs_satisfactory: cleanStr(l.ADRAFS) || '',
+          pork_free_statement: cleanStr(l.PFSSPPS) || '',
+          reviewer_name: cleanStr(l.Name) || 'Auditor',
+          review_date: safeDate(l.ReDate, null),
+          annual_certificate: cleanStr(l.AnCer).toLowerCase().includes('y') ? 'Yes' : 'No',
+          batch_certificate: cleanStr(l.BaCert).toLowerCase().includes('y') ? 'Yes' : 'No',
+          new_products_only: cleanStr(l.OnAddONePro).toLowerCase().includes('y') ? 'Yes' : 'No',
+          new_site_line: cleanStr(l.AddONewSite).toLowerCase().includes('y') ? 'Yes' : 'No',
+          new_client: cleanStr(l.NewClite).toLowerCase().includes('y') ? 'Yes' : 'No',
+          agreement_signed: cleanStr(l.AgSig).toLowerCase().includes('y') ? 'Yes' : 'No',
+          status_date: safeDate(l.daOAgree, null),
+          comment: cleanStr(l.Commenter) || cleanStr(l.Commenter1) || '',
+          status: isSigned ? 'Completed' : 'Waiting for Signature',
+          confirmed: true,
+          // Signatures
+          mufti_signature: l.Mufitysinf ? `data:image/png;base64,${l.Mufitysinf}` : (l.Singnaturee ? `data:image/png;base64,${l.Singnaturee}` : null),
+          mufti_sign_name: cleanStr(l.MufityBy) || cleanStr(l.NameC) || 'Mufti Signatory',
+          mufti_sign_date: safeDate(l.Mufitydate, safeDate(l.Datee, new Date())),
+          ceo_signature: l.cebsing ? `data:image/png;base64,${l.cebsing}` : null,
+          ceo_sign_name: cleanStr(l.ceoby) || cleanStr(l.NameC2) || 'CEO Signatory',
+          ceo_sign_date: safeDate(l.ceodateby, safeDate(l.Datee, new Date())),
+          manager_signature: l.SchemSing ? `data:image/png;base64,${l.SchemSing}` : null,
+          manager_sign_name: cleanStr(l.SchemBy) || cleanStr(l.NameC3) || 'Scheme Manager',
+          manager_sign_date: safeDate(l.SchemDate, safeDate(l.Datee, new Date())),
+          mufti2_signature: l.Mufitysinf1 ? `data:image/png;base64,${l.Mufitysinf1}` : null,
+          mufti2_sign_name: cleanStr(l.MufityBy1) || cleanStr(l.NameC4) || '',
+          mufti2_sign_date: safeDate(l.Mufitydate1, null)
+        };
+
+        const logRes = await ApplicationLogsheet.findOneAndUpdate(
+          { client_id: userIdStr, company_name: companyName, audit_date: logDoc.audit_date },
+          { $set: logDoc },
+          { upsert: true, new: true }
+        );
+
+        if (lAppId) {
+          await Application.updateOne({ _id: lAppId }, { $set: { logsheet_id: logRes._id } });
+        }
+        trackerState.stats.logsheetsCreated++;
+      }
+
+      // -------------------------------------------------------------
+      // G. ADD-ON APPLICATIONS (dbo.ProAder)
       // -------------------------------------------------------------
       const addOnRows = sqlTables.addOnsMap.get(cid) || [];
       for (const a of addOnRows) {
-        const addOnNum = `ADD-${cleanStr(a.AtID) || cleanStr(a.RecordID) || Math.floor(Math.random() * 100000)}`;
-        const rawStatus = cleanStr(a.Statuscomp).toLowerCase();
-        const status = ADDON_STATUS_MAP[rawStatus] || 'accepted';
-        const matchedSite = siteMap[cleanStr(a.CiteID)] || siteMap[cleanStr(a.SiteName)] || defaultSite;
-        const addOnSubject = cleanStr(a.Sujetrer) || 'Product Add-on';
+        const recId = cleanStr(a.RecordID);
+        const refNo = `ADDON-${recId || cid}`;
+        const siteId = siteIdMap.get(cleanStr(a.CiteID)) || defaultSiteId;
+        const rawStat = cleanStr(a.Statuscomp).toLowerCase();
+        const stat = ADDON_STATUS_MAP[rawStat] || (rawStat.includes('accept') ? 'accepted' : 'submitted');
 
         const addOnDoc = {
-          application_number: addOnNum,
-          client_id: userId,
-          certificate_id: primaryCert ? primaryCert._id : null,
-          site_id: matchedSite ? matchedSite._id : null,
-          contact_name: cleanStr(a.ContactPeNa) || fullName,
-          contact_email: cleanEmail,
-          message: cleanStr(a.Messgate) || addOnSubject,
-          products: [
-            {
-              sn: 1,
-              name: addOnSubject || 'Add-on Product',
-              code: addOnNum,
-              type: 'Add product'
-            }
-          ],
-          status,
-          created_at: safeDate(a.Datere)
+          application_number: refNo,
+          client_id: userIdStr,
+          site_id: siteId,
+          type_of_addon: 'New Products',
+          company_name: companyName,
+          status: stat,
+          description: cleanStr(a.ProductLister) || `Add-on products for ${companyName}`,
+          contact_person: cleanStr(a.ContactPeNa) || contactPerson,
+          contact_email: finalEmail,
+          submission_date: safeDate(a.Datere),
+          notes: `Imported from legacy HFA database (Record: ${recId})`
         };
 
         await AddOnApplication.findOneAndUpdate(
-          { application_number: addOnNum },
+          { client_id: userIdStr, application_number: refNo },
           { $set: addOnDoc },
           { upsert: true, new: true }
         );
@@ -754,7 +942,7 @@ async function runFullCompanyImport() {
       }
 
       // -------------------------------------------------------------
-      // G. EXPORT CERTIFICATES
+      // H. EXPORT CERTIFICATES (dbo.tlbhecmaster)
       // -------------------------------------------------------------
       const exportCertRows = sqlTables.exportCertsMap.get(cid) || [];
       for (const exp of exportCertRows) {
@@ -793,7 +981,7 @@ async function runFullCompanyImport() {
       // Console Progress Log every 10 companies or at completion
       if ((idx + 1) % 10 === 0 || idx === companies.length - 1) {
         const pct = ((trackerState.processedCompanies / trackerState.totalCompanies) * 100).toFixed(1);
-        console.log(`[${String(trackerState.processedCompanies).padStart(4)}/${trackerState.totalCompanies}] (${pct.padStart(5)}%) CID: ${cid.padEnd(7)} | ${companyName.substring(0, 30).padEnd(30)} | Sites: ${String(siteRows.length || 1).padStart(2)} | Apps: ${String(appRows.length + renewalRows.length || 1).padStart(2)} | Certs: ${String(certRows.length).padStart(2)} | AddOns: ${String(addOnRows.length).padStart(2)}`);
+        console.log(`[${String(trackerState.processedCompanies).padStart(4)}/${trackerState.totalCompanies}] (${pct.padStart(5)}%) CID: ${cid.padEnd(7)} | ${companyName.substring(0, 25).padEnd(25)} | Prods: ${String(productRows.length).padStart(3)} | Logsheets: ${String(compLogsheets.length).padStart(2)} | Certs: ${String(certRows.length).padStart(2)} | Apps: ${String(appRows.length + renewalRows.length + survRows.length).padStart(2)}`);
       }
 
     } catch (compErr) {
@@ -809,15 +997,16 @@ async function runFullCompanyImport() {
 
   const totalMinutes = ((Date.now() - startTime) / 60000).toFixed(2);
   console.log('\n=============================================================================');
-  console.log('🎉 ALL HFA COMPANIES SUCCESSFULLY IMPORTED TO MONGODB!');
+  console.log('🎉 ALL HFA COMPANIES & DATA SUCCESSFULLY IMPORTED TO MONGODB!');
   console.log('=============================================================================');
   console.log(`⏱️  Total Duration      : ${totalMinutes} minutes`);
   console.log(`🏢 Companies Processed : ${trackerState.processedCompanies} / ${trackerState.totalCompanies}`);
   console.log(`👤 Users Created/Upd   : ${trackerState.stats.usersCreated} created, ${trackerState.stats.usersUpdated} updated`);
   console.log(`📍 Sites Created       : ${trackerState.stats.sitesCreated}`);
+  console.log(`📦 Products Created    : ${trackerState.stats.productsCreated}`);
   console.log(`📝 Applications Created: ${trackerState.stats.appsCreated}`);
   console.log(`📜 Certificates Created: ${trackerState.stats.certsCreated}`);
-  console.log(`📦 Products Created    : ${trackerState.stats.productsCreated}`);
+  console.log(`📋 Logsheets Created   : ${trackerState.stats.logsheetsCreated}`);
   console.log(`➕ Add-Ons Created     : ${trackerState.stats.addOnsCreated}`);
   console.log(`🚢 Export Certs Created: ${trackerState.stats.exportCertsCreated}`);
   console.log(`⚠️  Total Errors        : ${trackerState.stats.errors.length}`);
