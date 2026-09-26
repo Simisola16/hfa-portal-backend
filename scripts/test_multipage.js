@@ -8,12 +8,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function testMultiPage() {
-  const prods = Array.from({ length: 15 }, (_, i) => ({
+  const prodNames = [
+    'Semovita', 'Rice', 'Light chocolate', 'Dark Charcoal', 'Milk Chocolate',
+    'Beans', 'Yam Flour', 'Plantain Flour', 'Pounded Yam', 'Wheat Flour',
+    'Cassava Flour', 'Oat Meal', 'Brown Rice',
+    'Corn Beef', 'Ewa Agoyin', 'Locust Beans', 'Basmati Rice', 'Shawarma',
+    'Beef Sausage', 'Chinese Rice', 'Beef', 'Sharwarma', 'Garri', 'Rice', 'Gizzard'
+  ];
+  const prods = prodNames.map((name, i) => ({
     code: 'PRD-' + String(i + 1).padStart(2, '0'),
-    name: 'Sample Halal Product ' + (i + 1)
+    name: name,
+    description: name,
+    category: 'Halal Certified'
   }));
   const pdfBuf = await generateCertificate({
-    certificateType: 'GSO meat',
+    certificateType: 'HFA SCHEME NON MEAT',
     certificateNumber: 'HFA-MULTI-001',
     companyName: 'GLOBAL HALAL FOODS LTD',
     companyAddress: '10 INDUSTRIAL PARK, LONDON, UK',
@@ -24,7 +33,7 @@ async function testMultiPage() {
   console.log('Saved test_multipage.pdf');
 
   const browser = await chromium.launch();
-  for (let pageNum of [1, 2]) {
+  for (let pageNum of [1, 2, 3]) {
     const page = await browser.newPage();
     const b64 = pdfBuf.toString('base64');
     const html = `
