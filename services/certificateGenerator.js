@@ -752,8 +752,9 @@ export async function generateCertificate(certData) {
       color: cDark
     });
 
-    // 2. Dates Block (Arial 12pt, not bold)
-    const dateSize = 12.0;
+    // 2. Dates Block (Arial 11pt, not bold)
+    const dateSize = 11.0;
+    const dateLabelGap = 3.5;
 
     if (!isGso) {
       // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC): 3 dates
@@ -762,20 +763,32 @@ export async function generateCertificate(certData) {
       // Date 1: Issue Date
       const issueLabel = 'Issue Date:';
       const issueLabelW = fontRegular.widthOfTextAtSize(issueLabel, dateSize);
-      page.drawText(issueLabel, { x: 42.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedIssue, { x: 42.0 + issueLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
+      const issueValW = fontRegular.widthOfTextAtSize(formattedIssue, dateSize);
+      const issueTotalW = issueLabelW + dateLabelGap + issueValW;
 
       // Date 2: Certification Start Date
       const certStartLabel = 'Certification Start Date:';
       const certStartLabelW = fontRegular.widthOfTextAtSize(certStartLabel, dateSize);
-      page.drawText(certStartLabel, { x: 188.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedCertStart, { x: 188.0 + certStartLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
+      const certStartValW = fontRegular.widthOfTextAtSize(formattedCertStart, dateSize);
+      const certStartTotalW = certStartLabelW + dateLabelGap + certStartValW;
 
       // Date 3: Expiry Date
       const expLabel = 'Expiry Date:';
       const expLabelW = fontRegular.widthOfTextAtSize(expLabel, dateSize);
-      page.drawText(expLabel, { x: 412.0, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedExpiry, { x: 412.0 + expLabelW + 5.0, y: dateY, size: dateSize, font: fontRegular, color: cDark });
+      const expValW = fontRegular.widthOfTextAtSize(formattedExpiry, dateSize);
+
+      const d1X = 20.0;
+      const d2X = d1X + issueTotalW + 14.0;
+      const d3X = d2X + certStartTotalW + 14.0;
+
+      page.drawText(issueLabel, { x: d1X, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedIssue, { x: d1X + issueLabelW + dateLabelGap, y: dateY, size: dateSize, font: fontRegular, color: cDark });
+
+      page.drawText(certStartLabel, { x: d2X, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedCertStart, { x: d2X + certStartLabelW + dateLabelGap, y: dateY, size: dateSize, font: fontRegular, color: cDark });
+
+      page.drawText(expLabel, { x: d3X, y: dateY, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedExpiry, { x: d3X + expLabelW + dateLabelGap, y: dateY, size: dateSize, font: fontRegular, color: cDark });
     } else {
       // GSO (GSO Meat, GSO Non-Meat): 4 dates
       const dateY1 = 611.0;
@@ -784,24 +797,40 @@ export async function generateCertificate(certData) {
       // Row 1: Issue Date | Current Cycle Start Date | Expiry Date
       const issueLabel = 'Issue Date:';
       const issueLabelW = fontRegular.widthOfTextAtSize(issueLabel, dateSize);
-      page.drawText(issueLabel, { x: 42.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedIssue, { x: 42.0 + issueLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
+      const issueValW = fontRegular.widthOfTextAtSize(formattedIssue, dateSize);
+      const issueTotalW = issueLabelW + dateLabelGap + issueValW;
 
       const currLabel = 'Current Cycle Start Date:';
       const currLabelW = fontRegular.widthOfTextAtSize(currLabel, dateSize);
-      page.drawText(currLabel, { x: 188.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedCurrentCycle, { x: 188.0 + currLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
+      const currValW = fontRegular.widthOfTextAtSize(formattedCurrentCycle, dateSize);
+      const currTotalW = currLabelW + dateLabelGap + currValW;
 
       const expLabel = 'Expiry Date:';
       const expLabelW = fontRegular.widthOfTextAtSize(expLabel, dateSize);
-      page.drawText(expLabel, { x: 412.0, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedExpiry, { x: 412.0 + expLabelW + 5.0, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
 
-      // Row 2: Original Cycle Start Date
+      // Moved to the left with balanced spacing between columns
+      const d1X = 18.0;
+      const d2X = d1X + issueTotalW + 9.0;
+      const d3X = d2X + currTotalW + 9.0;
+
+      page.drawText(issueLabel, { x: d1X, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedIssue, { x: d1X + issueLabelW + dateLabelGap, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
+
+      page.drawText(currLabel, { x: d2X, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedCurrentCycle, { x: d2X + currLabelW + dateLabelGap, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
+
+      page.drawText(expLabel, { x: d3X, y: dateY1, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedExpiry, { x: d3X + expLabelW + dateLabelGap, y: dateY1, size: dateSize, font: fontRegular, color: cDark });
+
+      // Row 2: Original Cycle Start Date (Centered)
       const origLabel = 'Original Cycle Start Date:';
       const origLabelW = fontRegular.widthOfTextAtSize(origLabel, dateSize);
-      page.drawText(origLabel, { x: 188.0, y: dateY2, size: dateSize, font: fontRegular, color: cEmerald });
-      page.drawText(formattedOrigCycle, { x: 188.0 + origLabelW + 5.0, y: dateY2, size: dateSize, font: fontRegular, color: cDark });
+      const origValW = fontRegular.widthOfTextAtSize(formattedOrigCycle, dateSize);
+      const origTotalW = origLabelW + dateLabelGap + origValW;
+      const origStartX = (PAGE_WIDTH - origTotalW) / 2;
+
+      page.drawText(origLabel, { x: origStartX, y: dateY2, size: dateSize, font: fontRegular, color: cEmerald });
+      page.drawText(formattedOrigCycle, { x: origStartX + origLabelW + dateLabelGap, y: dateY2, size: dateSize, font: fontRegular, color: cDark });
     }
 
     if (isFirstPage) {
@@ -1343,8 +1372,8 @@ export async function buildCertificateHtml(certData) {
         .cert-title { font-size: 20pt; font-weight: 700; color: #0b7c47; margin-top: 6px; }
         .cert-no { font-size: 12pt; font-weight: normal; margin-top: 4px; }
         .cert-no-label { color: #0b7c47; font-weight: normal; }
-        .dates-row { display: flex; justify-content: space-between; font-size: 12pt; font-weight: normal; margin-top: 8px; }
-        .dates-row-center { text-align: center; font-size: 12pt; font-weight: normal; margin-top: 4px; }
+        .dates-row { display: flex; justify-content: space-between; font-size: 11pt; font-weight: normal; margin-top: 8px; }
+        .dates-row-center { text-align: center; font-size: 11pt; font-weight: normal; margin-top: 4px; }
         .date-label { color: #0b7c47; font-weight: normal; }
         .declaration { font-size: 12pt; font-weight: normal; text-align: center; margin: 16px 0; line-height: 1.4; color: #111827; }
         .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 16px; font-size: 10.5pt; }
