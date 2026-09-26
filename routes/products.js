@@ -68,6 +68,11 @@ router.get('/', authenticateToken, async (req, res) => {
         barcode: p.barcode || p.code || '',
         source: p.source || (p.notes?.toLowerCase().includes('administrator') || p.notes?.toLowerCase().includes('direct') ? 'admin' : 'client'),
         application_type: p.application_type || (p.notes?.toLowerCase().includes('direct') ? 'Direct' : (p.notes?.toLowerCase().includes('renewal') ? 'Renewal' : (p.notes?.toLowerCase().includes('add-on') || p.notes?.toLowerCase().includes('addon') ? 'Extension' : 'New'))),
+        created_by: p.created_by,
+        created_by_name: p.created_by_name || (p.source === 'admin' ? (p.notes?.replace(/.*by\s+/i, '') || 'Admin') : ''),
+        last_modified_by: p.last_modified_by,
+        last_modified_by_name: p.last_modified_by_name || '',
+        last_modified_at: p.last_modified_at || null,
         client_id: clientObj || p.client_id,
         profiles: clientObj ? {
           company_name: clientObj.company_name,
@@ -146,6 +151,8 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
         status: p.status || 'active',
         source: 'admin',
         application_type: p.application_type || req.body.application_type || 'Direct',
+        created_by: req.user._id,
+        created_by_name: req.user.full_name || req.user.company_name || req.user.email || 'Admin',
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -202,7 +209,9 @@ router.post('/', authenticateToken, async (req, res) => {
         barcode: barcode || '',
         status: 'active',
         source: 'admin',
-        application_type: req.body.application_type || 'Direct'
+        application_type: req.body.application_type || 'Direct',
+        created_by: req.user._id,
+        created_by_name: req.user.full_name || req.user.company_name || req.user.email || 'Admin'
       });
       const data = await product.save();
       return res.status(201).json({ data });
@@ -272,7 +281,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Clients cannot modify certified products directly. Please submit an Add-on request.' });
     }
-    const data = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const adminName = req.user.full_name || req.user.company_name || req.user.email || 'Admin';
+    const updatePayload = {
+      ...req.body,
+      last_modified_by: req.user._id,
+      last_modified_by_name: adminName,
+      last_modified_at: new Date(),
+      updated_at: new Date()
+    };
+    const data = await Product.findByIdAndUpdate(req.params.id, updatePayload, { new: true });
     if (!data) return res.status(404).json({ error: 'Product not found' });
     res.json({ data });
   } catch (err) {
