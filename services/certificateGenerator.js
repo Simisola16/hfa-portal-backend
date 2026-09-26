@@ -142,6 +142,137 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
   return lines;
 }
 
+/**
+ * Dynamically computes optimal table column widths based on the actual length
+ * of product codes, descriptions/names, and categories across all products in the certificate.
+ * Total table width is 505.0 pt.
+ */
+function computeProductTableColumns(products, numColumns, fontBold, fontRegular) {
+  const tableWidth = 505.0;
+  const noColWidth = 45.0;
+  const availRemaining = tableWidth - noColWidth; // 460.0 pt
+
+  const list = Array.isArray(products) && products.length > 0
+    ? products
+    : [{ name: 'Certified Halal Products' }];
+
+  if (numColumns === 1) {
+    return [
+      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+      { header: 'NAME OF THE PRODUCTS', width: availRemaining, align: 'left', pad: 10.0 }
+    ];
+  }
+
+  // Measure max width of CODE across all products
+  let maxCodeTextW = 28.0;
+  try {
+    if (fontBold) {
+      maxCodeTextW = fontBold.widthOfTextAtSize('CODE', 9.0);
+      for (const p of list) {
+        const codeStr = sanitizeForPdf(p.code || '');
+        if (codeStr) {
+          const w = fontBold.widthOfTextAtSize(codeStr, 9.0);
+          if (w > maxCodeTextW) maxCodeTextW = w;
+        }
+      }
+    }
+  } catch (e) {}
+
+  if (numColumns === 2) {
+    // Option 2: NO. | CODE | DESCRIPTION
+    // Needed code width with 16pt cell padding
+    const neededCodeW = Math.ceil(maxCodeTextW + 18.0);
+    // Clamp CODE column between 65.0 pt and 130.0 pt
+    const codeColWidth = Math.max(65.0, Math.min(130.0, neededCodeW));
+    const descColWidth = availRemaining - codeColWidth;
+
+    return [
+      { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+      { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
+      { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 }
+    ];
+  }
+
+  // Option 3: NO. | CODE | DESCRIPTION | CATEGORY
+  // Clamp CODE between 60.0 pt and 100.0 pt
+  const codeColWidth = Math.max(60.0, Math.min(100.0, Math.ceil(maxCodeTextW + 18.0)));
+  const availForDescAndCat = availRemaining - codeColWidth; // ~360 - 400 pt
+
+  // Measure DESCRIPTION width
+  let maxDescTextW = 60.0;
+  try {
+    if (fontRegular) {
+      maxDescTextW = fontRegular.widthOfTextAtSize('DESCRIPTION', 9.0);
+      for (const p of list) {
+        const descStr = sanitizeForPdf(p.description || p.name || '');
+        if (descStr) {
+          const w = fontRegular.widthOfTextAtSize(descStr, 9.0);
+          if (w > maxDescTextW) maxDescTextW = w;
+        }
+      }
+    }
+  } catch (e) {}
+  const neededDescW = Math.ceil(maxDescTextW + 18.0);
+
+  // Measure CATEGORY width
+  let maxCatTextW = 52.0;
+  try {
+    if (fontRegular) {
+      maxCatTextW = fontRegular.widthOfTextAtSize('CATEGORY', 9.0);
+      for (const p of list) {
+        const catStr = sanitizeForPdf(p.category || 'Halal Certified');
+        if (catStr) {
+          const w = fontRegular.widthOfTextAtSize(catStr, 9.0);
+          if (w > maxCatTextW) maxCatTextW = w;
+        }
+      }
+    }
+  } catch (e) {}
+  const neededCatW = Math.ceil(maxCatTextW + 18.0);
+
+  const minDescW = 120.0;
+  const minCatW = 85.0;
+
+  let descColWidth;
+  let catColWidth;
+
+  if (neededDescW + neededCatW <= availForDescAndCat) {
+    // Both fit on a single line! Distribute surplus space, favoring Description (65%)
+    const surplus = availForDescAndCat - (neededDescW + neededCatW);
+    descColWidth = Math.round(neededDescW + surplus * 0.65);
+    catColWidth = availForDescAndCat - descColWidth;
+
+    if (descColWidth < minDescW) {
+      descColWidth = minDescW;
+      catColWidth = availForDescAndCat - descColWidth;
+    } else if (catColWidth < minCatW) {
+      catColWidth = minCatW;
+      descColWidth = availForDescAndCat - catColWidth;
+    }
+  } else {
+    // Space is constrained. Allocate proportionally to content lengths
+    const totalNeeded = neededDescW + neededCatW;
+    const ratioDesc = neededDescW / totalNeeded;
+    descColWidth = Math.round(availForDescAndCat * ratioDesc);
+    catColWidth = availForDescAndCat - descColWidth;
+
+    if (descColWidth < minDescW) {
+      descColWidth = minDescW;
+      catColWidth = availForDescAndCat - descColWidth;
+    } else if (catColWidth < minCatW) {
+      catColWidth = minCatW;
+      descColWidth = availForDescAndCat - catColWidth;
+    }
+  }
+
+  return [
+    { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
+    { header: 'CODE', width: codeColWidth, align: 'left', pad: 8.0 },
+    { header: 'DESCRIPTION', width: descColWidth, align: 'left', pad: 8.0 },
+    { header: 'CATEGORY', width: catColWidth, align: 'left', pad: 8.0 }
+  ];
+}
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
@@ -575,6 +706,9 @@ export async function generateCertificate(certData) {
   const PAGE_WIDTH = 595.28;
   const PAGE_HEIGHT = 841.89;
 
+  // Dynamically compute optimal table column widths based on product lengths across all items
+  const tableColDefs = computeProductTableColumns(allProducts, numColumns, fontBold, fontRegular);
+
   let globalProductIndex = 0;
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
@@ -769,31 +903,8 @@ export async function generateCertificate(certData) {
 
     let headerBottomY = isFirstPage ? 312.0 : 511.0;
 
-    // Column definitions based on chosen option:
-    // Option 1: NO. (60pt), NAME OF THE PRODUCTS (445pt)
-    // Option 2: NO. (50pt), CODE (125pt), DESCRIPTION (330pt)
-    // Option 3: NO. (50pt), CODE (100pt), DESCRIPTION (230pt), CATEGORY (125pt)
-    let colDefs = [];
-    if (numColumns === 1) {
-      colDefs = [
-        { header: 'NO.', width: 60.0, align: 'center', pad: 0 },
-        { header: 'NAME OF THE PRODUCTS', width: 445.0, align: 'left', pad: 10.0 }
-      ];
-    } else if (numColumns === 3) {
-      colDefs = [
-        { header: 'NO.', width: 50.0, align: 'center', pad: 0 },
-        { header: 'CODE', width: 100.0, align: 'left', pad: 8.0 },
-        { header: 'DESCRIPTION', width: 230.0, align: 'left', pad: 8.0 },
-        { header: 'CATEGORY', width: 125.0, align: 'left', pad: 8.0 }
-      ];
-    } else {
-      // Default: Option 2 (Two value columns)
-      colDefs = [
-        { header: 'NO.', width: 50.0, align: 'center', pad: 0 },
-        { header: 'CODE', width: 125.0, align: 'left', pad: 8.0 },
-        { header: 'DESCRIPTION', width: 330.0, align: 'left', pad: 8.0 }
-      ];
-    }
+    // Use dynamically computed column definitions based on product lengths
+    const colDefs = tableColDefs;
 
     // Draw Table Header Background (Emerald Green)
     page.drawRectangle({
@@ -1131,7 +1242,47 @@ export async function buildCertificateHtml(certData) {
 
   const declarationText = scheme.declarationLines.join(' ');
 
-  return `
+      // Dynamic HTML Table Columns based on product lengths
+      const maxCodeLen = productList.reduce((max, p) => Math.max(max, (p.code || '').length), 4);
+      const maxDescLen = productList.reduce((max, p) => Math.max(max, (p.description || p.name || '').length), 11);
+      const maxCatLen = productList.reduce((max, p) => Math.max(max, (p.category || 'Halal Certified').length), 8);
+
+      let htmlCols = [];
+      if (numColumns === 1) {
+        htmlCols = [
+          { header: 'NO.', width: '12%', align: 'center' },
+          { header: 'NAME OF THE PRODUCTS', width: '88%', align: 'left' }
+        ];
+      } else if (numColumns === 2) {
+        const codePct = Math.max(16, Math.min(26, Math.round(maxCodeLen * 1.5 + 8)));
+        const descPct = 100 - 9 - codePct;
+        htmlCols = [
+          { header: 'NO.', width: '9%', align: 'center' },
+          { header: 'CODE', width: `${codePct}%`, align: 'left' },
+          { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' }
+        ];
+      } else {
+        const codePct = Math.max(14, Math.min(22, Math.round(maxCodeLen * 1.4 + 6)));
+        const availForDescAndCat = 100 - 9 - codePct;
+        const totalLen = Math.max(1, maxDescLen + maxCatLen);
+        let descPct = Math.round(availForDescAndCat * (maxDescLen / totalLen));
+        let catPct = availForDescAndCat - descPct;
+        if (descPct < 26) {
+          descPct = 26;
+          catPct = availForDescAndCat - descPct;
+        } else if (catPct < 18) {
+          catPct = 18;
+          descPct = availForDescAndCat - catPct;
+        }
+        htmlCols = [
+          { header: 'NO.', width: '9%', align: 'center' },
+          { header: 'CODE', width: `${codePct}%`, align: 'left' },
+          { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' },
+          { header: 'CATEGORY', width: `${catPct}%`, align: 'left' }
+        ];
+      }
+
+      return `
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -1224,19 +1375,9 @@ export async function buildCertificateHtml(certData) {
         <table class="products-table">
           <thead>
             <tr>
-              ${numColumns === 1 ? `
-                <th style="width: 15%; text-align: center;">NO.</th>
-                <th style="width: 85%; text-align: left; padding-left: 10px;">NAME OF THE PRODUCTS</th>
-              ` : numColumns === 3 ? `
-                <th style="width: 10%; text-align: center;">NO.</th>
-                <th style="width: 20%; text-align: left; padding-left: 8px;">CODE</th>
-                <th style="width: 45%; text-align: left; padding-left: 8px;">DESCRIPTION</th>
-                <th style="width: 25%; text-align: left; padding-left: 8px;">CATEGORY</th>
-              ` : `
-                <th style="width: 10%; text-align: center;">NO.</th>
-                <th style="width: 25%; text-align: left; padding-left: 8px;">CODE</th>
-                <th style="width: 65%; text-align: left; padding-left: 8px;">DESCRIPTION</th>
-              `}
+              ${htmlCols.map((col, idx) => `
+                <th style="width: ${col.width}; text-align: ${col.align}; padding-left: ${col.align === 'center' ? '0' : '8px'};">${col.header}</th>
+              `).join('')}
             </tr>
           </thead>
           <tbody>
