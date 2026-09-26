@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import puppeteer from 'puppeteer';
+import QRCode from 'qrcode';
+import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,8 +55,8 @@ function getTemplatePath() {
   const primary = path.resolve(__dirname, '../assets/certificates/SURVEILLANCE_TEMPLATE.pdf');
   if (fs.existsSync(primary)) return primary;
 
-  const secondary = path.resolve(__dirname, '../../survellance-unlocked template.pdf');
-  if (fs.existsSync(secondary)) return secondary;
+  const qrTarget = resolveCertificateUrl(data.letter_url || data.document_url || data.pdf_url, letter_number, verification_url) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(letter_number)}`;
+  const qrCodeBase64 = await generateQRCode(qrTarget);
 
   const fallback = path.resolve(__dirname, '../assets/SURVEILLANCE_TEMPLATE.pdf');
   if (fs.existsSync(fallback)) return fallback;

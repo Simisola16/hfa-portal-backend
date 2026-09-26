@@ -6,7 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import QRCode from 'qrcode';
-import { getClientUrl } from '../lib/urls.js';
+import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -685,8 +685,9 @@ export async function generateCertificate(certData) {
   const resolvedName = sanitizeForPdf((companyName || businessName || certData.company_name || 'Halal Certified Client').toUpperCase());
   const resolvedScope = sanitizeForPdf((scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || 'PRODUCTION AND SUPPLY OF HALAL CERTIFIED PRODUCTS').toUpperCase());
 
-  // Generate QR Code PNG
-  const qrUrl = verificationUrl || `${getClientUrl()}/verify/${sanitizedCertNo}`;
+  // Generate QR Code PNG pointing directly to the certificate URL
+  const certUrlCandidate = certData.certificate_url || certData.certificateUrl || certData.certificateFileUrl || certData.pdfUrl || certData.url;
+  const qrUrl = resolveCertificateUrl(certUrlCandidate, sanitizedCertNo, verificationUrl) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(sanitizedCertNo)}`;
   const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
     type: 'png',
     margin: 0,
@@ -1220,8 +1221,8 @@ export async function buildCertificateHtml(certData) {
   const rawColOption = parseInt(productTableColumns || tableLayout || product_table_columns || table_layout, 10);
   const numColumns = (rawColOption >= 1 && rawColOption <= 3) ? rawColOption : scheme.defaultColumns;
 
- 
-  const qrUrl = verificationUrl || `${getClientUrl()}/verify/${certificateNumber}`;
+  const certUrlCandidate = certData.certificate_url || certData.certificateUrl || certData.certificateFileUrl || certData.pdfUrl || certData.url;
+  const qrUrl = resolveCertificateUrl(certUrlCandidate, certificateNumber, verificationUrl) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(certificateNumber)}`;
   const qrBase64 = await QRCode.toDataURL(qrUrl, { margin: 0, width: 250 });
 
   const formattedIssue = formatDate(issueDate);

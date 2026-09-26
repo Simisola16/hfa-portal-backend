@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import multer from 'multer';
-import { uploadToS3 } from '../lib/s3.js';
+import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
@@ -20,7 +20,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
-import { getClientUrl } from '../lib/urls.js';
+import { getClientUrl, resolveCertificateUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
@@ -1009,13 +1009,16 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
             issueDate: new Date(),
             expiryDate: data.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
               ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
-              : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            verificationUrl: `${getClientUrl()}/verify/${certNumber}`
+              : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
           };
 
-          const pdfBuffer = await generateCertificate(certData);
           const filename = `${certNumber}.pdf`;
-          const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+          const s3Key = generateS3Key('certificates', filename);
+          const certPath = getS3PathFromKey(s3Key);
+          certData.certificate_url = resolveCertificateUrl(certPath);
+
+          const pdfBuffer = await generateCertificate(certData);
+          const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
 
           const certificate = new Certificate({
             certificate_number: certNumber,

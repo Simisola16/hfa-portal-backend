@@ -9,15 +9,14 @@ import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
-import { uploadToS3 } from '../lib/s3.js';
+import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
-import { generateSurveillanceLetter } from '../services/surveillanceLetterGenerator.js';
-import { getClientUrl } from '../lib/urls.js';
+import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
@@ -102,6 +101,103 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
     res.status(500).json({ error: err.message });
   }
 }
+
+// ─── PUBLIC CERTIFICATE VIEW / VERIFICATION ROUTE ───────────────────────────
+// Anyone scanning a certificate QR code or clicking the certificate link can view the authentic PDF directly
+const handlePublicCertificateAccess = async (req, res) => {
+  try {
+    const rawCertNo = req.params.certNumber || req.params.certNo || req.params[0];
+    if (!rawCertNo) {
+      return res.status(400).send('Certificate number is required.');
+    }
+
+    const certNo = decodeURIComponent(rawCertNo).trim();
+    const safeRegex = new RegExp(`^${certNo.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i');
+
+    const cert = await Certificate.findOne({ certificate_number: safeRegex })
+      .populate('client_id site_id application_id');
+
+    if (!cert) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Certificate Not Found | Halal Food Authority</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; box-sizing: border-box; }
+            .card { background: white; max-width: 500px; width: 100%; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); padding: 40px; text-align: center; border: 1px solid #e2e8f0; }
+            .badge { display: inline-block; padding: 6px 14px; border-radius: 9999px; background: #fee2e2; color: #b91c1c; font-weight: 600; font-size: 13px; margin-bottom: 16px; }
+            h1 { font-size: 22px; font-weight: 700; margin: 0 0 10px 0; color: #0f172a; }
+            p { font-size: 14px; line-height: 1.6; color: #64748b; margin: 0 0 24px 0; }
+            .btn { display: inline-block; background: #15803d; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="badge">Record Not Found</div>
+            <h1>Certificate Not Found</h1>
+            <p>No active certificate record matching <strong>${certNo}</strong> could be found in the Halal Food Authority registry.</p>
+            <a href="https://halalfoodauthority.com" class="btn">Visit HFA Official Site</a>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    // If certificate has an uploaded file URL, redirect directly to it
+    if (cert.certificate_url) {
+      const fullUrl = resolveCertificateUrl(cert.certificate_url, cert.certificate_number);
+      return res.redirect(302, fullUrl);
+    }
+
+    // If PDF is not yet uploaded, generate it on demand
+    const prods = (cert.products_covered && cert.products_covered.length > 0)
+      ? cert.products_covered
+      : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }];
+
+    const s3Key = generateS3Key('certificates', `${cert.certificate_number}.pdf`);
+    const certPath = getS3PathFromKey(s3Key);
+    const fullCertUrl = resolveCertificateUrl(certPath);
+
+    const pdfBuffer = await generateCertificate({
+      certificateType: cert.certificate_type || 'GSO MEAT',
+      businessName: cert.company_name || 'Valued Halal Client',
+      businessAddress: cert.company_address || '—',
+      manufacturerAddress: cert.manufacturing_address || 'Same as above',
+      certificateNumber: cert.certificate_number,
+      scopeOfCertification: cert.scope || 'Halal Food and Consumer Products Certification',
+      productCategory: cert.scope,
+      productCategories: prods,
+      products: prods,
+      productTableColumns: cert.product_table_columns || 2,
+      issueDate: cert.issue_date || new Date(),
+      expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
+      currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
+      originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
+      certificate_url: fullCertUrl
+    });
+
+    const newUrl = await uploadToS3(pdfBuffer, `${cert.certificate_number}.pdf`, 'application/pdf', 'certificates', s3Key);
+    cert.certificate_url = newUrl;
+    cert.updated_at = new Date();
+    await cert.save();
+
+    return res.redirect(302, fullCertUrl);
+  } catch (err) {
+    console.error('Public certificate access error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+router.get('/public/:certNumber', handlePublicCertificateAccess);
+router.get('/public/*', handlePublicCertificateAccess);
+router.get('/verify/:certNumber', handlePublicCertificateAccess);
+router.get('/verify/*', handlePublicCertificateAccess);
+router.get('/view/:certNumber', handlePublicCertificateAccess);
+router.get('/view/*', handlePublicCertificateAccess);
 
 // GET all certificates (admin: all, client: own)
 router.get('/', authenticateToken, async (req, res) => {
@@ -332,6 +428,11 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
     const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
+    const filename = `${certNo}-preview.pdf`;
+    const s3Key = generateS3Key('certificates', filename);
+    const certPath = getS3PathFromKey(s3Key);
+    const fullCertUrl = resolveCertificateUrl(certPath);
+
     const pdfBuffer = await generateCertificate({
       certificateType: certificate_type || 'GSO MEAT',
       businessName: company_name || 'Valued Halal Client',
@@ -348,11 +449,10 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       certificationStartDate: certification_start_date ? new Date(certification_start_date) : (issue_date ? new Date(issue_date) : new Date()),
       currentCycleStartDate: current_cycle_start_date ? new Date(current_cycle_start_date) : (issue_date ? new Date(issue_date) : new Date()),
       originalCycleStartDate: original_cycle_start_date ? new Date(original_cycle_start_date) : (issue_date ? new Date(issue_date) : new Date()),
-      verificationUrl: `${getClientUrl()}/verify/${certNo}`
+      certificate_url: fullCertUrl
     });
 
-    const filename = `${certNo}-preview.pdf`;
-    const previewUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+    const previewUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
 
     res.json({
       success: true,
@@ -891,6 +991,11 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
         const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
+        const filename = `${certNo}.pdf`;
+        const s3Key = generateS3Key('certificates', filename);
+        const certPath = getS3PathFromKey(s3Key);
+        const fullCertUrl = resolveCertificateUrl(certPath);
+
         const pdfBuffer = await generateCertificate({
           certificateType: resolvedScheme,
           businessName: resolvedCompanyName,
@@ -907,10 +1012,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           certificationStartDate: certification_start_date || issue_date || new Date(),
           currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
           originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
-          verificationUrl: `${getClientUrl()}/verify/${certNo}`
+          certificate_url: fullCertUrl
         });
-        const filename = `${certNo}.pdf`;
-        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
       } catch (genErr) {
         console.warn('Initial PDF auto-generation in POST /certificates warning:', genErr.message);
       }
@@ -1359,6 +1463,11 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
         description: typeof p === 'object' ? (p.description || p.name) : p
       }));
 
+    const filename = `${cert.certificate_number}.pdf`;
+    const s3Key = generateS3Key('certificates', filename);
+    const certPath = getS3PathFromKey(s3Key);
+    const fullCertUrl = resolveCertificateUrl(certPath);
+
     const pdfBuffer = await generateCertificate({
       certificateType: cert.certificate_type || 'HFA Scheme',
       businessName: cert.company_name || 'Halal Certified Client',
@@ -1375,11 +1484,10 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
       currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
       originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
-      verificationUrl: `${getClientUrl()}/verify/${cert.certificate_number}`
+      certificate_url: fullCertUrl
     });
 
-    const filename = `${cert.certificate_number}.pdf`;
-    const newUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+    const newUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
     cert.certificate_url = newUrl;
     cert.updated_at = new Date();
     await cert.save();
@@ -1476,6 +1584,11 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
           description: typeof p === 'object' ? (p.description || p.name) : p
         }));
 
+      const filename = `${cert.certificate_number}.pdf`;
+      const s3Key = generateS3Key('certificates', filename);
+      const certPath = getS3PathFromKey(s3Key);
+      const fullCertUrl = resolveCertificateUrl(certPath);
+
       const pdfBuffer = await generateCertificate({
         certificateType: cert.certificate_type || 'HFA Scheme',
         businessName: cert.company_name || 'Halal Certified Client',
@@ -1492,10 +1605,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
         certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
         currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
         originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
-        verificationUrl: `${getClientUrl()}/verify/${cert.certificate_number}`
+        certificate_url: fullCertUrl
       });
-      const filename = `${cert.certificate_number}.pdf`;
-      cert.certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+      cert.certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
     } catch (genErr) {
       console.warn('PDF re-render during approve-and-send warning:', genErr.message);
     }
@@ -1575,23 +1687,29 @@ async function buildCertDataFromApplication(application) {
     ? new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000)
     : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
-  return {
-    certificateType: scheme,
-    businessName: client ? (client.company_name || client.full_name) : application.establishment_name,
-    businessAddress: application.establishment_address || '—',
-    manufacturerAddress: application.manufacturer_address || 'Same as above',
-    certificateNumber: certNumber,
-    scopeOfCertification: application.scope || 'Halal Food Certification',
-    productCategories,
-    products: productCategories,
-    issueDate,
-    expiryDate,
-    certificationStartDate: issueDate,
-    currentCycleStartDate: issueDate,
-    originalCycleStartDate: issueDate,
-    verificationUrl: `${getClientUrl()}/verify/${certNumber}`
-  };
-}
+    const filename = `${certNumber}.pdf`;
+    const s3Key = generateS3Key('certificates', filename);
+    const certPath = getS3PathFromKey(s3Key);
+    const fullCertUrl = resolveCertificateUrl(certPath);
+
+    return {
+      certificateType: scheme,
+      businessName: client ? (client.company_name || client.full_name) : application.establishment_name,
+      businessAddress: application.establishment_address || '—',
+      manufacturerAddress: application.manufacturer_address || 'Same as above',
+      certificateNumber: certNumber,
+      scopeOfCertification: application.scope || 'Halal Food Certification',
+      productCategories,
+      products: productCategories,
+      issueDate,
+      expiryDate,
+      certificationStartDate: issueDate,
+      currentCycleStartDate: issueDate,
+      originalCycleStartDate: issueDate,
+      certificate_url: fullCertUrl,
+      s3Key
+    };
+  }
 
 // POST /api/certificates/generate
 router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, async (req, res) => {
@@ -1624,7 +1742,7 @@ router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePai
 
     // Upload to S3
     const filename = `${certData.certificateNumber}.pdf`;
-    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', certData.s3Key);
 
     // Save certificate record strictly in under_review (Pending Review)
     const certificate = new Certificate({
@@ -1743,6 +1861,11 @@ router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertif
           description: typeof p === 'object' ? (p?.description || p?.name) : p
         }));
 
+    const filename = `${certificate.certificate_number}.pdf`;
+    const s3Key = generateS3Key('certificates', filename);
+    const certPath = getS3PathFromKey(s3Key);
+    const fullCertUrl = resolveCertificateUrl(certPath);
+
     const certData = {
       certificateType: certificate.certificate_type || 'HFA Scheme',
       businessName: resolvedBusinessName,
@@ -1758,14 +1881,13 @@ router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertif
       certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
       currentCycleStartDate: certificate.current_cycle_start_date || certificate.issue_date || new Date(),
       originalCycleStartDate: certificate.original_cycle_start_date || certificate.issue_date || new Date(),
-      verificationUrl: `${getClientUrl()}/verify/${certificate.certificate_number}`
+      certificate_url: fullCertUrl
     };
 
     const pdfBuffer = await generateCertificate(certData);
 
     // Upload to S3
-    const filename = `${certificate.certificate_number}.pdf`;
-    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
 
     // Update certificate URL
     certificate.certificate_url = certificate_url;
@@ -1801,22 +1923,26 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
           ? certificate.product_details.map(p => ({ code: p.code || '', name: p.name || '' }))
           : (Array.isArray(certificate.products_covered) ? certificate.products_covered.map(p => ({ code: '', name: p })) : []);
 
+        const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
+        const s3Key = generateS3Key('certificates', filename);
+        const certPath = getS3PathFromKey(s3Key);
+        const fullCertUrl = resolveCertificateUrl(certPath);
+
         const pdfBuffer = await generateCertificate({
-          businessName: certificate.company_name || 'Anike International',
-          businessAddress: certificate.company_address || '28 Woods Road, Peckham',
-          manufacturerAddress: certificate.manufacturing_address || '3 Watcombe Road',
+          businessName: certificate.company_name || 'Valued Halal Client',
+          businessAddress: certificate.company_address || '—',
+          manufacturerAddress: certificate.manufacturing_address || 'Same as above',
           certificateNumber: certificate.certificate_number,
-          scopeOfCertification: certificate.scope || 'Food and General processing',
+          scopeOfCertification: certificate.scope || 'Halal Food and Consumer Products Certification',
           scheme: certificate.certificate_type || 'GSO non-meat',
           productCategories: productsList,
           issueDate: certificate.issue_date || new Date(),
           expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           cycleStartDate: certificate.current_cycle_start_date || certificate.issue_date,
-          verificationUrl: `${getClientUrl()}/verify/${encodeURIComponent(certificate.certificate_number)}`
+          certificate_url: fullCertUrl
         });
 
-        const filename = `${certificate.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
-        const uploadedUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+        const uploadedUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
         certificate.certificate_url = uploadedUrl;
         await certificate.save();
       } catch (genErr) {
@@ -2055,36 +2181,40 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     if (req.file) {
       certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
+      const filename = `${certNumber}.pdf`;
+      const s3Key = generateS3Key('certificates', filename);
+      const certPath = getS3PathFromKey(s3Key);
+      const fullCertUrl = resolveCertificateUrl(certPath);
+
       const certData = {
         certificateType: certificate_type || 'GSO MEAT',
         businessName: effectiveBusinessName,
         businessAddress: businessAddress,
-        manufacturerAddress: manufacturerAddr,
-        certificateNumber: certNumber,
-        scopeOfCertification: effectiveScope,
-        productCategory: effectiveScope,
-        productCategories: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
-          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
-        products: cleanProducts.length > 0
-          ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
-          : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
-        productTableColumns: resolvedTableCols,
-        issueDate: parsedIssueDate,
-        expiryDate: parsedExpiryDate,
-        certificationStartDate: parsedCertStartDate,
-        currentCycleStartDate: parsedCurrentCycle,
-        originalCycleStartDate: parsedOrigCycle,
-        verificationUrl: `${getClientUrl()}/verify/${certNumber}`
-      };
+          manufacturerAddress: manufacturerAddr,
+          certificateNumber: certNumber,
+          scopeOfCertification: effectiveScope,
+          productCategory: effectiveScope,
+          productCategories: cleanProducts.length > 0
+            ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+            : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
+          products: cleanProducts.length > 0
+            ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+            : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
+          productTableColumns: resolvedTableCols,
+          issueDate: parsedIssueDate,
+          expiryDate: parsedExpiryDate,
+          certificationStartDate: parsedCertStartDate,
+          currentCycleStartDate: parsedCurrentCycle,
+          originalCycleStartDate: parsedOrigCycle,
+          certificate_url: fullCertUrl
+        };
 
-      try {
-        const pdfBuffer = await generateCertificate(certData);
-        const filename = `${certNumber}.pdf`;
-        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
-      } catch (pdfErr) {
-        console.warn('Auto PDF generation warning:', pdfErr.message);
-      }
+        try {
+          const pdfBuffer = await generateCertificate(certData);
+          certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
+        } catch (pdfErr) {
+          console.warn('Auto PDF generation warning:', pdfErr.message);
+        }
     }
 
     // 6. Save Certificate
