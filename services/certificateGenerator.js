@@ -392,7 +392,7 @@ export const CERTIFICATE_SCHEMES = {
   'SMIIC': {
     name: 'SMIIC',
     templateType: 'gso',
-    basePdf: 'SMIIC.pdf',
+    basePdf: 'GSO NON MEAT.pdf',
     defaultColumns: 2,
     docFooter: 'Doc: Halal Certificate (SMIIC Scheme)   Created by: MH   Approved by: HI   Version: 2   Date: 11.10.2022',
     declarationLines: [
