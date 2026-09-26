@@ -99,11 +99,11 @@ async function regenerateCertPdf(certificate) {
     }));
 
     const certData = {
-      businessName: client ? (client.company_name || client.full_name) : (application?.establishment_name || 'HFA Client'),
-      businessAddress: application?.establishment_address || '—',
-      manufacturerAddress: application?.manufacturer_address || 'Same as above',
+      businessName: client ? (client.company_name || client.full_name || '') : (application?.establishment_name || ''),
+      businessAddress: application?.establishment_address || '',
+      manufacturerAddress: application?.manufacturer_address || '',
       certificateNumber: certificate.certificate_number,
-      scopeOfCertification: application?.scope || 'Halal Food Certification',
+      scopeOfCertification: application?.scope || '',
       productCategories,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)

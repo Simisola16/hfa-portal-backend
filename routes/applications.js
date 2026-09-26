@@ -1000,11 +1000,11 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
           }));
 
           const certData = {
-            businessName: client ? (client.company_name || client.full_name) : data.establishment_name,
-            businessAddress: data.establishment_address || '—',
-            manufacturerAddress: data.manufacturer_address || 'Same as above',
+            businessName: client ? (client.company_name || client.full_name || '') : (data.establishment_name || ''),
+            businessAddress: data.establishment_address || '',
+            manufacturerAddress: data.manufacturer_address || '',
             certificateNumber: certNumber,
-            scopeOfCertification: data.scope || 'Halal Food Certification',
+            scopeOfCertification: data.scope || '',
             productCategories,
             issueDate: new Date(),
             expiryDate: data.category === 'UAE/GSO Approved Halal Certification For Exporters To UAE'
