@@ -859,6 +859,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           name: typeof p === 'string' ? p : (p.name || p.title || p.description),
           description: typeof p === 'object' ? (p.description || p.name) : p
         }));
+        const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+        const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
+
         const pdfBuffer = await generateCertificate({
           certificateType: resolvedScheme,
           businessName: resolvedCompanyName,
@@ -866,8 +869,10 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           manufacturerAddress: resolvedManufacturingAddress,
           certificateNumber: certNo,
           scopeOfCertification: resolvedScope,
+          productCategory: req.body.product_category || resolvedScope,
           productCategories,
           products: productCategories,
+          productTableColumns: resolvedTableCols,
           issueDate: issue_date || new Date(),
           expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           certificationStartDate: certification_start_date || issue_date || new Date(),
@@ -884,6 +889,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     // Certificates must always go to Review Certification page first
     const initialStatus = 'under_review';
+    const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+    const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
     let certificate = null;
     if (application_id) {
@@ -926,6 +933,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.original_cycle_start_date = original_cycle_start_date || certificate.original_cycle_start_date;
       certificate.products_covered = parsedProducts;
       certificate.product_details = parsedProductDetails;
+      if (resolvedTableCols) certificate.product_table_columns = resolvedTableCols;
       if (certificate_url) certificate.certificate_url = certificate_url;
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
@@ -949,6 +957,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
         products_covered: parsedProducts,
         product_details: parsedProductDetails,
+        product_table_columns: resolvedTableCols || 2,
         certificate_url,
         status: initialStatus,
         is_add_on: isAddOn,
@@ -2104,6 +2113,8 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         existingProd.certificate_id = savedCert._id.toString();
         if (targetSiteId) existingProd.site_id = targetSiteId;
         existingProd.status = 'active';
+        existingProd.source = existingProd.source || 'admin';
+        existingProd.application_type = existingProd.application_type || 'Direct';
         if (prod.code) existingProd.code = prod.code;
         if (prod.barcode) existingProd.barcode = prod.barcode;
         if (prod.category) existingProd.category = prod.category;
@@ -2124,7 +2135,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           product_type: prod.product_type || '',
           description: prod.description || '',
           ingredients: prod.ingredients || [],
-          status: 'active'
+          status: 'active',
+          source: 'admin',
+          application_type: 'Direct'
         });
         const savedProd = await newProd.save();
         createdProductDocs.push(savedProd);

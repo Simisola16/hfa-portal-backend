@@ -10,6 +10,8 @@ const productSchema = new mongoose.Schema({
   code: String,
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
   certificate_id: String,
+  source: { type: String, enum: ['admin', 'client'], default: 'client' },
+  application_type: { type: String, default: 'Direct' },
   status: { type: String, enum: ['active', 'inactive', 'pending', 'approved', 'rejected'], default: 'pending' },
   ingredients: [String],
   notes: String,
