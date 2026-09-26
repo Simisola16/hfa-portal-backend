@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import Application from '../models/Application.js';
+import Site from '../models/Site.js';
 import User from '../models/User.js';
 import Certificate from '../models/Certificate.js';
 import Proposal from '../models/Proposal.js';
@@ -58,6 +59,37 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('inspectors')
       .sort({ created_at: -1 });
 
+    // Collect site_ids and client_ids for missing site_name resolution
+    const missingSiteIds = [];
+    const missingClientIds = [];
+    for (const doc of data) {
+      if (!doc.site_name) {
+        if (doc.site_id && mongoose.Types.ObjectId.isValid(doc.site_id)) {
+          missingSiteIds.push(new mongoose.Types.ObjectId(doc.site_id.toString()));
+        }
+        if (doc.client_id) {
+          const cId = (doc.client_id && typeof doc.client_id === 'object' && doc.client_id._id)
+            ? doc.client_id._id
+            : doc.client_id;
+          if (cId && mongoose.Types.ObjectId.isValid(cId.toString())) {
+            missingClientIds.push(new mongoose.Types.ObjectId(cId.toString()));
+          }
+        }
+      }
+    }
+
+    const [sitesByIdList, sitesByClientList] = await Promise.all([
+      missingSiteIds.length > 0 ? Site.find({ _id: { $in: missingSiteIds } }, 'name est_name client_id').lean() : [],
+      missingClientIds.length > 0 ? Site.find({ client_id: { $in: missingClientIds } }, 'name est_name client_id').lean() : []
+    ]);
+
+    const siteMap = new Map(sitesByIdList.map(s => [String(s._id), s.name || s.est_name]));
+    const clientSiteMap = new Map();
+    for (const s of sitesByClientList) {
+      const cStr = String(s.client_id);
+      if (!clientSiteMap.has(cStr)) clientSiteMap.set(cStr, s.name || s.est_name);
+    }
+
     const results = data.map(doc => {
       const item = doc.toObject ? doc.toObject() : doc;
       const client = (item.client_id && typeof item.client_id === 'object')
@@ -65,6 +97,12 @@ router.get('/', authenticateToken, async (req, res) => {
         : (item.profiles && typeof item.profiles === 'object' ? item.profiles : null);
       if (client?.company_name) {
         item.company_name = client.company_name;
+      }
+      if (!item.site_name) {
+        const resolvedName = (item.site_id && siteMap.get(String(item.site_id)))
+          || (item.client_id && clientSiteMap.get(String(item.client_id?._id || item.client_id)))
+          || (item.company_name ? `${item.company_name} Main Site` : '');
+        if (resolvedName) item.site_name = resolvedName;
       }
       return item;
     });
@@ -160,7 +198,10 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
     ]);
 
     let finalApp = { ...appDoc };
-    if (site) finalApp.site = site;
+    if (site) {
+      finalApp.site = site;
+      if (!finalApp.site_name) finalApp.site_name = site.name || site.est_name;
+    }
 
     // Filter main logsheet
     const mainLogsheet = (logsheets || []).find(l => {
