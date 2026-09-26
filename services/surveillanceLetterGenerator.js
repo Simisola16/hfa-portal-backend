@@ -55,7 +55,7 @@ function getTemplatePath() {
   const primary = path.resolve(__dirname, '../assets/certificates/SURVEILLANCE_TEMPLATE.pdf');
   if (fs.existsSync(primary)) return primary;
 
-  const qrTarget = resolveCertificateUrl(data.letter_url || data.document_url || data.pdf_url, letter_number, verification_url) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(letter_number)}`;
+  const qrTarget = resolveCertificateUrl(letterData.letter_url || letterData.document_url || letterData.pdf_url, letter_number, verification_url) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(letter_number)}`;
   const qrCodeBase64 = await generateQRCode(qrTarget);
 
   const fallback = path.resolve(__dirname, '../assets/SURVEILLANCE_TEMPLATE.pdf');
