@@ -11,10 +11,10 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
 import { generateCertificate } from '../services/certificateGenerator.js';
-import { uploadToS3 } from '../lib/s3.js';
+import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
-import { getClientUrl, getAdminUrl } from '../lib/urls.js';
+import { getClientUrl, getAdminUrl, resolveCertificateUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
 
 dotenv.config();
@@ -106,13 +106,16 @@ async function regenerateCertPdf(certificate) {
       scopeOfCertification: application?.scope || 'Halal Food Certification',
       productCategories,
       issueDate: certificate.issue_date || new Date(),
-      expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      verificationUrl: `${getClientUrl()}/verify/${certificate.certificate_number}`
+      expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
     };
 
-    const pdfBuffer = await generateCertificate(certData);
     const filename = `${certificate.certificate_number}.pdf`;
-    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates');
+    const s3Key = generateS3Key('certificates', filename);
+    const certPath = getS3PathFromKey(s3Key);
+    certData.certificate_url = resolveCertificateUrl(certPath);
+
+    const pdfBuffer = await generateCertificate(certData);
+    const certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
     certificate.certificate_url = certificate_url;
     await certificate.save();
     console.log(`[AddOn] Regenerated certificate PDF: ${certificate.certificate_number}`);

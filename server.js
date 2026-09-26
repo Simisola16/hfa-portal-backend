@@ -116,6 +116,15 @@ app.use('/api/initial-products', initialProductRoutes);
 app.use('/api/extension-applications', extensionApplicationRoutes);
 app.use('/api/surveillance-schedules', surveillanceScheduleRoutes);
 
+// Verification alias to support legacy or direct verification paths
+app.get(['/verify/:certNumber', '/verify/*'], (req, res) => {
+  const rawCert = req.params.certNumber || req.params[0] || '';
+  if (rawCert) {
+    return res.redirect(302, `/api/certificates/public/${encodeURIComponent(rawCert)}`);
+  }
+  res.redirect(302, '/');
+});
+
 app.get('/', (req, res) => {
   res.send('HFA Portal API is running...');
 });
