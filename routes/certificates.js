@@ -2156,18 +2156,15 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     if (req.file) {
       certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
+      const filename = `${certNumber}.pdf`;
+      const s3Key = generateS3Key('certificates', filename);
+      const certPath = getS3PathFromKey(s3Key);
+      const fullCertUrl = resolveCertificateUrl(certPath);
+
       const certData = {
         certificateType: certificate_type || 'GSO MEAT',
         businessName: effectiveBusinessName,
-        const filename = `${certNumber}.pdf`;
-        const s3Key = generateS3Key('certificates', filename);
-        const certPath = getS3PathFromKey(s3Key);
-        const fullCertUrl = resolveCertificateUrl(certPath);
-
-        const certData = {
-          certificateType: certificate_type || 'GSO MEAT',
-          businessName: effectiveBusinessName,
-          businessAddress: businessAddress,
+        businessAddress: businessAddress,
           manufacturerAddress: manufacturerAddr,
           certificateNumber: certNumber,
           scopeOfCertification: effectiveScope,
