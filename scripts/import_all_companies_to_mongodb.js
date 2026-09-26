@@ -469,25 +469,74 @@ async function loadAndIndexSqlTables() {
 
 // 3. Status mapping dictionaries
 const APP_STATUS_MAP = {
+  // Certificate Issued / Completed (1,840 apps)
   'successful': 'certificate_issued',
-  'certficate sent': 'certificate_issued',
   'certificate sent': 'certificate_issued',
-  'in-progress': 'under_review',
+  'certficate sent': 'certificate_issued',
+  'certificate issued': 'certificate_issued',
+
+  // Initial & Review (246 apps)
   'submitted': 'submitted',
+  'in-progress': 'under_review',
+  'draft': 'under_review',
+
+  // Proposals (112 apps)
+  'proposal sent': 'proposal_sent',
+  'proposal accepted': 'proposal_approved',
+  'proposal rejected': 'proposal_rejected',
+
+  // Invoices & Payments (61 apps)
+  'invoice sent': 'invoice_sent',
+  'invoice-sent': 'invoice_sent',
+  'deposit payment received': 'payment_received',
+  'payment recieved': 'payment_received',
+  'payment received': 'payment_received',
+  'final payment confirmation': 'final_invoice_paid',
+  'invoice for final payement sent': 'final_invoice_sent',
+
+  // Agreements (16 apps)
+  'agreement sent': 'agreement_sent',
+  'signed copy of agreement sent': 'agreement_signed',
+
+  // Product Approvals (7 apps)
+  'product approval forms recieved': 'initial_product_approved',
+  'product approval forms received': 'initial_product_approved',
+
+  // Audit Scheduling & Reports (41 apps)
+  'audit date finalized': 'date_finalized',
+  'stage2 audit date finalized': 'date_finalized',
+  'audit reports submitted': 'audit_report_submitted',
+  'audit completed': 'audit_completed',
+  'audited': 'audit_completed',
+
+  // Non-Conformance (40 apps)
+  'nc reports': 'nc_flagged',
+  'nc reportsgso': 'nc_flagged',
+
+  // Processing & Approval (15 apps)
+  'certificate processing': 'ready_for_certificate',
+  'renewal accepted': 'approved',
+  'surveillance accepted': 'approved',
+  'approved': 'approved',
+
+  // On Hold (6 apps)
+  'on hold': 'on_hold',
+
+  // Rejected / Bin (49 apps)
   'bin': 'rejected',
   'rejected': 'rejected',
-  'approved': 'approved',
-  'draft': 'under_review'
+  'renewal rejected': 'rejected',
+  'surveillance rejected': 'rejected'
 };
 
 const ADDON_STATUS_MAP = {
   'request submited': 'submitted',
   'request accepted': 'accepted',
-  'product form submitted': 'under_review',
-  'invoice sent': 'invoice_sent',
-  'payment received': 'payment_received',
-  'certificate processing': 'processing',
-  'certificate sent': 'completed'
+  'product form submitted': 'product_approval_form_enabled',
+  'product approval forms received': 'all_forms_received',
+  'certificate processing': 'ready_for_certificate',
+  'certificate sent': 'completed',
+  'certficate sent': 'completed'
 };
 
 // 4. Main Import Runner
@@ -858,7 +907,7 @@ async function runFullCompanyImport() {
         const appNum = cleanStr(s.AppNumber) || `SU-${cleanStr(s.ArenewID || s.ApplicationID)}-${cid}`;
         const siteId = siteIdMap.get(cleanStr(s.CiteID)) || defaultSiteId;
         const rawStatus = cleanStr(s.ApplStatus).toLowerCase();
-        const appStatus = rawStatus.includes('sent') || rawStatus.includes('cert') ? 'certificate_issued' : 'under_review';
+        const appStatus = APP_STATUS_MAP[rawStatus] || (rawStatus.includes('sent') || rawStatus.includes('cert') ? 'certificate_issued' : 'under_review');
         const scheme = cleanStr(s.AppCategory) || 'GSO Scheme';
 
         const survDoc = {
@@ -908,8 +957,18 @@ async function runFullCompanyImport() {
           description: cleanStr(s.SIZE) || ''
         })).filter(p => p.name);
 
+        const rawCertStatus = cleanStr(c.Statuss).toLowerCase();
         const expDate = safeDate(c.ExpiryDate, new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
         const isExpired = expDate < new Date();
+
+        let certStatus = 'active';
+        if (rawCertStatus === 'submitted') {
+          certStatus = 'under_review';
+        } else if (isExpired) {
+          certStatus = 'expired';
+        } else {
+          certStatus = 'active';
+        }
 
         const certDoc = {
           certificate_number: certNo,
@@ -929,9 +988,9 @@ async function runFullCompanyImport() {
           expiry_date: expDate,
           certification_start_date: safeDate(c.CurrentCyStartDate, safeDate(c.IssueDate)),
           original_cycle_start_date: safeDate(c.OriginalCyStartDate, safeDate(c.IssueDate)),
-          status: isExpired ? 'expired' : 'active',
+          status: certStatus,
           is_direct_issuance: false,
-          notes: `Imported from legacy HFA database (Ref: ${cleanStr(c.Qcoder) || certNo})`
+          notes: `Imported from legacy HFA database (Ref: ${cleanStr(c.Qcoder) || certNo}, Status: ${cleanStr(c.Statuss)})`
         };
 
         await Certificate.findOneAndUpdate(
