@@ -66,6 +66,8 @@ router.get('/', authenticateToken, async (req, res) => {
         ...p,
         id: p._id.toString(),
         barcode: p.barcode || p.code || '',
+        source: p.source || (p.notes?.toLowerCase().includes('administrator') || p.notes?.toLowerCase().includes('direct') ? 'admin' : 'client'),
+        application_type: p.application_type || (p.notes?.toLowerCase().includes('direct') ? 'Direct' : (p.notes?.toLowerCase().includes('renewal') ? 'Renewal' : (p.notes?.toLowerCase().includes('add-on') || p.notes?.toLowerCase().includes('addon') ? 'Extension' : 'New'))),
         client_id: clientObj || p.client_id,
         profiles: clientObj ? {
           company_name: clientObj.company_name,
@@ -142,6 +144,8 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
         description,
         notes: productNotes,
         status: p.status || 'active',
+        source: 'admin',
+        application_type: p.application_type || req.body.application_type || 'Direct',
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -196,7 +200,9 @@ router.post('/', authenticateToken, async (req, res) => {
         site_id: site_id || undefined,
         ingredients,
         barcode: barcode || '',
-        status: 'active'
+        status: 'active',
+        source: 'admin',
+        application_type: req.body.application_type || 'Direct'
       });
       const data = await product.save();
       return res.status(201).json({ data });
