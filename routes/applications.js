@@ -817,21 +817,15 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
       const address = recipient_address || app.establishment_address || clientProfile.address || '—';
 
       const pdfBuffer = await generateSurveillanceLetter({
-        letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+        letter_number: letter_number || `DU-KH/QR${Date.now().toString().slice(-12)}`,
         issue_date: issue_date || new Date(),
-        next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        surveillance_cycle: surveillance_cycle || 'Annual Halal Surveillance Audit (UAE/GSO 3-Year Scheme)',
         recipient_name: company,
         recipient_address: address,
-        recipient_attention: recipient_attention || 'Quality Assurance & Regulatory Compliance Team',
-        letter_subject: letter_subject || 'CONFIRMATION OF CONTINUED HALAL CERTIFICATION COMPLIANCE — ANNUAL SURVEILLANCE',
-        letter_salutation: letter_salutation || 'Dear Sir / Madam,',
-        letter_body: letter_body || '',
-        products_covered: products_covered || app.scope || (Array.isArray(app.products) ? app.products.map(p => p.name).join(', ') : 'Halal Certified Products'),
-        standards: standards || 'UAE.S 2055-1:2015, GSO 2055-1:2015 & HFA Scheme Standards',
-        signatory_name: signatory_name || 'HFA Halal Certification Committee',
-        signatory_title: signatory_title || 'Lead Halal Auditor & Certification Director',
-        verification_url: `${getClientUrl()}/applications/${app._id}/track`
+        recipient_attention: recipient_attention || '',
+        letter_subject: letter_subject || 'Re: Surveillance Audit Outcome',
+        certificate_number: app.certificate_number || app.renewed_certificate_id?.certificate_number || '',
+        standards: standards || 'UAE.S.2055-1:2015',
+        letter_body: letter_body || ''
       });
 
       const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
