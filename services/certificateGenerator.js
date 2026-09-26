@@ -577,34 +577,6 @@ export async function generateCertificate(certData) {
 
   const totalPages = pagesProducts.length;
 
-  // Load clean annex base PDF template for multi-page certificates (Page 2+)
-  let annexDoc = null;
-  if (totalPages > 1) {
-    try {
-      const annexBuffer = getBasePdfBuffer('ANNEX_BASE.pdf');
-      annexDoc = await PDFDocument.load(annexBuffer, { ignoreEncryption: true });
-    } catch (e) {
-      try {
-        const clonedBase = await PDFDocument.load(basePdfBuffer, { ignoreEncryption: true });
-        const p = clonedBase.getPage(0);
-        const stream = clonedBase.context.lookup(p.node.Contents());
-        if (stream) {
-          const u8 = stream.asUint8Array ? stream.asUint8Array() : stream.getContents();
-          let decomp = zlib.inflateSync(u8).toString('utf-8');
-          const declRegex = /BT[\r\n\s]+(\/P\s*<<[^>]*>>BDC[\r\n\s]+)?\/C2_0\s+1\s+Tf[\r\n\s]+12\s+0\s+0\s+12\s+56\.9698\s+556\.0353\s+Tm[\s\S]*?ET/g;
-          decomp = decomp.replace(declRegex, '');
-          stream.contents = zlib.deflateSync(Buffer.from(decomp, 'utf-8'));
-          const cleanAnnexBuf = await clonedBase.save();
-          pdfCache.set('ANNEX_BASE.pdf', Buffer.from(cleanAnnexBuf));
-          annexDoc = await PDFDocument.load(cleanAnnexBuf, { ignoreEncryption: true });
-        } else {
-          annexDoc = baseDoc;
-        }
-      } catch (err) {
-        annexDoc = baseDoc;
-      }
-    }
-  }
 
   // Create destination multi-page PDF document
   const pdfDoc = await PDFDocument.create();
@@ -715,8 +687,8 @@ export async function generateCertificate(certData) {
     const isLastPage = pageIdx === totalPages - 1;
     const currentProducts = pagesProducts[pageIdx];
 
-    // Clone vector base PDF template page (for GSO, all pages use baseDoc so background is 100% identical to Page 1)
-    const sourceDoc = (isGso || isFirstPage || !annexDoc) ? baseDoc : annexDoc;
+    // Clone vector base PDF template page (all schemes use baseDoc on all pages so background is 100% identical to Page 1)
+    const sourceDoc = baseDoc;
     const [page] = await pdfDoc.copyPages(sourceDoc, [0]);
     pdfDoc.addPage(page);
 
