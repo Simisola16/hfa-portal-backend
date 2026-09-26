@@ -16,6 +16,7 @@ import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate } from '../services/certificateGenerator.js';
+import { generateSurveillanceLetter } from '../services/surveillanceLetterGenerator.js';
 import { getClientUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
 
@@ -302,6 +303,31 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     }
 
     const certNo = (certificate_number && certificate_number.trim()) || 'HFA-PREVIEW-001';
+
+    const isSurv = req.body.is_surveillance || String(certificate_type || '').toUpperCase() === 'SURVEILLANCE';
+    if (isSurv) {
+      const survPdfBuffer = await generateSurveillanceLetter({
+        letter_number: certNo,
+        issue_date: issue_date ? new Date(issue_date) : new Date(),
+        recipient_name: company_name || 'Valued Halal Client',
+        recipient_address: company_address || 'Registered Business Address',
+        recipient_attention: req.body.recipient_attention || '',
+        letter_subject: req.body.letter_subject || 'Re: Surveillance Audit Outcome',
+        certificate_number: req.body.halal_certificate_number || '',
+        standards: req.body.standards || 'UAE.S.2055-1:2015',
+        letter_body: req.body.letter_body || ''
+      });
+
+      const filename = `${certNo}-surveillance-preview.pdf`;
+      const previewUrl = await uploadToS3(survPdfBuffer, filename, 'application/pdf', 'surveillance');
+
+      return res.json({
+        success: true,
+        previewUrl,
+        certificateNumber: certNo
+      });
+    }
+
     const effectiveScope = product_category || scope || 'Halal Food and Consumer Products Certification';
     const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
     const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;

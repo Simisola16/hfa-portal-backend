@@ -253,14 +253,38 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       }
     }
   } catch (e) {}
-  const neededCatW = Math.max(120.0, Math.min(170.0, Math.ceil(maxCatTextW + 20.0)));
 
-  // Option 3: Balanced centered table (~360pt to 505pt)
-  const codeColWidth = Math.max(55.0, Math.min(95.0, neededCodeW));
-  const catColWidth = neededCatW;
-  const maxAvailableDesc = MAX_TABLE_WIDTH - noColWidth - codeColWidth - catColWidth;
-  const neededDescW = Math.max(150.0, Math.ceil(maxDescTextW + 24.0));
-  const descColWidth = Math.min(maxAvailableDesc, neededDescW);
+  const codeColWidth = neededCodeW;
+  const availableForDescAndCat = MAX_TABLE_WIDTH - noColWidth - codeColWidth;
+
+  const minDescW = 95.0;
+  const minCatW = 110.0;
+  const neededDesc = Math.max(minDescW, Math.ceil(maxDescTextW + 20.0));
+  const neededCat = Math.max(minCatW, Math.ceil(maxCatTextW + 20.0));
+
+  let descColWidth;
+  let catColWidth;
+
+  if (neededDesc + neededCat <= availableForDescAndCat) {
+    descColWidth = neededDesc;
+    catColWidth = neededCat;
+    const extra = availableForDescAndCat - (descColWidth + catColWidth);
+    if (neededCat > 160.0) {
+      const bonus = Math.min(extra, Math.ceil(neededCat * 0.15) + 15.0);
+      catColWidth += bonus;
+    } else if (extra > 0) {
+      descColWidth += Math.round(extra * 0.4);
+      catColWidth += Math.round(extra * 0.6);
+    }
+  } else {
+    const totalNeeded = neededDesc + neededCat;
+    descColWidth = Math.max(minDescW, Math.round(availableForDescAndCat * (neededDesc / totalNeeded)));
+    catColWidth = availableForDescAndCat - descColWidth;
+    if (neededCat > neededDesc && catColWidth < 220.0 && availableForDescAndCat >= 310.0) {
+      catColWidth = Math.min(neededCat, availableForDescAndCat - minDescW);
+      descColWidth = availableForDescAndCat - catColWidth;
+    }
+  }
 
   return [
     { header: 'NO.', width: noColWidth, align: 'center', pad: 0 },
@@ -536,7 +560,7 @@ export async function generateCertificate(certData) {
         category = 'Halal Certified';
       }
 
-      const key = name.toLowerCase();
+      const key = `${code.toLowerCase()}___${name.toLowerCase()}`;
       if (name && !seenProductNames.has(key)) {
         seenProductNames.add(key);
         allProducts.push({
@@ -557,11 +581,10 @@ export async function generateCertificate(certData) {
     });
   }
 
-  // Pagination capacity:
-  // Page 1 fits up to 6 products cleanly above the signatures and below the company info.
-  // Subsequent pages fit up to 20 products per page in the dedicated annex container.
-  const PAGE1_LIMIT = 6;
-  const SUBSEQUENT_PAGE_LIMIT = 20;
+  // Page 1 has company info, declaration & dates. Fits exactly up to 5 products with generous breathing room above signatures.
+  // Subsequent pages fit up to 15 products per page cleanly above seals and signatures.
+  const PAGE1_LIMIT = 5;
+  const SUBSEQUENT_PAGE_LIMIT = 15;
 
   let pagesProducts = [];
   if (allProducts.length <= PAGE1_LIMIT) {
@@ -804,19 +827,19 @@ export async function generateCertificate(certData) {
       const rowValSize = 10.5;
 
       // Row 1: COMPANY NAME
-      const r1Y = 480.0;
+      const r1Y = 488.0;
       page.drawText('COMPANY NAME:', { x: labelStartX, y: r1Y, size: rowLabelSize, font: fontRegular, color: cDark });
       const nameLines = wrapTextLines(resolvedName, maxValW, fontRegular, rowValSize, 1);
       page.drawText(nameLines[0] || '—', { x: valStartX, y: r1Y, size: rowValSize, font: fontRegular, color: cDark });
       page.drawLine({
-        start: { x: dividerLeftX, y: 466.0 },
-        end: { x: dividerRightX, y: 466.0 },
+        start: { x: dividerLeftX, y: 474.0 },
+        end: { x: dividerRightX, y: 474.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 2: COMPANY ADDRESS
-      const r2Y = 448.0;
+      const r2Y = 456.0;
       page.drawText('COMPANY ADDRESS:', { x: labelStartX, y: r2Y, size: rowLabelSize, font: fontRegular, color: cDark });
       const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 2);
       if (addrLines.length > 1) {
@@ -826,31 +849,31 @@ export async function generateCertificate(certData) {
         page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
       }
       page.drawLine({
-        start: { x: dividerLeftX, y: 424.0 },
-        end: { x: dividerRightX, y: 424.0 },
+        start: { x: dividerLeftX, y: 432.0 },
+        end: { x: dividerRightX, y: 432.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 3: MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):
-      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 406.0, size: rowLabelSize, font: fontRegular, color: cDark });
-      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 393.0, size: rowLabelSize, font: fontRegular, color: cDark });
+      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 414.0, size: rowLabelSize, font: fontRegular, color: cDark });
+      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 401.0, size: rowLabelSize, font: fontRegular, color: cDark });
       const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 2);
       if (mfgLines.length > 1) {
-        page.drawText(mfgLines[0], { x: valStartX, y: 406.0, size: rowValSize, font: fontRegular, color: cDark });
-        page.drawText(mfgLines[1], { x: valStartX, y: 393.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(mfgLines[0], { x: valStartX, y: 414.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(mfgLines[1], { x: valStartX, y: 401.0, size: rowValSize, font: fontRegular, color: cDark });
       } else {
-        page.drawText(mfgLines[0], { x: valStartX, y: 399.0, size: rowValSize, font: fontRegular, color: cDark });
+        page.drawText(mfgLines[0], { x: valStartX, y: 407.0, size: rowValSize, font: fontRegular, color: cDark });
       }
       page.drawLine({
-        start: { x: dividerLeftX, y: 378.0 },
-        end: { x: dividerRightX, y: 378.0 },
+        start: { x: dividerLeftX, y: 386.0 },
+        end: { x: dividerRightX, y: 386.0 },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 4: PRODUCT CATEGORY
-      const r4Y = 360.0;
+      const r4Y = 368.0;
       page.drawText('PRODUCT CATEGORY:', { x: labelStartX, y: r4Y, size: rowLabelSize, font: fontRegular, color: cDark });
       const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2);
       if (scopeLines.length > 1) {
@@ -859,9 +882,10 @@ export async function generateCertificate(certData) {
       } else {
         page.drawText(scopeLines[0] || '—', { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
       }
+      // Product Category divider line positioned with clear spacing above the table
       page.drawLine({
-        start: { x: dividerLeftX, y: 336.0 },
-        end: { x: dividerRightX, y: 336.0 },
+        start: { x: dividerLeftX, y: 344.0 },
+        end: { x: dividerRightX, y: 344.0 },
         thickness: 0.5,
         color: cDivider
       });
@@ -871,9 +895,12 @@ export async function generateCertificate(certData) {
     const tableLeftX = dynamicTableLeftX;
     const tableWidth = dynamicTableWidth;
     const headerHeight = 18.0;
-    const rowHeight = 18.0;
+    const rowHeight = 17.5;
 
-    let headerBottomY = isFirstPage ? 312.0 : 511.0;
+    // Page 1: Table top is at y=328.0 pt leaving a generous 16.0 pt spacing below Product Category divider (344.0 pt).
+    // headerBottomY = 328.0 - 18.0 = 310.0 pt.
+    // Subsequent pages: Table top is at y=560.0 pt, headerBottomY = 560.0 - 18.0 = 542.0 pt.
+    let headerBottomY = isFirstPage ? 310.0 : 542.0;
 
     // Use dynamically computed column definitions based on product lengths
     const colDefs = tableColDefs;
@@ -932,7 +959,50 @@ export async function generateCertificate(certData) {
 
     currentProducts.forEach((p) => {
       globalProductIndex++;
-      curRowY -= rowHeight;
+
+      // Pre-compute wrapped lines for all cells in this row
+      const colLines = [];
+      let rowNeedsTwoLines = false;
+
+      colDefs.forEach((col, cIdx) => {
+        if (cIdx === 0) {
+          colLines.push([String(globalProductIndex)]);
+        } else if (numColumns === 1) {
+          const lines = wrapTextLines(p.name, col.width - 16.0, fontRegular, cellFontSize, 2);
+          if (lines.length > 1) rowNeedsTwoLines = true;
+          colLines.push(lines);
+        } else if (numColumns === 2) {
+          if (cIdx === 1) {
+            const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
+            if (lines.length > 1) rowNeedsTwoLines = true;
+            colLines.push(lines);
+          } else {
+            const descVal = p.description || p.name;
+            const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+            if (lines.length > 1) rowNeedsTwoLines = true;
+            colLines.push(lines);
+          }
+        } else if (numColumns === 3) {
+          if (cIdx === 1) {
+            const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
+            if (lines.length > 1) rowNeedsTwoLines = true;
+            colLines.push(lines);
+          } else if (cIdx === 2) {
+            const descVal = p.description || p.name;
+            const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+            if (lines.length > 1) rowNeedsTwoLines = true;
+            colLines.push(lines);
+          } else if (cIdx === 3) {
+            const catVal = p.category || 'Halal Certified';
+            const lines = wrapTextLines(catVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+            if (lines.length > 1) rowNeedsTwoLines = true;
+            colLines.push(lines);
+          }
+        }
+      });
+
+      const thisRowHeight = rowNeedsTwoLines ? 23.5 : rowHeight;
+      curRowY -= thisRowHeight;
 
       // Horizontal bottom divider
       page.drawLine({
@@ -949,84 +1019,52 @@ export async function generateCertificate(certData) {
           const divX = rowXCursor + col.width;
           page.drawLine({
             start: { x: divX, y: curRowY },
-            end: { x: divX, y: curRowY + rowHeight },
+            end: { x: divX, y: curRowY + thisRowHeight },
             thickness: 0.5,
             color: cTableGrid
           });
         }
 
-        // Cell content rendering: NO. is centered, product columns are left-aligned
-        if (cIdx === 0) {
+        const lines = colLines[cIdx] || [];
+        const isBold = (cIdx === 0 || (cIdx === 1 && numColumns >= 2));
+        const cellFont = isBold ? fontBold : fontRegular;
+
+        if (col.align === 'center') {
           // NO. column (centered bold)
-          const noStr = String(globalProductIndex);
-          const noW = fontBold.widthOfTextAtSize(noStr, cellFontSize);
-          page.drawText(noStr, {
+          const text = lines[0] || String(globalProductIndex);
+          const noW = fontBold.widthOfTextAtSize(text, cellFontSize);
+          page.drawText(text, {
             x: rowXCursor + (col.width - noW) / 2,
-            y: curRowY + (rowHeight - cellFontSize) / 2 + 1.0,
+            y: curRowY + (thisRowHeight - cellFontSize) / 2 + 1.0,
             size: cellFontSize,
             font: fontBold,
             color: cDark
           });
-        } else if (numColumns === 1) {
-          // Option 1: NAME OF THE PRODUCTS (left-aligned)
-          const nameFit = fitText(p.name, col.width - 16.0, fontRegular, cellFontSize);
-          page.drawText(nameFit.text, {
-            x: rowXCursor + (col.pad || 8.0),
-            y: curRowY + (rowHeight - nameFit.size) / 2 + 1.0,
-            size: nameFit.size,
-            font: fontRegular,
-            color: cDark
-          });
-        } else if (numColumns === 2) {
-          // Option 2: CODE | DESCRIPTION (left-aligned)
-          if (cIdx === 1) {
-            const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
-            page.drawText(codeFit.text, {
-              x: rowXCursor + (col.pad || 8.0),
-              y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
-              size: codeFit.size,
-              font: fontBold,
+        } else {
+          const pad = col.pad || 8.0;
+          if (lines.length > 1) {
+            // Draw 2 lines cleanly at full cellFontSize (9.0pt) - maintaining exact same font size
+            page.drawText(lines[0], {
+              x: rowXCursor + pad,
+              y: curRowY + thisRowHeight - 10.5,
+              size: cellFontSize,
+              font: cellFont,
               color: cDark
             });
-          } else if (cIdx === 2) {
-            const descVal = p.description || p.name;
-            const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
-            page.drawText(descFit.text, {
-              x: rowXCursor + (col.pad || 8.0),
-              y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
-              size: descFit.size,
-              font: fontRegular,
+            page.drawText(lines[1], {
+              x: rowXCursor + pad,
+              y: curRowY + 3.0,
+              size: cellFontSize,
+              font: cellFont,
               color: cDark
             });
-          }
-        } else if (numColumns === 3) {
-          // Option 3: CODE | DESCRIPTION | CATEGORY (left-aligned)
-          if (cIdx === 1) {
-            const codeFit = fitText(p.code, col.width - 12.0, fontBold, cellFontSize);
-            page.drawText(codeFit.text, {
-              x: rowXCursor + (col.pad || 8.0),
-              y: curRowY + (rowHeight - codeFit.size) / 2 + 1.0,
-              size: codeFit.size,
-              font: fontBold,
-              color: cDark
-            });
-          } else if (cIdx === 2) {
-            const descVal = p.description || p.name;
-            const descFit = fitText(descVal, col.width - 16.0, fontRegular, cellFontSize);
-            page.drawText(descFit.text, {
-              x: rowXCursor + (col.pad || 8.0),
-              y: curRowY + (rowHeight - descFit.size) / 2 + 1.0,
-              size: descFit.size,
-              font: fontRegular,
-              color: cDark
-            });
-          } else if (cIdx === 3) {
-            const catFit = fitText(p.category || 'Halal Certified', col.width - 16.0, fontRegular, cellFontSize);
-            page.drawText(catFit.text, {
-              x: rowXCursor + (col.pad || 8.0),
-              y: curRowY + (rowHeight - catFit.size) / 2 + 1.0,
-              size: catFit.size,
-              font: fontRegular,
+          } else if (lines.length === 1) {
+            // Single line vertically centered
+            page.drawText(lines[0], {
+              x: rowXCursor + pad,
+              y: curRowY + (thisRowHeight - cellFontSize) / 2 + 1.0,
+              size: cellFontSize,
+              font: cellFont,
               color: cDark
             });
           }
