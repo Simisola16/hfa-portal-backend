@@ -20,7 +20,7 @@ function getBasePdfBuffer(basePdfFile) {
   if (pdfCache.has(basePdfFile)) {
     return pdfCache.get(basePdfFile);
   }
-  
+
   const candidates = [
     path.join(__dirname, '../assets/certificates', basePdfFile),
     path.join(__dirname, '../../', basePdfFile),
@@ -162,7 +162,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
       const hW = fontBold.widthOfTextAtSize('NO.', 9.0);
       const valW = fontBold.widthOfTextAtSize(maxIdxStr, 9.0);
       maxNoTextW = Math.max(hW, valW);
-    } catch (e) {}
+    } catch (e) { }
   }
   const noColWidth = Math.max(38.0, Math.ceil(maxNoTextW + 16.0));
 
@@ -181,7 +181,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
             if (w > maxNameTextW) maxNameTextW = w;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     const nameColWidth = Math.min(
       MAX_TABLE_WIDTH - noColWidth,
@@ -206,7 +206,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   const neededCodeW = Math.max(65.0, Math.min(120.0, Math.ceil(maxCodeTextW + 20.0)));
 
   // Measure max width of DESCRIPTION across all products
@@ -222,7 +222,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   if (numColumns === 2) {
     // Option 2: NO. | CODE | DESCRIPTION
@@ -252,7 +252,7 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const codeColWidth = neededCodeW;
   const availableForDescAndCat = MAX_TABLE_WIDTH - noColWidth - codeColWidth;
@@ -294,20 +294,26 @@ function computeProductTableColumns(products, numColumns, fontBold, fontRegular)
   ];
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 /**
- * Formats a Date object or date string into DD-MMM-YYYY (e.g. 13-Sep-2026).
+ * Formats a Date object or date string into DD-Month-YYYY (e.g. 13-September-2026).
  */
 export function formatDate(dateVal) {
   if (!dateVal) return '—';
 
-  // If already in DD-MMM-YYYY format (e.g. 13-Sep-2026)
-  if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(dateVal.trim())) {
+  // If already in DD-MMM-YYYY or DD-Month-YYYY format (e.g. 13-Sep-2026 or 13-September-2026)
+  if (typeof dateVal === 'string' && /^\d{1,2}-[A-Za-z]+-\d{4}$/.test(dateVal.trim())) {
     const parts = dateVal.trim().split('-');
     const day = parts[0].padStart(2, '0');
-    const month = parts[1].charAt(0).toUpperCase() + parts[1].slice(1, 3).toLowerCase();
     const year = parts[2];
+    const shortToFull = {
+      jan: 'January', feb: 'February', mar: 'March', apr: 'April',
+      may: 'May', jun: 'June', jul: 'July', aug: 'August',
+      sep: 'September', oct: 'October', nov: 'November', dec: 'December'
+    };
+    const key = parts[1].slice(0, 3).toLowerCase();
+    const month = shortToFull[key] || (parts[1].charAt(0).toUpperCase() + parts[1].slice(1).toLowerCase());
     return `${day}-${month}-${year}`;
   }
 
@@ -318,7 +324,7 @@ export function formatDate(dateVal) {
       const year = match[1];
       const monthIdx = parseInt(match[2], 10) - 1;
       const day = match[3].padStart(2, '0');
-      const monthStr = MONTH_NAMES[monthIdx] || 'Jan';
+      const monthStr = MONTH_NAMES[monthIdx] || 'January';
       return `${day}-${monthStr}-${year}`;
     }
   }
@@ -329,7 +335,7 @@ export function formatDate(dateVal) {
     const day = parts[0].padStart(2, '0');
     const monthIdx = parseInt(parts[1], 10) - 1;
     const year = parts[2];
-    const monthStr = MONTH_NAMES[monthIdx] || 'Jan';
+    const monthStr = MONTH_NAMES[monthIdx] || 'January';
     return `${day}-${monthStr}-${year}`;
   }
 
@@ -337,7 +343,7 @@ export function formatDate(dateVal) {
   const date = new Date(dateVal);
   if (isNaN(date.getTime())) return String(dateVal);
   const day = String(date.getDate()).padStart(2, '0');
-  const monthStr = MONTH_NAMES[date.getMonth()] || 'Jan';
+  const monthStr = MONTH_NAMES[date.getMonth()] || 'January';
   const year = date.getFullYear();
   return `${day}-${monthStr}-${year}`;
 }
@@ -445,7 +451,7 @@ CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];
 export function normalizeCertificateType(rawType) {
   if (!rawType) return 'GSO MEAT';
   const str = String(rawType).trim().toUpperCase();
-  
+
   if (str === 'COSMETICS' || str.includes('COSMETIC')) return 'COSMETICS';
   if (str === 'SMIIC' || str.includes('SMIIC')) return 'SMIIC';
 
@@ -467,7 +473,7 @@ export function normalizeCertificateType(rawType) {
     }
     return 'HFA SCHEME MEAT';
   }
-  
+
   return CERTIFICATE_SCHEMES[str] ? str : 'GSO MEAT';
 }
 
@@ -752,7 +758,7 @@ export async function generateCertificate(certData) {
     if (!isGso) {
       // Non-GSO (HFA Meat, HFA Non-Meat, Cosmetics, SMIIC): 3 dates
       const dateY = isCosmetics ? 604.0 : 610.0;
-      
+
       // Date 1: Issue Date
       const issueLabel = 'Issue Date:';
       const issueLabelW = fontRegular.widthOfTextAtSize(issueLabel, dateSize);
@@ -1241,6 +1247,7 @@ export async function buildCertificateHtml(certData) {
   const rawColOption = parseInt(productTableColumns || tableLayout || product_table_columns || table_layout, 10);
   const numColumns = (rawColOption >= 1 && rawColOption <= 3) ? rawColOption : scheme.defaultColumns;
 
+
   const certUrlCandidate = certData.certificate_url || certData.certificateUrl || certData.certificateFileUrl || certData.pdfUrl || certData.url;
   const qrUrl = resolveCertificateUrl(certUrlCandidate, certificateNumber, verificationUrl) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(certificateNumber)}`;
   const qrBase64 = await QRCode.toDataURL(qrUrl, { margin: 0, width: 250 });
@@ -1254,66 +1261,66 @@ export async function buildCertificateHtml(certData) {
   const rawProducts = (products && products.length > 0) ? products : productCategories;
   const productList = (rawProducts && rawProducts.length > 0)
     ? rawProducts.map((p, idx) => {
-        if (typeof p === 'string') {
-          return {
-            code: `PRD-${String(idx + 1).padStart(2, '0')}`,
-            name: p,
-            description: p,
-            category: 'Halal Certified'
-          };
-        }
+      if (typeof p === 'string') {
         return {
-          code: p.code || p.product_code || p.barcode || `PRD-${String(idx + 1).padStart(2, '0')}`,
-          name: p.name || p.product_name || p.description || `Product ${idx + 1}`,
-          description: p.description || p.name || p.product_name || `Product ${idx + 1}`,
-          category: p.category || 'Halal Certified'
+          code: `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: p,
+          description: p,
+          category: 'Halal Certified'
         };
-      })
+      }
+      return {
+        code: p.code || p.product_code || p.barcode || `PRD-${String(idx + 1).padStart(2, '0')}`,
+        name: p.name || p.product_name || p.description || `Product ${idx + 1}`,
+        description: p.description || p.name || p.product_name || `Product ${idx + 1}`,
+        category: p.category || 'Halal Certified'
+      };
+    })
     : [{ code: 'PRD-01', name: 'Certified Halal Products', description: 'Certified Halal Products', category: 'Halal Certified' }];
 
   const declarationText = scheme.declarationLines.join(' ');
 
-      // Dynamic HTML Table Columns based on product lengths
-      const maxCodeLen = productList.reduce((max, p) => Math.max(max, (p.code || '').length), 4);
-      const maxDescLen = productList.reduce((max, p) => Math.max(max, (p.description || p.name || '').length), 11);
-      const maxCatLen = productList.reduce((max, p) => Math.max(max, (p.category || 'Halal Certified').length), 8);
+  // Dynamic HTML Table Columns based on product lengths
+  const maxCodeLen = productList.reduce((max, p) => Math.max(max, (p.code || '').length), 4);
+  const maxDescLen = productList.reduce((max, p) => Math.max(max, (p.description || p.name || '').length), 11);
+  const maxCatLen = productList.reduce((max, p) => Math.max(max, (p.category || 'Halal Certified').length), 8);
 
-      let htmlCols = [];
-      if (numColumns === 1) {
-        htmlCols = [
-          { header: 'NO.', width: '12%', align: 'center' },
-          { header: 'NAME OF THE PRODUCTS', width: '88%', align: 'left' }
-        ];
-      } else if (numColumns === 2) {
-        const codePct = Math.max(16, Math.min(26, Math.round(maxCodeLen * 1.5 + 8)));
-        const descPct = 100 - 9 - codePct;
-        htmlCols = [
-          { header: 'NO.', width: '9%', align: 'center' },
-          { header: 'CODE', width: `${codePct}%`, align: 'left' },
-          { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' }
-        ];
-      } else {
-        const codePct = Math.max(14, Math.min(22, Math.round(maxCodeLen * 1.4 + 6)));
-        const availForDescAndCat = 100 - 9 - codePct;
-        const totalLen = Math.max(1, maxDescLen + maxCatLen);
-        let descPct = Math.round(availForDescAndCat * (maxDescLen / totalLen));
-        let catPct = availForDescAndCat - descPct;
-        if (descPct < 26) {
-          descPct = 26;
-          catPct = availForDescAndCat - descPct;
-        } else if (catPct < 18) {
-          catPct = 18;
-          descPct = availForDescAndCat - catPct;
-        }
-        htmlCols = [
-          { header: 'NO.', width: '9%', align: 'center' },
-          { header: 'CODE', width: `${codePct}%`, align: 'left' },
-          { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' },
-          { header: 'CATEGORY', width: `${catPct}%`, align: 'left' }
-        ];
-      }
+  let htmlCols = [];
+  if (numColumns === 1) {
+    htmlCols = [
+      { header: 'NO.', width: '12%', align: 'center' },
+      { header: 'NAME OF THE PRODUCTS', width: '88%', align: 'left' }
+    ];
+  } else if (numColumns === 2) {
+    const codePct = Math.max(16, Math.min(26, Math.round(maxCodeLen * 1.5 + 8)));
+    const descPct = 100 - 9 - codePct;
+    htmlCols = [
+      { header: 'NO.', width: '9%', align: 'center' },
+      { header: 'CODE', width: `${codePct}%`, align: 'left' },
+      { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' }
+    ];
+  } else {
+    const codePct = Math.max(14, Math.min(22, Math.round(maxCodeLen * 1.4 + 6)));
+    const availForDescAndCat = 100 - 9 - codePct;
+    const totalLen = Math.max(1, maxDescLen + maxCatLen);
+    let descPct = Math.round(availForDescAndCat * (maxDescLen / totalLen));
+    let catPct = availForDescAndCat - descPct;
+    if (descPct < 26) {
+      descPct = 26;
+      catPct = availForDescAndCat - descPct;
+    } else if (catPct < 18) {
+      catPct = 18;
+      descPct = availForDescAndCat - catPct;
+    }
+    htmlCols = [
+      { header: 'NO.', width: '9%', align: 'center' },
+      { header: 'CODE', width: `${codePct}%`, align: 'left' },
+      { header: 'DESCRIPTION', width: `${descPct}%`, align: 'left' },
+      { header: 'CATEGORY', width: `${catPct}%`, align: 'left' }
+    ];
+  }
 
-      return `
+  return `
     <!DOCTYPE html>
     <html lang="en">
     <head>
