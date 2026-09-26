@@ -10,6 +10,7 @@ const certificateSchema = new mongoose.Schema({
   company_address: String,
   manufacturing_address: String,
   scope: String,
+  product_category: String,
   issue_date: Date,
   expiry_date: Date,
   certification_start_date: Date,
