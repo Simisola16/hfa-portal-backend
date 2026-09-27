@@ -253,9 +253,138 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [users, appStats, certStats] = await Promise.all([
-      User.find().sort({ created_at: -1 }).lean(),
+    const isUnpaginated = req.query.all === 'true' || req.query.pagination === 'false';
+    const category = req.query.category || 'all';
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const matchQuery = {};
+
+    if (category === 'staff') {
+      matchQuery.role = { $ne: 'client' };
+    } else {
+      matchQuery.role = 'client';
+      if (category === 'bin') {
+        matchQuery.$or = [
+          { is_active: false },
+          { suspension_reason: { $exists: true, $nin: [null, ''] } }
+        ];
+      } else {
+        const activeCondition = {
+          is_active: { $ne: false },
+          $or: [
+            { suspension_reason: null },
+            { suspension_reason: '' },
+            { suspension_reason: { $exists: false } }
+          ]
+        };
+
+        if (category === 'company') {
+          matchQuery.company_category = 'certified';
+          Object.assign(matchQuery, activeCondition);
+        } else if (category === 'processing') {
+          matchQuery.company_category = 'processing';
+          Object.assign(matchQuery, activeCondition);
+        } else if (category === 'signups') {
+          matchQuery.company_category = 'signup';
+          Object.assign(matchQuery, activeCondition);
+        }
+      }
+    }
+
+    if (search) {
+      const escaped = search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
+      const searchConditions = [
+        { company_name: searchRegex },
+        { full_name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { address: searchRegex },
+        { postcode: searchRegex }
+      ];
+      if (matchQuery.$or) {
+        matchQuery.$and = [
+          { $or: matchQuery.$or },
+          { $or: searchConditions }
+        ];
+        delete matchQuery.$or;
+      } else {
+        matchQuery.$or = searchConditions;
+      }
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = isUnpaginated ? 0 : Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+    const skip = isUnpaginated ? 0 : (page - 1) * limit;
+
+    const userQuery = User.find(matchQuery).sort({ created_at: -1, createdAt: -1 });
+    if (!isUnpaginated) {
+      userQuery.skip(skip).limit(limit);
+    }
+
+    const [total, users, [stats]] = await Promise.all([
+      User.countDocuments(matchQuery),
+      userQuery.lean(),
+      User.aggregate([
+        {
+          $facet: {
+            staff: [{ $match: { role: { $ne: 'client' } } }, { $count: 'c' }],
+            all: [{ $match: { role: 'client' } }, { $count: 'c' }],
+            bin: [
+              {
+                $match: {
+                  role: 'client',
+                  $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }]
+                }
+              },
+              { $count: 'c' }
+            ],
+            company: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'certified'
+                }
+              },
+              { $count: 'c' }
+            ],
+            processing: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'processing'
+                }
+              },
+              { $count: 'c' }
+            ],
+            signups: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'signup'
+                }
+              },
+              { $count: 'c' }
+            ]
+          }
+        }
+      ])
+    ]);
+
+    // Enrich ONLY the fetched page of users with apps and certs
+    const userIds = users.map(u => u._id);
+    const userIdStrs = userIds.map(id => id.toString());
+    const allIds = [...userIds, ...userIdStrs];
+
+    const [appStats, certStats] = await Promise.all([
       Application.aggregate([
+        { $match: { client_id: { $in: allIds } } },
         {
           $group: {
             _id: { $toString: '$client_id' },
@@ -267,7 +396,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         }
       ]),
       Certificate.aggregate([
-        { $match: { status: 'active' } },
+        { $match: { client_id: { $in: allIds }, status: 'active' } },
         {
           $group: {
             _id: { $toString: '$client_id' },
@@ -278,14 +407,9 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     ]);
 
     const appMap = new Map();
-    appStats.forEach(a => {
-      if (a._id) appMap.set(a._id, a);
-    });
-
+    appStats.forEach(a => { if (a._id) appMap.set(a._id, a); });
     const certMap = new Map();
-    certStats.forEach(c => {
-      if (c._id) certMap.set(c._id, c.certCount);
-    });
+    certStats.forEach(c => { if (c._id) certMap.set(c._id, c.certCount); });
 
     const enrichedUsers = users.map(u => {
       const uId = u._id.toString();
@@ -301,7 +425,28 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       };
     });
 
-    res.json({ data: enrichedUsers });
+    const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
+    const counts = {
+      all: stats?.all?.[0]?.c || 0,
+      company: stats?.company?.[0]?.c || 0,
+      processing: stats?.processing?.[0]?.c || 0,
+      signups: stats?.signups?.[0]?.c || 0,
+      bin: stats?.bin?.[0]?.c || 0,
+      staff: stats?.staff?.[0]?.c || 0
+    };
+
+    res.json({
+      data: enrichedUsers,
+      pagination: {
+        page,
+        limit: isUnpaginated ? total : limit,
+        total,
+        totalPages,
+        hasPrevPage: page > 1,
+        hasNextPage: page < totalPages
+      },
+      counts
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

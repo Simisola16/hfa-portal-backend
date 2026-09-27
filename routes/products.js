@@ -82,7 +82,30 @@ router.get('/', authenticateToken, async (req, res) => {
       };
     });
 
-    res.json({ data });
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10);
+    const isPaginated = !isNaN(page) && !isNaN(limit) && limit > 0;
+
+    let responseData = data;
+    let pagination = null;
+
+    if (isPaginated) {
+      const total = data.length;
+      const totalPages = Math.ceil(total / limit) || 1;
+      const validPage = Math.max(1, Math.min(page, totalPages));
+      const skip = (validPage - 1) * limit;
+      responseData = data.slice(skip, skip + limit);
+      pagination = {
+        page: validPage,
+        limit,
+        total,
+        totalPages,
+        hasPrevPage: validPage > 1,
+        hasNextPage: validPage < totalPages
+      };
+    }
+
+    res.json({ data: responseData, pagination });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
