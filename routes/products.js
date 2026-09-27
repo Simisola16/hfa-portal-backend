@@ -11,9 +11,6 @@ const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Delete any orphaned pending products so Product List only displays active/certified products
-    await Product.deleteMany({ status: 'pending' }).catch(() => {});
-
     let query = { status: { $ne: 'pending' } };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       // client_id may be stored as ObjectId or string due to Mixed type — query both forms

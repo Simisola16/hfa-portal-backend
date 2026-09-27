@@ -51,4 +51,8 @@ const certificateSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+certificateSchema.index({ client_id: 1 });
+certificateSchema.index({ status: 1 });
+certificateSchema.index({ site_id: 1 });
+
 export default mongoose.model('Certificate', certificateSchema);

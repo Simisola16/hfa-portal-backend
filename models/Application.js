@@ -141,4 +141,8 @@ applicationSchema.virtual('inspectors', {
   justOne: true
 });
 
+applicationSchema.index({ client_id: 1 });
+applicationSchema.index({ status: 1 });
+applicationSchema.index({ site_id: 1 });
+
 export default mongoose.model('Application', applicationSchema);

@@ -40,4 +40,7 @@ const siteSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+siteSchema.index({ client_id: 1 });
+siteSchema.index({ client_code: 1 });
+
 export default mongoose.model('Site', siteSchema);
