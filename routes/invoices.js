@@ -209,6 +209,12 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
+    invoices.sort((a, b) => {
+      const dateA = new Date(a.due_date || a.paid_at || a.createdAt || 0).getTime();
+      const dateB = new Date(b.due_date || b.paid_at || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     res.json({ data: invoices });
   } catch (err) {
     console.error('[Invoices GET /] Error:', err);

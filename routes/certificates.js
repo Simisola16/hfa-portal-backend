@@ -268,6 +268,12 @@ router.get('/', authenticateToken, async (req, res) => {
       console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
     }
 
+    data.sort((a, b) => {
+      const dateA = new Date(a.issue_date || a.created_at || a.createdAt || 0).getTime();
+      const dateB = new Date(b.issue_date || b.created_at || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });

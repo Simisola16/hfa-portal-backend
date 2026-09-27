@@ -174,6 +174,12 @@ router.get('/', authenticateToken, async (req, res) => {
       };
     });
 
+    formatted.sort((a, b) => {
+      const dateA = new Date(a.finalized_date || a.scheduled_date || (a.proposed_dates && a.proposed_dates[0]) || a.createdAt || 0).getTime();
+      const dateB = new Date(b.finalized_date || b.scheduled_date || (b.proposed_dates && b.proposed_dates[0]) || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     res.json({ data: formatted });
   } catch (err) {
     res.status(500).json({ error: err.message });
