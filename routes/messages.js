@@ -87,6 +87,14 @@ const populateMessagesSafely = async (messages) => {
         company_name: 'All Certified Clients',
         role: 'client'
       };
+    } else if (doc.recipient_id === 'selected_clients' || doc.is_targeted_broadcast) {
+      const count = Array.isArray(doc.recipient_ids) ? doc.recipient_ids.length : 0;
+      doc.recipient = {
+        _id: 'selected_clients',
+        full_name: `Selected Companies (${count} recipient${count !== 1 ? 's' : ''})`,
+        company_name: 'Selected Companies',
+        role: 'client'
+      };
     } else if (doc.recipient_id && userMap.has(doc.recipient_id.toString())) {
       doc.recipient = userMap.get(doc.recipient_id.toString());
     } else if (doc.recipient_id === 'admin' || doc.recipient_id === 'support') {
@@ -239,13 +247,18 @@ router.get('/conversation/:targetId', authenticateToken, async (req, res) => {
 // POST /api/messages - Send a message or broadcast to all clients
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    let { recipient_id, subject, body, application_id, attachments, reply_to, is_broadcast } = req.body;
+    let { recipient_id, recipient_ids, subject, body, application_id, attachments, reply_to, is_broadcast } = req.body;
     const senderId = req.user.id || req.user._id.toString();
     const isStaff = isStaffUser(req.user);
 
-    const isBroadcast = isStaff && (recipient_id === 'all_clients' || recipient_id === 'all' || is_broadcast === true);
+    // Targeted broadcast: staff sends to a specific selection of client IDs
+    const isTargetedBroadcast = isStaff && Array.isArray(recipient_ids) && recipient_ids.length > 0;
 
-    if (isBroadcast) {
+    const isBroadcast = isStaff && !isTargetedBroadcast && (recipient_id === 'all_clients' || recipient_id === 'all' || is_broadcast === true);
+
+    if (isTargetedBroadcast) {
+      recipient_id = 'selected_clients';
+    } else if (isBroadcast) {
       recipient_id = 'all_clients';
     } else if (!recipient_id || recipient_id === 'admin' || recipient_id === 'support') {
       recipient_id = isStaff ? 'all_clients' : 'admin';
@@ -271,9 +284,11 @@ router.post('/', authenticateToken, async (req, res) => {
     const message = new Message({
       sender_id: senderId,
       recipient_id,
-      subject: subject || (isBroadcast ? 'HFA Official Broadcast Announcement' : 'No Subject'),
+      recipient_ids: isTargetedBroadcast ? recipient_ids : [],
+      subject: subject || (isBroadcast || isTargetedBroadcast ? 'HFA Official Announcement' : 'No Subject'),
       body: body?.trim(),
       is_broadcast: isBroadcast,
+      is_targeted_broadcast: isTargetedBroadcast,
       application_id: (application_id && mongoose.Types.ObjectId.isValid(application_id)) ? application_id : null,
       attachments: Array.isArray(attachments) ? attachments : [],
       reply_to: (reply_to && mongoose.Types.ObjectId.isValid(reply_to)) ? reply_to : null,
@@ -373,6 +388,95 @@ router.post('/', authenticateToken, async (req, res) => {
         recipient_count: clients.length,
         email_count: clientsWithEmail.length,
         message: `Broadcast message sent to all ${clients.length} clients and dispatched via email`
+      });
+    }
+
+    // TARGETED BROADCAST: send to selected companies only
+    if (isTargetedBroadcast) {
+      const validIds = recipient_ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+      const selectedClients = await User.find({ _id: { $in: validIds }, role: 'client' }).select('_id full_name company_name email').lean();
+
+      // Real-time socket to selected clients & admins
+      emitToAdmins('new_message', populated);
+      for (const client of selectedClients) {
+        emitToUser(client._id.toString(), 'new_message', populated);
+        createNotification(
+          client._id,
+          `Targeted Notice: ${subject || 'New Notice from HFA'} 📢`,
+          body?.length > 120 ? body.substring(0, 117) + '...' : body,
+          'info',
+          '/messages'
+        ).catch(() => {});
+      }
+
+      // Email selected clients
+      const frontendClientUrl = getClientUrl();
+      const clientsWithEmail = selectedClients.filter(c => c.email && c.email.includes('@'));
+      let emailsDispatched = 0;
+
+      const emailBatch = clientsWithEmail.map(async (c) => {
+        try {
+          const clientName = c.full_name || c.company_name || 'Valued Client';
+          await resend.emails.send({
+            from: emailFrom,
+            to: c.email,
+            subject: `[HFA Notice] ${subject || 'Important Notice from Halal Food Authority'}`,
+            html: `
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+                <div style="background:linear-gradient(135deg,#15803d 0%,#166534 100%);padding:32px 24px;text-align:center;color:white">
+                  <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px">Halal Food Authority</h1>
+                  <div style="font-size:13px;opacity:0.9;margin-top:4px;text-transform:uppercase;letter-spacing:1px">Targeted Company Notice</div>
+                </div>
+                <div style="padding:32px 28px">
+                  <div style="display:inline-block;background:#ecfdf5;color:#166534;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-bottom:16px;border:1px solid #bbf7d0">
+                    🎯 SELECTED COMPANY NOTICE
+                  </div>
+                  <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;line-height:1.3">
+                    ${subject || 'Important Notice from HFA'}
+                  </h2>
+                  <p style="font-size:14px;color:#475569;margin:0 0 16px">Dear <strong>${clientName}</strong>,</p>
+                  <div style="font-size:14.5px;color:#1e293b;line-height:1.7;background:#f8fafc;padding:20px;border-radius:10px;border-left:4px solid #16a34a;white-space:pre-wrap;margin-bottom:24px">${body}</div>
+                  <div style="text-align:center;margin:28px 0">
+                    <a href="${frontendClientUrl}/messages" style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:13px 32px;border-radius:8px;font-weight:700;font-size:14px;box-shadow:0 2px 6px rgba(22,163,74,0.3)">
+                      Open Portal Messages →
+                    </a>
+                  </div>
+                  <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0" />
+                  <div style="font-size:12px;color:#94a3b8;line-height:1.5">
+                    Sent by <strong>${senderName}</strong> via HFA Official Portal.<br/>
+                    You can reply to this message directly from your HFA Client Portal.
+                  </div>
+                </div>
+              </div>
+            `
+          });
+          emailsDispatched++;
+        } catch (emailErr) {
+          console.error(`[Resend Targeted Broadcast Error for ${c.email}]:`, emailErr.message);
+        }
+      });
+
+      Promise.allSettled(emailBatch).then(async () => {
+        try {
+          await Message.findByIdAndUpdate(saved._id, {
+            broadcast_stats: {
+              recipient_count: selectedClients.length,
+              email_count: emailsDispatched
+            }
+          });
+          console.log(`✅ Targeted broadcast sent to ${selectedClients.length} selected clients (${emailsDispatched} emails)`);
+        } catch (err) {}
+      });
+
+      emitToUser(senderId, 'message_sent', populated);
+
+      return res.status(201).json({
+        data: populated,
+        broadcast: true,
+        targeted: true,
+        recipient_count: selectedClients.length,
+        email_count: clientsWithEmail.length,
+        message: `Targeted message sent to ${selectedClients.length} selected companies`
       });
     }
 
