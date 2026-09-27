@@ -25,7 +25,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const companyName = 'Anike International';
 const email = 'anike@halalfoodauthority.com';
-const plainPassword = 'abc123';
+const plainPassword = '';
 
 // 15 Manufacturing Sites from SQL Server (dbo.TlbSie where Kinopm = '133')
 const siteDefs = [

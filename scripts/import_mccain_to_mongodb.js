@@ -24,9 +24,9 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const companyName = 'McCain Foods';
 const email = 'shane.green@mccain.co.uk';
-const plainPassword = 'abc123';
+const plainPassword = '';
 
-// 7 Manufacturing Sites from SQL Server (dbo.TlbSie where Kinopm IN ('185', '186'))
+// 5 Manufacturing Sites from SQL Server (dbo.TlbSie where Kinopm = '185')
 const siteDefs = [
   {
     "name": "Whittlesey",
@@ -43,23 +43,6 @@ const siteDefs = [
     "contact_phone_number": "01723580213",
     "email": "shane.green@mccain.co.uk",
     "cid": "185",
-    "status": "active"
-  },
-  {
-    "name": "Wombourne",
-    "client_code": "10015",
-    "address_1": "Heath Mill Road",
-    "address_2": "",
-    "city": "Wombourne",
-    "state": "West Midlands",
-    "postcode": "WV5 8AE",
-    "country": "United Kingdom (UK)",
-    "est_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "contact_name": "Shane Green",
-    "contact_phone_number": "01723580213",
-    "email": "shane.green@mccain.co.uk",
-    "cid": "186",
     "status": "active"
   },
   {
@@ -94,23 +77,6 @@ const siteDefs = [
     "contact_phone_number": "01723580213",
     "email": "shane.green@mccain.co.uk",
     "cid": "185",
-    "status": "active"
-  },
-  {
-    "name": "Hull Site",
-    "client_code": "20313",
-    "address_1": "Havers Hill",
-    "address_2": "",
-    "city": "Scarborough",
-    "state": "",
-    "postcode": "YO11 3BS",
-    "country": "United Kingdom",
-    "est_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "contact_name": "Shane Green",
-    "contact_phone_number": "01723580213",
-    "email": "shane.green@mccain.co.uk",
-    "cid": "186",
     "status": "active"
   },
   {
@@ -149,7 +115,7 @@ const siteDefs = [
   }
 ];
 
-// 11 Original New Applications from SQL Server (dbo.AppleReg where CID IN ('185', '186'))
+// 7 Original New Applications from SQL Server (dbo.AppleReg where CID = '185')
 const applicationsData = [
   {
     "application_number": "M2-0429/1900000101",
@@ -163,45 +129,6 @@ const applicationsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Imported new application from legacy HFA database (ID: 102)"
-  },
-  {
-    "application_number": "M2-0429/1900000102",
-    "application_type": "New Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "under_review",
-    "submission_date": "2020-01-07T00:00:00.000Z",
-    "employee_count": 1800,
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Imported new application from legacy HFA database (ID: 103)"
-  },
-  {
-    "application_number": "M2-0429/1900000184",
-    "application_type": "New Application",
-    "category": "Annual Certification – Food and General processing",
-    "site_client_code": "10173",
-    "site_name": "March Foods",
-    "status": "under_review",
-    "submission_date": "2020-01-07T00:00:00.000Z",
-    "employee_count": 157,
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Imported new application from legacy HFA database (ID: 185)"
-  },
-  {
-    "application_number": "M2-0429/1900000185",
-    "application_type": "New Application",
-    "category": "Annual Certification – Food and General processing",
-    "site_client_code": "10009",
-    "site_name": "Whittlesey",
-    "status": "under_review",
-    "submission_date": "2020-03-03T23:00:00.000Z",
-    "employee_count": 20,
-    "managing_director": "Pauline MacMillan",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Imported new application from legacy HFA database (ID: 186)"
   },
   {
     "application_number": "M2-0429/19000020220",
@@ -228,19 +155,6 @@ const applicationsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Imported new application from legacy HFA database (ID: 248)"
-  },
-  {
-    "application_number": "M2-0429/19000020313",
-    "application_type": "New Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "under_review",
-    "submission_date": "2020-01-07T00:00:00.000Z",
-    "employee_count": 1800,
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Imported new application from legacy HFA database (ID: 323)"
   },
   {
     "application_number": "M2-0429/19000030371",
@@ -296,7 +210,7 @@ const applicationsData = [
   }
 ];
 
-// 28 Renewal Applications from SQL Server (dbo.REneApp where KingID IN ('185', '186'))
+// 22 Renewal Applications from SQL Server (dbo.REneApp where KingID = '185')
 const renewalsData = [
   {
     "application_number": "M2-0429/1900000101-RN40042",
@@ -310,32 +224,6 @@ const renewalsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Renewal application #40042 for original application McCain Foods"
-  },
-  {
-    "application_number": "M2-0429/1900000102-RN40126",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2020-06-11T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #40126 for original application McCain (GSO) Foods"
-  },
-  {
-    "application_number": "M2-0429/19000020313-RN40152",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2020-09-06T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #40152 for original application McCain (GSO) Foods"
   },
   {
     "application_number": "M2-0429/1900000101-RN40177",
@@ -401,19 +289,6 @@ const renewalsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Renewal application #40188 for original application McCain Foods"
-  },
-  {
-    "application_number": "M2-0429/1900000102-RN40280",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2021-04-27T23:00:00.000Z",
-    "managing_director": "Shane",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #40280 for original application McCain (GSO) Foods"
   },
   {
     "application_number": "M2-0429/1900000101-RN40433",
@@ -520,19 +395,6 @@ const renewalsData = [
     "notes": "Renewal application #150693 for original application McCain Foods"
   },
   {
-    "application_number": "M2-0429/19000020313-RN180944",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2023-09-16T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #180944 for original application McCain (GSO) Foods"
-  },
-  {
     "application_number": "M2-0429/1900000101-RN200976",
     "original_app_number": "M2-0429/1900000101",
     "application_type": "Renewal Application",
@@ -557,19 +419,6 @@ const renewalsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Renewal application #200979 for original application McCain Foods"
-  },
-  {
-    "application_number": "M2-0429/1900000102-RN201044",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "under_review",
-    "submission_date": "2024-05-08T23:00:00.000Z",
-    "managing_director": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #201044 for original application McCain (GSO) Foods"
   },
   {
     "application_number": "M2-0429/1900000101-RN231074",
@@ -648,157 +497,13 @@ const renewalsData = [
     "managing_director": "Shane Green",
     "contact_email": "shane.green@mccain.co.uk",
     "notes": "Renewal application #251309 for original application McCain Foods"
-  },
-  {
-    "application_number": "M2-0429/19000020313-RN261466",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Renewal Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2026-09-15T23:00:00.000Z",
-    "managing_director": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Renewal application #261466 for original application M2-0429/19000020313"
   }
 ];
 
-// 10 Surveillance Applications from SQL Server (dbo.tlbSuvance where KingID IN ('185', '186'))
-const surveillanceData = [
-  {
-    "application_number": "M2-0429/19000020313-SU26",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2021-09-22T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #26 for application M2-0429/19000020313"
-  },
-  {
-    "application_number": "M2-0429/1900000102-SU20047",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2022-04-20T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #20047 for application McCain (GSO) Foods"
-  },
-  {
-    "application_number": "M2-0429/1900000102-SU20055",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2022-04-20T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #20055 for application McCain (GSO) Foods"
-  },
-  {
-    "application_number": "M2-0429/19000020313-SU60060",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2022-09-05T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #60060 for application M2-0429/19000020313"
-  },
-  {
-    "application_number": "M2-0429/19000020313-SU80060",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2022-09-04T23:00:00.000Z",
-    "managing_director": "Shane Gree",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #80060 for application M2-0429/19000020313"
-  },
-  {
-    "application_number": "M2-0429/1900000102-SU110083",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2023-04-13T23:00:00.000Z",
-    "managing_director": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #110083 for application McCain (GSO) Foods"
-  },
-  {
-    "application_number": "M2-0429/19000020313-SU120120",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2024-10-08T23:00:00.000Z",
-    "managing_director": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #120120 for application M2-0429/19000020313"
-  },
-  {
-    "application_number": "M2-0429/1900000102-SU140167",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2025-04-22T23:00:00.000Z",
-    "managing_director": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #140167 for application McCain (GSO) Foods"
-  },
-  {
-    "application_number": "M2-0429/19000020313-SU140177",
-    "original_app_number": "M2-0429/19000020313",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "certificate_issued",
-    "submission_date": "2025-10-02T23:00:00.000Z",
-    "managing_director": "McCain Foods",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #140177 for application M2-0429/19000020313"
-  },
-  {
-    "application_number": "M2-0429/1900000102-SU150220",
-    "original_app_number": "M2-0429/1900000102",
-    "application_type": "Surveillance Application",
-    "category": "UAE/GSO Approved Halal Certification For Exporters To The UAE",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "certificate_issued",
-    "submission_date": "2026-04-25T23:00:00.000Z",
-    "managing_director": "Basel Aldakhlalla",
-    "contact_email": "shane.green@mccain.co.uk",
-    "notes": "Surveillance application #150220 for application McCain (GSO) Foods"
-  }
-];
+// Surveillance Applications (0 for CID 185)
+const surveillanceData = [];
 
-// 38 Halal Certificates from SQL Server (dbo.tlbcertMas where CName IN ('185', '186')) with line items
+// 28 Halal Certificates from SQL Server (dbo.tlbcertMas where CName = '185') with line items
 const certificatesData = [
   {
     "certificate_number": "MC-MU/QR231113101947",
@@ -896,25 +601,6 @@ const certificatesData = [
     "product_details": []
   },
   {
-    "certificate_number": "MC-MU/QR240214114057",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire",
-    "manufacturing_address": "Heath Mill Lane, Wombourne, WV5 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2024-02-13T23:00:00.000Z",
-    "expiry_date": "2024-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2021-04-28T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
     "certificate_number": "MC-MU/QR240502120741",
     "company_name": "McCain Foods",
     "trading_name": "McCain Foods Ltd",
@@ -927,63 +613,6 @@ const certificatesData = [
     "current_cycle_start_date": "2023-11-30T23:00:00.000Z",
     "site_client_code": "10009",
     "site_name": "Whittlesey",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
-    "certificate_number": "MC-MU/QR240601083644",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire YO11 3BS, UK",
-    "manufacturing_address": "Heath Mill Lane, Wombourne WV5 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2024-05-31T23:00:00.000Z",
-    "expiry_date": "2027-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2024-05-13T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
-    "certificate_number": "MC-MU/QR241001080116",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire YO11 3BS, UK",
-    "manufacturing_address": "Heath Mill Lane, Wombourne WV5 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2024-09-30T23:00:00.000Z",
-    "expiry_date": "2027-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2024-05-13T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
-    "certificate_number": "MC-MU/QR241004060421",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire YO11 3BS, UK",
-    "manufacturing_address": "Freightliner Road, Brighton St, Hull, East Yorkshire HU3 4UW, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2024-10-03T23:00:00.000Z",
-    "expiry_date": "2026-09-20T23:00:00.000Z",
-    "current_cycle_start_date": "2023-09-21T23:00:00.000Z",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
     "status": "active",
     "products_covered": [
       "Certified McCain Potato & Appetizer Products"
@@ -1162,25 +791,6 @@ const certificatesData = [
     "product_details": []
   },
   {
-    "certificate_number": "MC-SA/QR250617163829",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS, UK",
-    "manufacturing_address": "Heath Mill Lane, Wombourne, WV5 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2025-06-16T23:00:00.000Z",
-    "expiry_date": "2027-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2024-05-13T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
     "certificate_number": "MC-KH/QR250901130307",
     "company_name": "McCain Foods",
     "trading_name": "McCain Foods Ltd",
@@ -1326,44 +936,6 @@ const certificatesData = [
     ]
   },
   {
-    "certificate_number": "MC-KH/QR251218141357",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS, UK",
-    "manufacturing_address": "Heath Mill Lane, Wombourne, WV5 9AE, UK 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2025-12-17T23:00:00.000Z",
-    "expiry_date": "2027-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2024-05-13T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
-    "certificate_number": "MC-KH/QR260216115425",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS UK",
-    "manufacturing_address": "Freightiliner Road, Brighton  St, Hull, East Yorkshire HU3 4UW, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2026-02-15T23:00:00.000Z",
-    "expiry_date": "2026-09-20T23:00:00.000Z",
-    "current_cycle_start_date": "2023-09-21T23:00:00.000Z",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
     "certificate_number": "MC-KH/QR260514134400",
     "company_name": "McCain Foods",
     "trading_name": "McCain Foods Ltd",
@@ -1459,44 +1031,6 @@ const certificatesData = [
     "product_details": []
   },
   {
-    "certificate_number": "MC-KH/QR260805104034",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS, UK",
-    "manufacturing_address": "Freightliner Road, Brighton Street, Hull, East Yorkshire, HU3 4UW, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2026-08-04T23:00:00.000Z",
-    "expiry_date": "2026-09-20T23:00:00.000Z",
-    "current_cycle_start_date": "2023-09-21T23:00:00.000Z",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
-    "certificate_number": "MC-KH/QR260805111621",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS, UK",
-    "manufacturing_address": "Heath Mill Lane, Wombourne, WV5 9AE, UK 9AE, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2026-08-04T23:00:00.000Z",
-    "expiry_date": "2027-05-12T23:00:00.000Z",
-    "current_cycle_start_date": "2024-05-13T23:00:00.000Z",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
-  },
-  {
     "certificate_number": "MC-KH/QR260812130347",
     "company_name": "McCain Foods",
     "trading_name": "McCain Foods Ltd",
@@ -1514,326 +1048,11 @@ const certificatesData = [
       "Certified McCain Potato & Appetizer Products"
     ],
     "product_details": []
-  },
-  {
-    "certificate_number": "MC-KH/QR260921122113",
-    "company_name": "McCain Foods",
-    "trading_name": "McCain Foods Ltd",
-    "company_address": "Havers Hill, Scarborough, North Yorkshire, YO11 3BS, UK",
-    "manufacturing_address": "Freightliner Road,  Brighton Street, Hull , East Yorkshire, HU3 4UW, UK",
-    "scope": "Snacks (CIV)",
-    "certificate_type": "GSO non-meat",
-    "issue_date": "2026-09-20T23:00:00.000Z",
-    "expiry_date": "2029-09-20T23:00:00.000Z",
-    "current_cycle_start_date": "2026-09-21T23:00:00.000Z",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active",
-    "products_covered": [
-      "Certified McCain Potato & Appetizer Products"
-    ],
-    "product_details": []
   }
 ];
 
-// 276 Products from SQL Server (dbo.Prolister where AppComp IN ('185', '186'))
+// 225 Products from SQL Server (dbo.Prolister where AppComp = '185')
 const productsData = [
-  {
-    "name": "McDonalds Hash Browns (Export)",
-    "code": "47024",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McDonalds Hash Browns (UK)",
-    "code": "47023",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McDonalds Rosti Finger (Export)",
-    "code": "1000000097",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McDonalds Rosti Finger (UK)",
-    "code": "48888",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Original Choice Hash Browns",
-    "code": "1000008687",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Original Choice Hash Browns (CD)",
-    "code": "46711",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Smiles (Retail)",
-    "code": "1000009417, 47132, 47158, 1000005098, 1000010065, 1000014470.",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Menu Signature Smiles",
-    "code": "44733",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Chef Solutions Jacket Potatoes",
-    "code": "1000002593, 1000001176",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain RT Hash Browns (Lutosa Recipe)",
-    "code": "1000011352",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Jacket Potatoes",
-    "code": "47300, 1000009314, 1000008972, 1000008028, 1000001899, 47301, 1000010056, 1000010639, 1000011400",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain RT Hash Browns (GB Recipe)",
-    "code": "1000008366 1000008971",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Menu Signatures Potato Pops",
-    "code": "1000007478",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "Jacket Potatoes 1.2kg",
-    "code": "1000011848",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "Vegetable Burger",
-    "code": "61585",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Vegetable Burger",
-    "code": "42046",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Mini Mozzarella Sticks",
-    "code": "1000003069",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Breaded Mozzarella Sticks",
-    "code": "592701",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Cheese & Chilli Nuggets",
-    "code": "304501",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Burger King Cheese & Chilli Nuggets",
-    "code": "304502, 1000006654",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Mini Mozzarella Sticks",
-    "code": "562001",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Primo Mozz Sticks",
-    "code": "590701",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Burger King Mozz Triangles Pizza Style",
-    "code": "1000002794",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Mozzarella Pizza Bites",
-    "code": "1000005821",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Cheese & Chilli Nuggets",
-    "code": "304505",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers Chilli and Cheese Nuggets",
-    "code": "43045",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Vegetable Burger",
-    "code": "42046",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Pesto Mozzarella Sticks",
-    "code": "594501",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Menu Signature Mexican Bites",
-    "code": "1000006916",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Original Choice Hash Browns",
-    "code": "45120",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Original Choice Hash Browns CD",
-    "code": "46711",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Cheese Bites Fiesta Style",
-    "code": "1000007667",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Mexican Bites",
-    "code": "1000006916",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers Breaded Mozzarella Cheese sticks",
-    "code": "45927",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McDonalds Chilli and Cheese Nuggets",
-    "code": "304503",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers BBQ Mini Mozz Sticks",
-    "code": "1000010328",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers Halloumi Fries",
-    "code": "1000010327",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
   {
     "name": "Macfries",
     "code": "49010, 49011, 49012, 49013",
@@ -3395,22 +2614,6 @@ const productsData = [
     "status": "active"
   },
   {
-    "name": "McCain RT Hash Browns (New Recipe)",
-    "code": "1000012280",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
-    "name": "McCain RT Hash Browns (New Recipe)",
-    "code": "1000012289",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
     "name": "McCain Air Fryer Crinkle Cut",
     "code": "1000012067",
     "category": "CIV",
@@ -3419,43 +2622,11 @@ const productsData = [
     "status": "active"
   },
   {
-    "name": "McDonald's Mozarella Sticks 6 x 1KG",
-    "code": "1000009176",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
     "name": "McCain Surecrisp Deep Ridge Slices",
     "code": "1000012400, 1000012411",
     "category": "CIV",
     "site_client_code": "10009",
     "site_name": "Whittlesey",
-    "status": "active"
-  },
-  {
-    "name": "Burger King FS Cheese Chilli Bites 9 x 1kg Europe",
-    "code": "1000012638",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Chilli Cheese Bites 9 x 1kg",
-    "code": "1000012460",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "Pickers Mozarella Sticks",
-    "code": "45927",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
     "status": "active"
   },
   {
@@ -3531,27 +2702,11 @@ const productsData = [
     "status": "active"
   },
   {
-    "name": "McCain Air Fryer Hash Brown Bites",
-    "code": "1000013243",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
     "name": "McCain Air Fryer Crispy Dippers",
     "code": "1000013242",
     "category": "Snacks (CIV)",
     "site_client_code": "10009",
     "site_name": "Whittlesey",
-    "status": "active"
-  },
-  {
-    "name": "McCain Our Menu Signature Potato Pop (impingement)",
-    "code": "1000013426",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
     "status": "active"
   },
   {
@@ -3595,14 +2750,6 @@ const productsData = [
     "status": "active"
   },
   {
-    "name": "McCain Chef Jackets 5PK 8 x 1.35kg",
-    "code": "1000013460",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
     "name": "Crispy Fries",
     "code": "1000012916",
     "category": "Snacks (CIV)",
@@ -3627,14 +2774,6 @@ const productsData = [
     "status": "active"
   },
   {
-    "name": "Smiles Big Bag 650g",
-    "code": "1000013934",
-    "category": "CIV",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "status": "active"
-  },
-  {
     "name": "Home Chips Crinkle Cut 2.5kg",
     "code": "1000014296",
     "category": "Snacks (CIV)",
@@ -3656,38 +2795,6 @@ const productsData = [
     "category": "Snacks (CIV)",
     "site_client_code": "10009",
     "site_name": "Whittlesey",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers Chilli and Cheese Nuggets",
-    "code": "1000014127",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers and McCain Pepe's  Chilli and Cheese Nuggets",
-    "code": "1000013919",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Breaded Mozzarella Cheese Sticks",
-    "code": "1000014123",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "status": "active"
-  },
-  {
-    "name": "McCain Pickers and McCain Pepe's Breaded Mozzarella Cheese Sticks",
-    "code": "1000013917",
-    "category": "CIV",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
     "status": "active"
   },
   {
@@ -3748,7 +2855,7 @@ const productsData = [
   }
 ];
 
-// 191 Add-On Applications from SQL Server (dbo.ProAder where CompID IN ('185', '186'))
+// 151 Add-On Applications from SQL Server (dbo.ProAder where CompID = '185')
 const addOnsData = [
   {
     "application_number": "ADD-20061-185",
@@ -3764,7 +2871,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Naked Oven Chips",
         "code": "ADD-20061",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -3824,7 +2931,7 @@ const addOnsData = [
         "sn": 1,
         "name": "2 batter changes",
         "code": "ADD-20087",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -3871,26 +2978,6 @@ const addOnsData = [
     "created_at": "2020-04-05T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-20279-185",
-    "legacy_record_id": "20279",
-    "subject": "Lutosa Hash borwns",
-    "message": "Hi,\r\n\r\nPlease can we extend the lutosa hash browns to Mccain Wombourne.",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Lutosa Hash borwns",
-        "code": "ADD-20279",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-04-22T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-20324-185",
     "legacy_record_id": "20324",
     "subject": "Rustic Oven Chips",
@@ -3924,7 +3011,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Crispers",
         "code": "ADD-20335",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -3949,66 +3036,6 @@ const addOnsData = [
     ],
     "status": "completed",
     "created_at": "2020-05-17T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-20365-185",
-    "legacy_record_id": "20365",
-    "subject": "43045 Product Name Change",
-    "message": "Product Name change",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "43045 Product Name Change",
-        "code": "ADD-20365",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-06-21T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-20376-185",
-    "legacy_record_id": "20376",
-    "subject": "45927",
-    "message": "Hi, \r\n\r\nPlease can you add 45927 to McCain Hull?\r\n\r\nit is the same as 592701 but I will send through the product approval form and specs to the product approval address. please could this be done ASAP? I need to get this closed off by Friday.",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "45927",
-        "code": "ADD-20376",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-06-22T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-20382-185",
-    "legacy_record_id": "20382",
-    "subject": "304502 Burger King Cheese and Chilli Nuggets",
-    "message": "Good morning (Just)\r\n\r\nwe have a code approved by HFA for McCain Hull which is code 304502 Burger King Cheese and Chilli Nuggets. We wish to ship the product to europe but the pallet layout is different so we have had to raise a new code for europe. Please can the product code 1000006654 be added. it is same recipe just different pallet layout. just for clarity I don't want the 304502 code removing and the certificate to say both please.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "304502 Burger King Cheese and Chilli Nuggets",
-        "code": "ADD-20382",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-06-23T23:00:00.000Z"
   },
   {
     "application_number": "ADD-30439-185",
@@ -4051,26 +3078,6 @@ const addOnsData = [
     "created_at": "2020-07-27T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-40464-185",
-    "legacy_record_id": "40464",
-    "subject": "304503 McDonalds Cheese and Chilli Nuggets",
-    "message": "Hi,\r\n\r\nPlease can you have a look at 304503 which is exactly the same as 43045 that we already have approved. it is for McCain Hull. The only difference is the product name as this is for McDonalds",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "304503 McDonalds Cheese and Chilli Nuggets",
-        "code": "ADD-40464",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-08-11T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-40483-185",
     "legacy_record_id": "40483",
     "subject": "Firecracker Wedges",
@@ -4104,7 +3111,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Southern fried Wedges dual supply",
         "code": "ADD-40531",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4131,26 +3138,6 @@ const addOnsData = [
     "created_at": "2020-10-06T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-40578-185",
-    "legacy_record_id": "40578",
-    "subject": "45927 Mozz sticks",
-    "message": "Good Afternoon,\r\n\r\nWe wish to trial 2 cheeses in an already approved Halal product made at McCain Hull. The product is 45927 Mozz Sticks. When we do the trial we wish to sell the trial into normal stock with your backing. At this moment it is only a trial but it may mean longer term we move over to this. I will send product approval forms and the 2 cheese specs through.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "45927 Mozz sticks",
-        "code": "ADD-40578",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-10-12T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-40638-185",
     "legacy_record_id": "40638",
     "subject": "1000006691 Crispers",
@@ -4164,31 +3151,11 @@ const addOnsData = [
         "sn": 1,
         "name": "1000006691 Crispers",
         "code": "ADD-40638",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
     "created_at": "2020-11-10T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-40661-185",
-    "legacy_record_id": "40661",
-    "subject": "BMA8578 reduced salt batter trial.",
-    "message": "Hi,\r\n\r\nWe are doing a line trial at McCain Hull where we are removing a batter and reducing the salt. it is based on 45927 which is HFA approved. We are removing batter 3000000300 and reducing the salt in 3000000295. We want to pack the trail into 45927 if successful. I will send on the forms now.\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "BMA8578 reduced salt batter trial.",
-        "code": "ADD-40661",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-11-23T23:00:00.000Z"
   },
   {
     "application_number": "ADD-40680-185",
@@ -4204,7 +3171,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Signature Traditional",
         "code": "ADD-40680",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4231,26 +3198,6 @@ const addOnsData = [
     "created_at": "2020-12-10T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-40715-185",
-    "legacy_record_id": "40715",
-    "subject": "McCain Minions",
-    "message": "Good Evening,\r\n\r\nWe are launching a new retail product made at McCain Wombourne called Mccain Minions. they are like potato smiles which is an already approved product but just in the shape of a Minion. I will send the product approval form through for this.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Minions",
-        "code": "ADD-40715",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2020-12-17T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-40750-185",
     "legacy_record_id": "40750",
     "subject": "Brakes",
@@ -4264,7 +3211,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Brakes",
         "code": "ADD-40750",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4284,7 +3231,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Favorite Fried Chicken Thin Cut Fries",
         "code": "ADD-40770",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4344,31 +3291,11 @@ const addOnsData = [
         "sn": 1,
         "name": "Home Chips",
         "code": "ADD-40850",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
     "created_at": "2021-02-14T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-40918-185",
-    "legacy_record_id": "40918",
-    "subject": "Wombourne Product code/removal",
-    "message": "Wombourne Product code/removal",
-    "contact_name": "Shane",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Wombourne Product code/removal",
-        "code": "ADD-40918",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2021-03-15T23:00:00.000Z"
   },
   {
     "application_number": "ADD-41080-185",
@@ -4384,7 +3311,7 @@ const addOnsData = [
         "sn": 1,
         "name": "1000009896 Crispy French Fries new code",
         "code": "ADD-41080",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4404,7 +3331,7 @@ const addOnsData = [
         "sn": 1,
         "name": "1000009896 Crispy french fries",
         "code": "ADD-41081",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4644,7 +3571,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Oil change",
         "code": "ADD-41351",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4664,7 +3591,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Oil change",
         "code": "ADD-41352",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4684,7 +3611,7 @@ const addOnsData = [
         "sn": 1,
         "name": "removal of duplicate products",
         "code": "ADD-41375",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -4709,66 +3636,6 @@ const addOnsData = [
     ],
     "status": "completed",
     "created_at": "2021-09-09T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-41389-185",
-    "legacy_record_id": "41389",
-    "subject": "Retail Jackets",
-    "message": "Morning,\r\n\r\nI want to add the HFA logo to our retail jacket potato range as we are updating the pack. If I can get a quick response there is a chance I can add the logo right away as we are updating our packs.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Retail Jackets",
-        "code": "ADD-41389",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2021-09-09T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-41398-185",
-    "legacy_record_id": "41398",
-    "subject": "Jackets code",
-    "message": "Hi,\r\n\r\nPlease add this jacket code to the ones I submitted last week.",
-    "contact_name": "shane green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Jackets code",
-        "code": "ADD-41398",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2021-09-15T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-41399-185",
-    "legacy_record_id": "41399",
-    "subject": "Smiles",
-    "message": "Hi, \r\n\r\nPlease can we add this code to the smiles product already approved at Wombourne",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Smiles",
-        "code": "ADD-41399",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2021-09-15T23:00:00.000Z"
   },
   {
     "application_number": "ADD-41400-185",
@@ -4831,26 +3698,6 @@ const addOnsData = [
     "created_at": "2021-09-15T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-51453-185",
-    "legacy_record_id": "51453",
-    "subject": "Error on Wombourne Cert",
-    "message": "Hi,\r\n\r\nAs requested I'm writing in to let you know of an error to a code on the certificate. product 5 which is hash browns says code 54120 and this should be 45120. the 5 and the 4 are the wrong way around. please could this be updated.\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Error on Wombourne Cert",
-        "code": "ADD-51453",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2021-10-18T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-51464-185",
     "legacy_record_id": "51464",
     "subject": "Lightly spiced wedges",
@@ -4864,7 +3711,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Lightly spiced wedges",
         "code": "ADD-51464",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4884,7 +3731,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Lightly spiced Wedges",
         "code": "ADD-51465",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4904,7 +3751,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Surecrisp Gourmet CD",
         "code": "ADD-51495",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4924,7 +3771,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Grantham Certificate",
         "code": "ADD-51554",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -4944,7 +3791,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Hash Browns",
         "code": "ADD-51592",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -4964,31 +3811,11 @@ const addOnsData = [
         "sn": 1,
         "name": "Hash Browns Foodservice",
         "code": "ADD-51593",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
     "created_at": "2022-01-31T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-61596-185",
-    "legacy_record_id": "61596",
-    "subject": "McCain Pickers",
-    "message": "Hello,\r\n\r\nwe have 2 new foodservice Pickers cheese products that I would like assessing for approval.\r\n\r\nPlease could you let me know if we could get these approved and added to the Hull sites certificate?\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Pickers",
-        "code": "ADD-61596",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2022-02-06T23:00:00.000Z"
   },
   {
     "application_number": "ADD-61650-185",
@@ -5004,7 +3831,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Home chips SC",
         "code": "ADD-61650",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5024,7 +3851,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Home chips SC",
         "code": "ADD-61651",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5131,26 +3958,6 @@ const addOnsData = [
     "created_at": "2022-06-13T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-181757-185",
-    "legacy_record_id": "181757",
-    "subject": "McCain Jackets",
-    "message": "Please can you add this code to the already approved jackets list",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Jackets",
-        "code": "ADD-181757",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2022-06-13T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-221836-185",
     "legacy_record_id": "221836",
     "subject": "McCain Home Chips Light (Retail)",
@@ -5164,7 +3971,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips Light (Retail)",
         "code": "ADD-221836",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5184,7 +3991,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips Light (Retail)",
         "code": "ADD-221837",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5204,7 +4011,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips Thin & Crispy",
         "code": "ADD-221839",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5224,7 +4031,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips Thin & Crispy",
         "code": "ADD-221840",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5244,7 +4051,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips S/C",
         "code": "ADD-221841",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5264,7 +4071,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips S/C",
         "code": "ADD-221842",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5284,7 +4091,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips C/C",
         "code": "ADD-221843",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5304,7 +4111,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Home Chips C/C",
         "code": "ADD-221844",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5524,7 +4331,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Sweet Potato Rustics",
         "code": "ADD-242091",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -5544,7 +4351,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Sweet Potato Rustics",
         "code": "ADD-242092",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -5591,26 +4398,6 @@ const addOnsData = [
     "created_at": "2023-02-05T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-242310-185",
-    "legacy_record_id": "242310",
-    "subject": "McCain Hash Browns",
-    "message": "Good Morning,\r\n\r\nplease could you approve this recipe change. these HB were made at Lutosa and are now coming back to wombourne.",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Hash Browns",
-        "code": "ADD-242310",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-02-20T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-242314-185",
     "legacy_record_id": "242314",
     "subject": "Albert Bartlett",
@@ -5624,7 +4411,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Albert Bartlett",
         "code": "ADD-242314",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -5684,7 +4471,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Crispy French Fries",
         "code": "ADD-242330",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5704,7 +4491,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Crispy French Fries",
         "code": "ADD-242331",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -5724,26 +4511,6 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Jackets",
         "code": "ADD-242333",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-03-05T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-242334-185",
-    "legacy_record_id": "242334",
-    "subject": "McCain Jackets",
-    "message": "Good Afternoon,\r\n\r\nPlease could you add this code to the already approved jacket potato Codes?",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Jackets",
-        "code": "ADD-242334",
         "type": "Add product"
       }
     ],
@@ -5831,46 +4598,6 @@ const addOnsData = [
     "created_at": "2023-03-05T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-242395-185",
-    "legacy_record_id": "242395",
-    "subject": "McCain RT Hash Browns",
-    "message": "Hi,\r\n\r\nWe are in the process of bringing the Hash browns from Lutosa back to the UK. please can you look at this recipe.",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain RT Hash Browns",
-        "code": "ADD-242395",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-03-26T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-242402-185",
-    "legacy_record_id": "242402",
-    "subject": "Retail HB code",
-    "message": "Hi,\r\n\r\nPlease can we add this code to the original HB request",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Retail HB code",
-        "code": "ADD-242402",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-03-27T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-242423-185",
     "legacy_record_id": "242423",
     "subject": "Simply skin on Wedges",
@@ -5911,26 +4638,6 @@ const addOnsData = [
     "created_at": "2023-04-10T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-242432-185",
-    "legacy_record_id": "242432",
-    "subject": "Products for removal",
-    "message": "Hi,\r\n\r\nsome products have been delisted so please can the following be removed.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Products for removal",
-        "code": "ADD-242432",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-04-12T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-252462-185",
     "legacy_record_id": "252462",
     "subject": "Baby Hasselbacks",
@@ -5944,7 +4651,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Baby Hasselbacks",
         "code": "ADD-252462",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -5964,7 +4671,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Flavour makers name change",
         "code": "ADD-262501",
-        "type": "Add product"
+        "type": "Change name/code"
       }
     ],
     "status": "completed",
@@ -5984,7 +4691,7 @@ const addOnsData = [
         "sn": 1,
         "name": "McCain Flavour Makers",
         "code": "ADD-262502",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6031,26 +4738,6 @@ const addOnsData = [
     "created_at": "2023-05-24T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-262553-185",
-    "legacy_record_id": "262553",
-    "subject": "Potato Pops",
-    "message": "Hi,\r\n\r\nPlease could you add this new product.\r\n\r\nRegards\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Potato Pops",
-        "code": "ADD-262553",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-06-05T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-262582-185",
     "legacy_record_id": "262582",
     "subject": "Impingment Fries",
@@ -6089,46 +4776,6 @@ const addOnsData = [
     ],
     "status": "completed",
     "created_at": "2023-06-21T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-262620-185",
-    "legacy_record_id": "262620",
-    "subject": "Change of ingredient supply",
-    "message": "Hi. Due to a critical failure of our flake line in Whittlesey, we have had to get flake from another McCain site in Continental Europe. This will affect all products being made at Wombourne, but the flake is coming from a Halal approved site and the flake is also approved.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Change of ingredient supply",
-        "code": "ADD-262620",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-07-11T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-262701-185",
-    "legacy_record_id": "262701",
-    "subject": "New product code for new pack sizes - existing products",
-    "message": "Hi. \r\n\r\nPlease can you approve this new pack size code for Jacket Potatoes?\r\n\r\nThanks.\r\n\r\n\r\n\r\nHi. \r\n\r\nWe have various new pack sizes of Jacket Potatoes and Homechips to go into a new account. The formulations, packaging suppliers  and production sites are exactly the same as the products that are already certified, so these are just additional codes for the bespoke bag weights. \r\n\r\nThank you",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New product code for new pack sizes - existing products",
-        "code": "ADD-262701",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2023-08-09T23:00:00.000Z"
   },
   {
     "application_number": "ADD-262702-185",
@@ -6184,7 +4831,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Popeye Cajun Fries",
         "code": "ADD-262744",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6204,7 +4851,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Popeye Cajun Fries",
         "code": "ADD-262745",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6291,46 +4938,6 @@ const addOnsData = [
     "created_at": "2023-11-21T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-292927-185",
-    "legacy_record_id": "292927",
-    "subject": "New Hash Brown RT recipe",
-    "message": "Good Afternoon,\r\n\r\nWe are changing the seasoning on Retail Hash Browns and raising new codes for this. Please can you assess this recipe this recipe",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New Hash Brown RT recipe",
-        "code": "ADD-292927",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2024-02-05T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-293049-185",
-    "legacy_record_id": "293049",
-    "subject": "New Product Approval",
-    "message": "Hi. Looking to get 2 codes of mozarella sticks approved. The ingredients are the same as the current approved product but that line is being discontinued and the other products have a slightly different piece weight.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New Product Approval",
-        "code": "ADD-293049",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2024-03-24T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-293084-185",
     "legacy_record_id": "293084",
     "subject": "McCain Zig Zags",
@@ -6369,66 +4976,6 @@ const addOnsData = [
     ],
     "status": "submitted",
     "created_at": "2024-04-18T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-313285-185",
-    "legacy_record_id": "313285",
-    "subject": "New pack format - exisiting product",
-    "message": "Please can this product be added to the certificate for Hull? It is the same product as the already approved 304505 and is just in a 9 x 1kg box instead of a 6 x 1kg box. Thanks.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New pack format - exisiting product",
-        "code": "ADD-313285",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2024-07-21T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-323365-185",
-    "legacy_record_id": "323365",
-    "subject": "Product Addition - Revised",
-    "message": "Product names have been revised to match specs from previous application, updated submission form will be sent.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Product Addition - Revised",
-        "code": "ADD-323365",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2024-09-04T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-323381-185",
-    "legacy_record_id": "323381",
-    "subject": "New SKU Code - Hash Browns",
-    "message": "This is a different case configuration of the previously approved code 1000012866",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New SKU Code - Hash Browns",
-        "code": "ADD-323381",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2024-09-16T23:00:00.000Z"
   },
   {
     "application_number": "ADD-323382-185",
@@ -6551,26 +5098,6 @@ const addOnsData = [
     "created_at": "2025-03-23T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-333686-185",
-    "legacy_record_id": "333686",
-    "subject": "Air Fryer SKU",
-    "message": "Hi,\r\n\r\nPlease could you assess this new air fry product.\r\n\r\nShane",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Air Fryer SKU",
-        "code": "ADD-333686",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2025-03-23T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-333692-185",
     "legacy_record_id": "333692",
     "subject": "Air Fryer Crispy Dippers",
@@ -6604,7 +5131,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp thin",
         "code": "ADD-333738",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "submitted",
@@ -6624,31 +5151,11 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Thin",
         "code": "ADD-333739",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "submitted",
     "created_at": "2025-04-21T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-333812-185",
-    "legacy_record_id": "333812",
-    "subject": "Potato Pop (impingement)",
-    "message": "Good Afternoon,\r\n\r\nPlease can you assess this product for me?\r\n\r\nIt is the same product as current potato pop but its got a different amount of dextrose in for one specific customer.",
-    "contact_name": "Shane Green",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Potato Pop (impingement)",
-        "code": "ADD-333812",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2025-05-22T23:00:00.000Z"
   },
   {
     "application_number": "ADD-333834-185",
@@ -6664,7 +5171,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Impingement",
         "code": "ADD-333834",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6684,7 +5191,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp impingement fries",
         "code": "ADD-333835",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6704,7 +5211,7 @@ const addOnsData = [
         "sn": 1,
         "name": "New Homechips code",
         "code": "ADD-333901",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6724,7 +5231,7 @@ const addOnsData = [
         "sn": 1,
         "name": "New Homechips code",
         "code": "ADD-333902",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6744,7 +5251,7 @@ const addOnsData = [
         "sn": 1,
         "name": "New Homechips Code",
         "code": "ADD-333903",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6764,7 +5271,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Medium and Julienne Part 1",
         "code": "ADD-333915",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6784,7 +5291,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Medium & Julienne",
         "code": "ADD-333916",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6804,7 +5311,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Gourmet and Traditional",
         "code": "ADD-333917",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6824,7 +5331,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Surecrisp Gourmet and Traditional",
         "code": "ADD-333928",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6891,26 +5398,6 @@ const addOnsData = [
     "created_at": "2025-07-09T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-343934-185",
-    "legacy_record_id": "343934",
-    "subject": "Add Jacket Potato code",
-    "message": "New code for Jacket potatoes, product already approved.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Add Jacket Potato code",
-        "code": "ADD-343934",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2025-07-21T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-343982-185",
     "legacy_record_id": "343982",
     "subject": "Crispy French Fries Trial",
@@ -6924,7 +5411,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Crispy French Fries Trial",
         "code": "ADD-343982",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -6984,7 +5471,7 @@ const addOnsData = [
         "sn": 1,
         "name": "New Crispy Fries Codes",
         "code": "ADD-343991",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -7004,71 +5491,11 @@ const addOnsData = [
         "sn": 1,
         "name": "Product name change",
         "code": "ADD-344090",
-        "type": "Add product"
+        "type": "Change name/code"
       }
     ],
     "status": "completed",
     "created_at": "2025-09-29T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-344242-185",
-    "legacy_record_id": "344242",
-    "subject": "Additional Code - new bag size",
-    "message": "Hi. Please can this new code of an existing approved product be added to our certificate? All supply is the same as the other codes, it is just a bigger pack size for Asda. Thanks.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Additional Code - new bag size",
-        "code": "ADD-344242",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2025-12-04T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-344360-185",
-    "legacy_record_id": "344360",
-    "subject": "Product Name Change - Remove Burger King",
-    "message": "Hi\r\n\r\nPlease can the Burger King name be removed from Hull's current certificate (entry 25) as this product is no longer exclusively sold to BK so the name has been removed from the specification.\r\n\r\nThanks.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Product Name Change - Remove Burger King",
-        "code": "ADD-344360",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2026-02-04T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-344361-185",
-    "legacy_record_id": "344361",
-    "subject": "Product Name Change - Remove \"Burger King\"",
-    "message": "Hi\r\n\r\nPlease can entry 25 be amended to remove the Burger King name as this product is no longer sold exclusively to this customer and the name on the specification has been changed.\r\n\r\nThanks.",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "Product Name Change - Remove \"Burger King\"",
-        "code": "ADD-344361",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2026-02-04T23:00:00.000Z"
   },
   {
     "application_number": "ADD-374398-185",
@@ -7144,7 +5571,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Medium Cut Surecrisp",
         "code": "ADD-374418",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "submitted",
@@ -7184,7 +5611,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Additional Product",
         "code": "ADD-374535",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "completed",
@@ -7284,7 +5711,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Additional Product",
         "code": "ADD-374540",
-        "type": "Add product"
+        "type": "Change ingredients"
       }
     ],
     "status": "submitted",
@@ -7304,7 +5731,7 @@ const addOnsData = [
         "sn": 1,
         "name": "Removal of Products",
         "code": "ADD-374541",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
@@ -7324,71 +5751,11 @@ const addOnsData = [
         "sn": 1,
         "name": "Removal of Products",
         "code": "ADD-374542",
-        "type": "Add product"
+        "type": "Remove product"
       }
     ],
     "status": "completed",
     "created_at": "2026-07-14T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-374544-185",
-    "legacy_record_id": "374544",
-    "subject": "New Recipe",
-    "message": "Hi,\r\nCould you approve the new recipe for McCain Chilli & Cheese Nuggets for codes below\r\nPickers branding1000014127\r\nPepe’s branding 1000013919\r\nKind regards,\r\nOlcay",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New Recipe",
-        "code": "ADD-374544",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2026-07-14T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-374545-185",
-    "legacy_record_id": "374545",
-    "subject": "New Recipe",
-    "message": "Hi,\r\nCould you approve the new recipe for McCain Breaded Mozzarella Cheese Sticks for codes below\r\nPickers branding1000014123\r\nPepe’s branding 1000013917\r\nKind regards,\r\nOlcay",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "New Recipe",
-        "code": "ADD-374545",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2026-07-14T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-374556-185",
-    "legacy_record_id": "374556",
-    "subject": "McCain Smiles (Retail) - Add Product 10000015150",
-    "message": "Hi,\r\nCould you approve McCain Smiles (Retail) 10000015150 please?\r\nKind regards,\r\nOlcay",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Smiles (Retail) - Add Product 10000015150",
-        "code": "ADD-374556",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2026-07-16T23:00:00.000Z"
   },
   {
     "application_number": "ADD-374574-185",
@@ -7409,46 +5776,6 @@ const addOnsData = [
     ],
     "status": "submitted",
     "created_at": "2026-07-22T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-374584-185",
-    "legacy_record_id": "374584",
-    "subject": "McCain Smiles (Retail)",
-    "message": "Hi,\r\nCould you approve McCain Smiles (Retail) with 1000014470 please?\r\nKind regards,\r\nOlcay",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Smiles (Retail)",
-        "code": "ADD-374584",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2026-07-26T23:00:00.000Z"
-  },
-  {
-    "application_number": "ADD-374585-185",
-    "legacy_record_id": "374585",
-    "subject": "McCain Smiles (Retail)",
-    "message": "Hi,\r\nCould you remove my application McCain Smiles (Retail) with this code 10000015150, as this code on the form was incorrect, the correct code should have been 1000014470.\r\nKind regards,\r\nOlcay Dogan",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "10015",
-    "site_name": "Wombourne",
-    "products": [
-      {
-        "sn": 1,
-        "name": "McCain Smiles (Retail)",
-        "code": "ADD-374585",
-        "type": "Add product"
-      }
-    ],
-    "status": "submitted",
-    "created_at": "2026-07-26T23:00:00.000Z"
   },
   {
     "application_number": "ADD-374588-185",
@@ -7511,26 +5838,6 @@ const addOnsData = [
     "created_at": "2026-09-01T23:00:00.000Z"
   },
   {
-    "application_number": "ADD-374709-185",
-    "legacy_record_id": "374709",
-    "subject": "1000014231 McDonalds Mac & Cheese Bites",
-    "message": "Good afternoon Sadia,\r\nCould you approve 1000014231 McDonalds Mac & Cheese Bites please?\r\nKind regards,\r\nOlcay",
-    "contact_name": "David Snell",
-    "contact_email": "shane.green@mccain.co.uk",
-    "site_client_code": "20313",
-    "site_name": "Hull Site",
-    "products": [
-      {
-        "sn": 1,
-        "name": "1000014231 McDonalds Mac & Cheese Bites",
-        "code": "ADD-374709",
-        "type": "Add product"
-      }
-    ],
-    "status": "completed",
-    "created_at": "2026-09-10T23:00:00.000Z"
-  },
-  {
     "application_number": "ADD-374728-185",
     "legacy_record_id": "374728",
     "subject": "McCain Max Crunch Products",
@@ -7583,7 +5890,7 @@ async function seedMcCain() {
     console.log('✅ Connected to MongoDB:', mongoose.connection.name);
 
     // 1. User Account
-    console.log(`\n1️⃣ Processing User (${email})...`);
+    console.log('\n1️⃣ Processing User (' + email + ')...');
     let user = await User.findOne({
       $or: [
         { email },
@@ -7606,7 +5913,7 @@ async function seedMcCain() {
       company_category: 'certified',
       is_active: true,
       is_verified: true,
-      notes: 'Imported from legacy HFA portal (CIDs: 185, 186 - McCain Foods & McCain GSO Foods)'
+      notes: 'Imported from legacy HFA portal (CID: 185 - McCain Foods)'
     };
 
     if (!user) {
@@ -7615,18 +5922,25 @@ async function seedMcCain() {
         password: plainPassword,
       });
       await user.save();
-      console.log(`   ✅ Created client user: ${user.email} (ID: ${user._id})`);
+      console.log('   ✅ Created client user: ' + user.email + ' (ID: ' + user._id + ')');
     } else {
       Object.assign(user, userProfileData);
-      user.password = plainPassword; // pre-save hook will hash it
+      user.password = plainPassword;
       await user.save();
-      console.log(`   ℹ️ User ${user.email} updated with password ${plainPassword} (ID: ${user._id})`);
+      console.log('   ℹ️ User ' + user.email + ' updated with password ' + plainPassword + ' (ID: ' + user._id + ')');
     }
 
     const userIdStr = user._id.toString();
 
-    // 2. Sites (7 Sites)
-    console.log(`\n2️⃣ Processing ${siteDefs.length} Sites...`);
+    // Clean up any extraneous sites for McCain Foods (e.g. Wombourne or Hull from GSO scheme CID 186)
+    const validClientCodes = siteDefs.map(s => s.client_code);
+    const removedSites = await Site.deleteMany({ client_id: userIdStr, client_code: { $nin: validClientCodes } });
+    if (removedSites.deletedCount > 0) {
+      console.log('   🧹 Cleaned up ' + removedSites.deletedCount + ' non-CID-185 sites');
+    }
+
+    // 2. Sites (5 Sites)
+    console.log('\n2️⃣ Processing ' + siteDefs.length + ' Sites...');
     const siteMap = {};
     for (const sDef of siteDefs) {
       let site = await Site.findOne({ client_id: userIdStr, client_code: sDef.client_code });
@@ -7655,27 +5969,31 @@ async function seedMcCain() {
       if (!site) {
         site = new Site(sitePayload);
         await site.save();
-        console.log(`   ✅ Created Site: ${site.name} (Code: ${site.client_code})`);
+        console.log('   ✅ Created Site: ' + site.name + ' (Code: ' + site.client_code + ')');
       } else {
         Object.assign(site, sitePayload);
         await site.save();
-        console.log(`   ℹ️ Updated Site: ${site.name} (Code: ${site.client_code})`);
+        console.log('   ℹ️ Updated Site: ' + site.name + ' (Code: ' + site.client_code + ')');
       }
       siteMap[sDef.client_code] = site;
       siteMap[sDef.name] = site;
     }
 
-    // Default site fallback
     const defaultSite = siteMap['10009'] || Object.values(siteMap)[0];
 
-    // 3. Applications (11 New + 28 Renewals + 10 Surveillance = 49 Applications)
+    // Clean up any extraneous applications for McCain Foods (e.g. from GSO scheme CID 186)
     const allAppsToProcess = [
       ...applicationsData.map(a => ({ ...a, is_renewal: false, is_surveillance: false })),
-      ...renewalsData.map(r => ({ ...r, is_renewal: true, is_surveillance: false })),
-      ...surveillanceData.map(s => ({ ...s, is_renewal: false, is_surveillance: true }))
+      ...renewalsData.map(r => ({ ...r, is_renewal: true, is_surveillance: false }))
     ];
-    console.log(`\n3️⃣ Processing ${allAppsToProcess.length} Applications (11 New + 28 Renewals + 10 Surveillance)...`);
+    const validAppNumbers = allAppsToProcess.map(a => a.application_number);
+    const removedApps = await Application.deleteMany({ client_id: user._id, application_number: { $nin: validAppNumbers } });
+    if (removedApps.deletedCount > 0) {
+      console.log('   🧹 Cleaned up ' + removedApps.deletedCount + ' non-CID-185 applications');
+    }
 
+    // 3. Applications (7 New + 22 Renewals = 29 Applications)
+    console.log('\n3️⃣ Processing ' + allAppsToProcess.length + ' Applications (7 New + 22 Renewals)...');
     const appMap = {};
     for (const app of allAppsToProcess) {
       const site = siteMap[app.site_client_code] || siteMap[app.site_name] || defaultSite;
@@ -7694,7 +6012,7 @@ async function seedMcCain() {
         employee_count: app.employee_count || 1800,
         status: app.status,
         created_at: app.submission_date || new Date(),
-        notes: app.notes || 'Imported from legacy HFA database (CID: 185, 186)',
+        notes: app.notes || 'Imported from legacy HFA database (CID: 185)',
       };
 
       const saved = await Application.findOneAndUpdate(
@@ -7703,45 +6021,51 @@ async function seedMcCain() {
         { upsert: true, new: true }
       );
       appMap[app.application_number] = saved;
-      console.log(`   ✅ Saved Application: ${app.application_number} (${app.status}) - Site: ${site?.name}`);
+      console.log('   ✅ Saved Application: ' + app.application_number + ' (' + app.status + ') - Site: ' + site?.name);
     }
 
-    // 4. Halal Certificates (38 Certificates)
-    console.log(`\n4️⃣ Processing ${certificatesData.length} Halal Certificates...`);
+    // Clean up any extraneous certificates for McCain Foods (e.g. from GSO scheme CID 186)
+    const validCertNumbers = certificatesData.map(c => c.certificate_number);
+    const removedCerts = await Certificate.deleteMany({ client_id: userIdStr, certificate_number: { $nin: validCertNumbers } });
+    if (removedCerts.deletedCount > 0) {
+      console.log('   🧹 Cleaned up ' + removedCerts.deletedCount + ' non-CID-185 certificates');
+    }
+
+    // 4. Halal Certificates (28 Certificates)
+    console.log('\n4️⃣ Processing ' + certificatesData.length + ' Halal Certificates...');
     const certMap = {};
     for (const c of certificatesData) {
       const site = siteMap[c.site_client_code] || siteMap[c.site_name] || defaultSite;
       let certificateUrl = null;
 
       try {
-        console.log(`   📄 Generating PDF for Certificate ${c.certificate_number} (${c.certificate_type})...`);
-        const pdfBuffer = await generateCertificate({
-          businessName: companyName,
-          businessAddress: c.company_address,
-          manufacturerAddress: c.manufacturing_address,
-          certificateNumber: c.certificate_number,
-          scopeOfCertification: c.scope,
-          scheme: c.certificate_type,
-          productCategories: c.product_details && c.product_details.length > 0 ? c.product_details : [{ code: 'CIV', name: 'Frozen Potato Products' }],
-          issueDate: new Date(c.issue_date),
-          expiryDate: new Date(c.expiry_date),
-          cycleStartDate: new Date(c.current_cycle_start_date),
-          verificationUrl: `${getClientUrl()}/verify/${encodeURIComponent(c.certificate_number)}`
-        });
+        const existingCert = await Certificate.findOne({ certificate_number: c.certificate_number });
+        if (existingCert?.certificate_url) {
+          certificateUrl = existingCert.certificate_url;
+        } else {
+          console.log('   📄 Generating PDF for Certificate ' + c.certificate_number + ' (' + c.certificate_type + ')...');
+          const pdfBuffer = await generateCertificate({
+            businessName: companyName,
+            businessAddress: c.company_address,
+            manufacturerAddress: c.manufacturing_address,
+            certificateNumber: c.certificate_number,
+            scopeOfCertification: c.scope,
+            scheme: c.certificate_type,
+            productCategories: c.product_details && c.product_details.length > 0 ? c.product_details : [{ code: 'CIV', name: 'Frozen Potato Products' }],
+            issueDate: new Date(c.issue_date),
+            expiryDate: new Date(c.expiry_date),
+            cycleStartDate: new Date(c.current_cycle_start_date),
+            verificationUrl: getClientUrl() + '/verify/' + encodeURIComponent(c.certificate_number)
+          });
 
-        const filename = `${c.certificate_number.replace(/[\/\\:]/g, '_')}.pdf`;
-        certificateUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
-        console.log(`   ✅ Certificate PDF uploaded to GridFS: ${certificateUrl}`);
+          const filename = c.certificate_number.replace(/[\/\\:]/g, '_') + '.pdf';
+          certificateUrl = await uploadToGridFS(pdfBuffer, filename, 'application/pdf');
+          console.log('   ✅ Certificate PDF uploaded to GridFS: ' + certificateUrl);
+        }
       } catch (pdfErr) {
-        console.warn(`   ⚠️ Note on PDF generation for ${c.certificate_number}:`, pdfErr.message);
+        console.warn('   ⚠️ Note on PDF generation for ' + c.certificate_number + ':', pdfErr.message);
       }
 
-      const existingCert = await Certificate.findOne({ certificate_number: c.certificate_number });
-      if (!certificateUrl && existingCert?.certificate_url) {
-        certificateUrl = existingCert.certificate_url;
-      }
-
-      // Link to appropriate application
       const linkedApp = Object.values(appMap).find(a => (a.site_name === site?.name) || (a.category === c.certificate_type)) || Object.values(appMap)[0];
 
       const certDoc = {
@@ -7761,7 +6085,7 @@ async function seedMcCain() {
         products_covered: c.products_covered,
         product_details: c.product_details,
         site_id: site ? site._id : null,
-        notes: `Imported from legacy HFA database (CID: 185/186, Site: ${c.site_name})`
+        notes: 'Imported from legacy HFA database (CID: 185, Site: ' + c.site_name + ')'
       };
 
       const savedCert = await Certificate.findOneAndUpdate(
@@ -7770,11 +6094,20 @@ async function seedMcCain() {
         { upsert: true, new: true }
       );
       certMap[c.certificate_number] = savedCert;
-      console.log(`   ✅ Saved Certificate: ${c.certificate_number} (${c.status}) - Site: ${site?.name}`);
+      console.log('   ✅ Saved Certificate: ' + c.certificate_number + ' (' + c.status + ') - Site: ' + site?.name);
     }
 
-    // 5. Products (276 Products)
-    console.log(`\n5️⃣ Processing ${productsData.length} Products...`);
+    // Clean up any extraneous products for McCain Foods (e.g. from GSO scheme CID 186)
+    const validSiteCodes = siteDefs.map(s => s.client_code);
+    const validSites = await Site.find({ client_id: userIdStr, client_code: { $in: validSiteCodes } });
+    const validSiteIds = validSites.map(s => s._id);
+    const removedProds = await Product.deleteMany({ client_id: user._id, site_id: { $nin: validSiteIds } });
+    if (removedProds.deletedCount > 0) {
+      console.log('   🧹 Cleaned up ' + removedProds.deletedCount + ' non-CID-185 products');
+    }
+
+    // 5. Products (225 Products)
+    console.log('\n5️⃣ Processing ' + productsData.length + ' Products...');
     for (const p of productsData) {
       const site = siteMap[p.site_client_code] || siteMap[p.site_name] || defaultSite;
       const pDoc = {
@@ -7784,7 +6117,7 @@ async function seedMcCain() {
         category: p.category,
         site_id: site ? site._id : null,
         status: 'active',
-        notes: `Imported from legacy HFA database. Product code ${p.code}`
+        notes: 'Imported from legacy HFA database (CID: 185). Product code ' + p.code
       };
 
       await Product.findOneAndUpdate(
@@ -7793,11 +6126,17 @@ async function seedMcCain() {
         { upsert: true, new: true }
       );
     }
-    console.log(`   ✅ Successfully processed all ${productsData.length} products!`);
+    console.log('   ✅ Successfully processed all ' + productsData.length + ' products!');
 
-    // 6. Add-On Applications (191 Add-Ons)
-    console.log(`\n6️⃣ Processing ${addOnsData.length} Add-On Applications...`);
-    await AddOnApplication.deleteMany({ client_id: user._id, application_number: { $regex: /^ADDON-/ } });
+    // Clean up any extraneous add-ons for McCain Foods (e.g. from GSO scheme CID 186 or stale ADDON-)
+    const validAddOnNumbers = addOnsData.map(a => a.application_number);
+    const removedAddOns = await AddOnApplication.deleteMany({ client_id: user._id, application_number: { $nin: validAddOnNumbers } });
+    if (removedAddOns.deletedCount > 0) {
+      console.log('   🧹 Cleaned up ' + removedAddOns.deletedCount + ' non-CID-185 add-ons');
+    }
+
+    // 6. Add-On Applications (151 Add-Ons)
+    console.log('\n6️⃣ Processing ' + addOnsData.length + ' Add-On Applications...');
     const primaryCert = Object.values(certMap)[0];
     let addOnCount = 0;
     for (const addOn of addOnsData) {
@@ -7823,22 +6162,22 @@ async function seedMcCain() {
       );
       addOnCount++;
       if (addOnCount % 25 === 0 || addOnCount === addOnsData.length) {
-        console.log(`   ✅ Processed ${addOnCount}/${addOnsData.length} Add-On Applications`);
+        console.log('   ✅ Processed ' + addOnCount + '/' + addOnsData.length + ' Add-On Applications');
       }
     }
-    console.log(`   ✅ Successfully processed all ${addOnsData.length} Add-On Applications!`);
+    console.log('   ✅ Successfully processed all ' + addOnsData.length + ' Add-On Applications!');
 
     console.log('\n=============================================================================');
-    console.log('🎉 MCCAIN FOODS (CID: 185 & 186) FULL MIGRATION COMPLETED SUCCESSFULLY!');
+    console.log('🎉 MCCAIN FOODS (CID: 185) FULL MIGRATION COMPLETED SUCCESSFULLY!');
     console.log('=============================================================================');
-    console.log(`👤 Email        : ${email}`);
-    console.log(`🔑 Password     : ${plainPassword}`);
-    console.log(`🏢 Company      : ${companyName}`);
-    console.log(`📍 Sites        : ${siteDefs.length} (Whittlesey, Scarborough, Grantham, Wombourne, Hull, etc.)`);
-    console.log(`📝 Applications : ${allAppsToProcess.length} (11 New + 28 Renewals + 10 Surveillance)`);
-    console.log(`📜 Certificates : ${certificatesData.length} (All schemes & active/expired states)`);
-    console.log(`📦 Products     : ${productsData.length}`);
-    console.log(`➕ Add-Ons      : ${addOnsData.length} (All 191 product addition requests)`);
+    console.log('👤 Email        : ' + email);
+    console.log('🔑 Password     : ' + plainPassword);
+    console.log('🏢 Company      : ' + companyName);
+    console.log('📍 Sites        : ' + siteDefs.length + ' (Whittlesey, Scarborough, Grantham, Lutosa, Albert Bartlett)');
+    console.log('📝 Applications : ' + allAppsToProcess.length + ' (7 New + 22 Renewals)');
+    console.log('📜 Certificates : ' + certificatesData.length + ' (All HFA Scheme)');
+    console.log('📦 Products     : ' + productsData.length);
+    console.log('➕ Add-Ons      : ' + addOnsData.length + ' (All 151 variation requests with specific types)');
     console.log('=============================================================================\n');
 
     await mongoose.disconnect();
