@@ -748,8 +748,8 @@ async function runFullCompanyImport() {
 
   // Pre-hash default password
   console.log('\n🔐 Pre-hashing default password for imported client accounts...');
-  const defaultPasswordHash = await bcrypt.hash('Password123!', 10);
-  console.log('   ✓ Default password hash ready ("Password123!")');
+  const defaultPasswordHash = await bcrypt.hash('abc123', 10);
+  console.log('   ✓ Default password hash ready ("abc123")');
 
   const existingUsers = await User.find({}, 'email').lean();
   const existingEmailSet = new Set(existingUsers.map(u => (u.email || '').toLowerCase().trim()));
