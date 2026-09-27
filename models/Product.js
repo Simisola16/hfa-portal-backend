@@ -28,4 +28,9 @@ const productSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+productSchema.index({ client_id: 1 });
+productSchema.index({ site_id: 1 });
+productSchema.index({ status: 1 });
+productSchema.index({ client_id: 1, site_id: 1 });
+
 export default mongoose.model('Product', productSchema);

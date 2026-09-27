@@ -53,6 +53,10 @@ const userSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+userSchema.index({ role: 1 });
+userSchema.index({ is_verified: 1 });
+userSchema.index({ company_category: 1 });
+
 // Hash password before saving
 userSchema.pre('save', async function() {
   if (!this.isModified('password')) return;

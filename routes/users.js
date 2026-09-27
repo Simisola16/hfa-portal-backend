@@ -253,17 +253,53 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const users = await User.find().sort({ created_at: -1 });
-    
-    // Enrich users with stats and normalized roles
-    const enrichedUsers = await Promise.all(users.map(async (u) => {
-      const appCount = await Application.countDocuments({ client_id: u._id });
-      const approvedAppCount = await Application.countDocuments({ client_id: u._id, status: 'approved' });
-      const certCount = await Certificate.countDocuments({ client_id: u._id, status: 'active' });
-      const userObj = u.toJSON();
+    const [users, appStats, certStats] = await Promise.all([
+      User.find().sort({ created_at: -1 }).lean(),
+      Application.aggregate([
+        {
+          $group: {
+            _id: { $toString: '$client_id' },
+            appCount: { $sum: 1 },
+            approvedAppCount: {
+              $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] }
+            }
+          }
+        }
+      ]),
+      Certificate.aggregate([
+        { $match: { status: 'active' } },
+        {
+          $group: {
+            _id: { $toString: '$client_id' },
+            certCount: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
+
+    const appMap = new Map();
+    appStats.forEach(a => {
+      if (a._id) appMap.set(a._id, a);
+    });
+
+    const certMap = new Map();
+    certStats.forEach(c => {
+      if (c._id) certMap.set(c._id, c.certCount);
+    });
+
+    const enrichedUsers = users.map(u => {
+      const uId = u._id.toString();
+      const a = appMap.get(uId);
+      const certCount = certMap.get(uId) || 0;
       const userRoles = (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : []);
-      return { ...userObj, roles: userRoles, appCount, approvedAppCount, certCount };
-    }));
+      return {
+        ...u,
+        roles: userRoles,
+        appCount: a ? a.appCount : 0,
+        approvedAppCount: a ? a.approvedAppCount : 0,
+        certCount
+      };
+    });
 
     res.json({ data: enrichedUsers });
   } catch (err) {

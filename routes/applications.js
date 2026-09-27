@@ -35,17 +35,6 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 // GET /api/applications
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Auto-normalize any New applications where initial payment is confirmed to initial_product
-    await Application.updateMany(
-      {
-        application_type: { $nin: ['renewal', 'surveillance'] },
-        status: 'payment_received'
-      },
-      {
-        $set: { status: 'initial_product' }
-      }
-    ).catch(() => {});
-
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       query.client_id = req.user._id;
