@@ -6,6 +6,7 @@ import Application from '../models/Application.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
@@ -248,7 +249,7 @@ router.put('/:id', authenticateToken, upload.fields([
       const companyName = app?.establishment_name || 'HFA Partner';
 
       // Notify HFA Admins in-portal
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,

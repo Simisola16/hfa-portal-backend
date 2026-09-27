@@ -3,6 +3,7 @@ import Audit from '../models/Audit.js';
 import Application from '../models/Application.js';
 import InitialProductApplication from '../models/InitialProductApplication.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
@@ -73,7 +74,7 @@ router.get('/', authenticateToken, async (req, res) => {
       
     const [clients, allStaffUsers] = await Promise.all([
       User.find({ _id: { $in: clientIds } }, 'company_name full_name'),
-      User.find({ role: { $in: ['auditor', 'inspector', 'admin', 'superadmin', 'food_tech'] } }, 'full_name username email phone')
+      Admin.find({}, 'full_name username email phone')
     ]);
     const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
 
@@ -467,7 +468,7 @@ const handleClientAuditDateResponse = async (req, res) => {
       }, { new: true });
       if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
       
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -501,7 +502,7 @@ const handleClientAuditDateResponse = async (req, res) => {
         }, { new: true });
         if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
 
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -987,7 +988,7 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
       }
     }
 
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+    const admins = await Admin.find({});
     for (const admin of admins) {
       await createNotification(
         admin._id,

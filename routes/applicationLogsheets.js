@@ -4,6 +4,7 @@ import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
 import Audit from '../models/Audit.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
@@ -1112,7 +1113,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
                   // Email notification to Audit Managers
                   try {
-                    const recipients = await User.find({
+                    const recipients = await Admin.find({
                       $or: [
                         { role: { $in: ['audit_manager', 'superadmin'] } },
                         { roles: { $in: ['audit_manager', 'superadmin'] } }

@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Ticket from '../models/Ticket.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -78,14 +79,14 @@ const populateTicketsSafely = async (tickets) => {
     }
   });
 
-  const allUserIds = Array.from(new Set([...userIds, ...staffIds]));
-
-  const [users, apps] = await Promise.all([
-    allUserIds.length > 0 ? User.find({ _id: { $in: allUserIds } }).select('full_name company_name email phone role avatar_url').lean() : [],
+  const [users, staffMembers, apps] = await Promise.all([
+    userIds.size > 0 ? User.find({ _id: { $in: Array.from(userIds) } }).select('full_name company_name email phone role avatar_url').lean() : [],
+    staffIds.size > 0 ? Admin.find({ _id: { $in: Array.from(staffIds) } }).select('full_name username email phone role roles is_support_manager avatar_url').lean() : [],
     appIds.size > 0 ? Application.find({ _id: { $in: Array.from(appIds) } }).select('company_name scheme status').lean() : []
   ]);
 
   const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  const staffMap = new Map(staffMembers.map(s => [s._id.toString(), s]));
   const appMap = new Map(apps.map(a => [a._id.toString(), a]));
 
   const enriched = ticketList.map(t => {
@@ -104,8 +105,8 @@ const populateTicketsSafely = async (tickets) => {
     }
 
     // Assigned staff resolution
-    if (doc.assigned_to && userMap.has(doc.assigned_to.toString())) {
-      doc.assigned_staff = userMap.get(doc.assigned_to.toString());
+    if (doc.assigned_to && staffMap.has(doc.assigned_to.toString())) {
+      doc.assigned_staff = staffMap.get(doc.assigned_to.toString());
     } else {
       doc.assigned_staff = null;
     }
@@ -261,7 +262,7 @@ router.post('/request-human', authenticateToken, async (req, res) => {
     const populated = await populateTicketsSafely(saved);
 
     // Find all users who have the Support Manager privilege or Superadmin
-    const supportManagers = await User.find({
+    const supportManagers = await Admin.find({
       $or: [
         { is_support_manager: true },
         { role: 'support_manager' },
@@ -352,7 +353,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Notify admins if created by client
     if (!isStaffUser(req.user)) {
       const clientName = req.user.company_name || req.user.full_name || 'Client';
-      const admins = await User.find({ role: { $in: STAFF_ROLES } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -477,7 +478,7 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
         );
       }
     } else {
-      const admins = await User.find({ role: { $in: STAFF_ROLES } });
+      const admins = await Admin.find({});
       const clientName = req.user.company_name || req.user.full_name || 'Client';
       for (const admin of admins) {
         await createNotification(

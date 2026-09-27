@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import AddOnApplication from '../models/AddOnApplication.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -263,7 +264,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const savedAddOn = await addOnApp.save();
     emitAddOnUpdate(savedAddOn, 'created');
 
-    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(
         a._id,

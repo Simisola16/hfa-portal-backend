@@ -5,6 +5,7 @@ import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Certificate from '../models/Certificate.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin, requireStaff } from '../middleware/auth.js';
@@ -73,7 +74,7 @@ async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }
 
 async function notifyAdmins(title, body) {
   try {
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(a._id, title, body, 'info', '/extension-applications');
     }

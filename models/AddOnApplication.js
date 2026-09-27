@@ -62,7 +62,7 @@ const addOnApplicationSchema = new mongoose.Schema({
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     note: String
   }],
 
@@ -71,8 +71,8 @@ const addOnApplicationSchema = new mongoose.Schema({
   notes: String, // internal admin notes
 
   // FT assignment — array supports multiple assigned FT staff or manual details
-  assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // legacy (kept for populate compat)
-  assigned_food_techs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  assigned_food_tech:  { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }, // legacy (kept for populate compat)
+  assigned_food_techs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }],
   assigned_ft_details: String,
   assigned_ft_custom: {
     name: String,

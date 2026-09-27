@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
 import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
@@ -15,9 +16,9 @@ const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
-// ─── CLIENT TEAM / SUBUSERS ENDPOINTS (Must be defined BEFORE /:id) ───────────────
+// ─── CLIENT TEAM / SUBUSERS ENDPOINTS (Must be defined BEFORE /:id) ───────────
 
-// GET /api/users/company/subusers (Client endpoint to get primary user + subusers)
+// GET /api/users/company/subusers
 router.get('/company/subusers', authenticateToken, async (req, res) => {
   try {
     const parentId = req.user.parent_client_id || req.user._id;
@@ -44,7 +45,9 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
         id: uObj._id.toString(),
         is_owner: false,
         role: uObj.client_role || 'viewer',
-        display_role: uObj.client_role ? (uObj.client_role.charAt(0).toUpperCase() + uObj.client_role.slice(1)) : 'Viewer'
+        display_role: uObj.client_role
+          ? uObj.client_role.charAt(0).toUpperCase() + uObj.client_role.slice(1)
+          : 'Viewer'
       });
     });
 
@@ -54,7 +57,7 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/users/company/subusers (Client endpoint to add a subuser)
+// POST /api/users/company/subusers
 router.post('/company/subusers', authenticateToken, async (req, res) => {
   try {
     const { full_name, email, role, password } = req.body;
@@ -90,10 +93,9 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
     const resData = data.toJSON();
     delete resData.password;
 
-    // Send Welcome / Credentials email to newly created subuser
     try {
       const clientPortalUrl = getClientUrl();
-      const roleLabel = role ? (role.charAt(0).toUpperCase() + role.slice(1)) : 'Viewer';
+      const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Viewer';
       await resend.emails.send({
         from: emailFrom,
         to: subUser.email,
@@ -140,7 +142,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/users/company/subusers/:id (Client endpoint to update a subuser)
+// PUT /api/users/company/subusers/:id
 router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
     const parentId = req.user.parent_client_id || req.user._id;
@@ -162,7 +164,7 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// DELETE /api/users/company/subusers/:id (Client endpoint to remove subuser)
+// DELETE /api/users/company/subusers/:id
 router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
     const parentId = req.user.parent_client_id || req.user._id;
@@ -176,9 +178,9 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── GENERAL USER ENDPOINTS ───────────────────────────────────────────────────────
+// ─── GENERAL / ADMIN ENDPOINTS ─────────────────────────────────────────────────
 
-// GET /api/users/companies-directory - Fast list of all client companies and their sites for admin filtering/suggestions
+// GET /api/users/companies-directory
 router.get('/companies-directory', authenticateToken, async (req, res) => {
   try {
     const [clients, sites] = await Promise.all([
@@ -192,11 +194,7 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
       if (!name) return;
       const key = name.toLowerCase();
       if (!companyMap.has(key)) {
-        companyMap.set(key, {
-          id: String(c._id),
-          name: name,
-          sites: []
-        });
+        companyMap.set(key, { id: String(c._id), name, sites: [] });
       }
     });
 
@@ -208,25 +206,16 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
       if (s.client_id) {
         const cidStr = String(s.client_id);
         for (const entry of companyMap.values()) {
-          if (entry.id === cidStr) {
-            compEntry = entry;
-            break;
-          }
+          if (entry.id === cidStr) { compEntry = entry; break; }
         }
       }
-
-      if (!compEntry && s.est_name) {
-        compEntry = companyMap.get(s.est_name.trim().toLowerCase());
-      }
+      if (!compEntry && s.est_name) compEntry = companyMap.get(s.est_name.trim().toLowerCase());
 
       if (compEntry) {
         if (!compEntry.sites.some(st => st.name.toLowerCase() === siteName.toLowerCase())) {
-          compEntry.sites.push({
-            id: String(s._id),
-            name: siteName
-          });
+          compEntry.sites.push({ id: String(s._id), name: siteName });
         }
-      } else if (s.est_name && s.est_name.trim()) {
+      } else if (s.est_name?.trim()) {
         const estKey = s.est_name.trim().toLowerCase();
         if (!companyMap.has(estKey)) {
           companyMap.set(estKey, {
@@ -238,35 +227,38 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
       }
     });
 
-    const list = Array.from(companyMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    res.json({ data: list });
+    res.json({ data: Array.from(companyMap.values()).sort((a, b) => a.name.localeCompare(b.name)) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/users/:id
+// GET /api/users/:id — checks Admin first, then User (client)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ data: user });
+    // Try Admin collection first (staff lookup from admin portal)
+    let record = await Admin.findById(req.params.id).select('-password');
+    if (!record) {
+      record = await User.findById(req.params.id).select('-password');
+    }
+    if (!record) return res.status(404).json({ error: 'User not found' });
+    res.json({ data: record });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// POST /api/users/ — Create a new STAFF member (Admin model)
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const { email, password, full_name, role, roles, username, company_name, phone, address, postcode, country, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate } = req.body;
-  
-  if (!email?.trim()) {
-    return res.status(400).json({ error: 'Email address is required.' });
-  }
-  if (!password?.trim()) {
-    return res.status(400).json({ error: 'Password is required.' });
-  }
+  const {
+    email, password, full_name, role, roles, username, company_name, phone,
+    address, postcode, country,
+    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate
+  } = req.body;
 
-  // Parse and normalize assigned roles
+  if (!email?.trim()) return res.status(400).json({ error: 'Email address is required.' });
+  if (!password?.trim()) return res.status(400).json({ error: 'Password is required.' });
+
   let assignedRoles = [];
   if (Array.isArray(roles) && roles.length > 0) {
     assignedRoles = roles.filter(Boolean);
@@ -276,110 +268,116 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     assignedRoles = ['food_tech'];
   }
 
-  const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
+  // Client role must not be created via this endpoint
+  assignedRoles = assignedRoles.filter(r => r !== 'client');
+  if (!assignedRoles.length) assignedRoles = ['food_tech'];
+
+  const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'];
   const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
 
   try {
-    const existing = await User.findOne({ email: email.trim().toLowerCase() });
-    if (existing) return res.status(400).json({ error: 'Email already exists' });
+    const existingAdmin = await Admin.findOne({ email: email.trim().toLowerCase() });
+    if (existingAdmin) return res.status(400).json({ error: 'Email already exists' });
+
     if (username?.trim()) {
-      const existingUser = await User.findOne({ username: username.trim() });
-      if (existingUser) return res.status(400).json({ error: 'Username already exists' });
+      const existingUsername = await Admin.findOne({ username: username.trim() });
+      if (existingUsername) return res.status(400).json({ error: 'Username already exists' });
     }
 
-    const user = new User({
-      email: email.trim().toLowerCase(),
+    const isSuperAdmin = primaryRole === 'superadmin' || assignedRoles.includes('superadmin');
+    const isCertOfficer = primaryRole === 'certificate_officer' || assignedRoles.includes('certificate_officer');
+    const isSupportManager = primaryRole === 'support_manager' || assignedRoles.includes('support_manager');
+
+    const admin = new Admin({
+      email:     email.trim().toLowerCase(),
       password,
       full_name: full_name?.trim() || '',
-      company_name: company_name || full_name || '',
       phone,
-      address,
-      postcode,
-      country,
-      role: primaryRole,
-      roles: assignedRoles,
-      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || primaryRole === 'superadmin' || primaryRole === 'certificate_officer' || assignedRoles.includes('superadmin') || assignedRoles.includes('certificate_officer')),
-      is_support_manager: Boolean(is_support_manager || primaryRole === 'superadmin' || primaryRole === 'support_manager' || assignedRoles.includes('superadmin') || assignedRoles.includes('support_manager')),
-      can_sign_logsheet: Boolean(can_sign_logsheet || assignedRoles.includes('superadmin') || primaryRole === 'superadmin'),
-      can_review_certificate: Boolean(can_review_certificate || assignedRoles.includes('superadmin') || primaryRole === 'superadmin'),
-      username: username?.trim() || undefined,
-      is_verified: true,
-      is_active: true
+      username:  username?.trim() || undefined,
+      role:      primaryRole,
+      roles:     assignedRoles,
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || isSuperAdmin || isCertOfficer),
+      is_support_manager:           Boolean(is_support_manager || isSuperAdmin || isSupportManager),
+      can_sign_logsheet:            Boolean(can_sign_logsheet  || isSuperAdmin),
+      can_review_certificate:       Boolean(can_review_certificate || isSuperAdmin),
+      is_active:   true,
     });
-    
-    const data = await user.save();
-    
-    // Omit password from response
+
+    const data = await admin.save();
     const resData = data.toJSON();
     delete resData.password;
-    
+
     res.status(201).json({ data: resData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// GET /api/users/ — List users (clients) or staff (admins) by category
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const hasCategory = req.query.category !== undefined && req.query.category !== '';
+    const hasCategory   = req.query.category !== undefined && req.query.category !== '';
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     const isUnpaginated = req.query.all === 'true' || req.query.pagination === 'false' || (!hasCategory && !hasPagination);
-    const category = req.query.category || (hasPagination ? 'all' : '');
-    const search = req.query.search ? String(req.query.search).trim() : '';
+    const category      = req.query.category || (hasPagination ? 'all' : '');
+    const search        = req.query.search ? String(req.query.search).trim() : '';
 
+    // ── Staff category: query Admin collection ─────────────────────────────────
+    if (category === 'staff') {
+      const staffQuery = {};
+      if (search) {
+        const escaped = search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+        const rx = new RegExp(escaped, 'i');
+        staffQuery.$or = [{ full_name: rx }, { email: rx }, { username: rx }, { role: rx }];
+      }
+      const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const limit = isUnpaginated ? 0 : Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+      const skip  = isUnpaginated ? 0 : (page - 1) * limit;
+
+      const staffQueryExec = Admin.find(staffQuery).select('-password').sort({ created_at: -1, createdAt: -1 });
+      if (!isUnpaginated) staffQueryExec.skip(skip).limit(limit);
+
+      const [total, staffList, staffCount] = await Promise.all([
+        Admin.countDocuments(staffQuery),
+        staffQueryExec.lean(),
+        Admin.countDocuments({}),
+      ]);
+
+      // Fetch client counts for the sidebar stats too
+      const clientActiveCount = await User.countDocuments({
+        role: 'client', is_active: { $ne: false },
+        $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }]
+      });
+
+      const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
+      return res.json({
+        data: staffList,
+        pagination: { page, limit: isUnpaginated ? total : limit, total, totalPages, hasPrevPage: page > 1, hasNextPage: page < totalPages },
+        counts: { all: clientActiveCount, staff: staffCount }
+      });
+    }
+
+    // ── Client categories: query User collection ────────────────────────────────
     const matchQuery = {};
 
-    if (category === 'staff') {
-      matchQuery.role = { $ne: 'client' };
-    } else if (category === 'company') {
+    if (category === 'company') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'certified';
-      Object.assign(matchQuery, {
-        is_active: { $ne: false },
-        $or: [
-          { suspension_reason: null },
-          { suspension_reason: '' },
-          { suspension_reason: { $exists: false } }
-        ]
-      });
+      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'processing') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'processing';
-      Object.assign(matchQuery, {
-        is_active: { $ne: false },
-        $or: [
-          { suspension_reason: null },
-          { suspension_reason: '' },
-          { suspension_reason: { $exists: false } }
-        ]
-      });
+      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'signups') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'signup';
-      Object.assign(matchQuery, {
-        is_active: { $ne: false },
-        $or: [
-          { suspension_reason: null },
-          { suspension_reason: '' },
-          { suspension_reason: { $exists: false } }
-        ]
-      });
+      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'bin') {
       matchQuery.role = 'client';
-      matchQuery.$or = [
-        { is_active: false },
-        { suspension_reason: { $exists: true, $nin: [null, ''] } }
-      ];
-    } else if (category === 'all') {
+      matchQuery.$or = [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }];
+    } else if (category === 'all' || !category) {
       matchQuery.role = 'client';
-      Object.assign(matchQuery, {
-        is_active: { $ne: false },
-        $or: [
-          { suspension_reason: null },
-          { suspension_reason: '' },
-          { suspension_reason: { $exists: false } }
-        ]
-      });
+      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (req.query.role) {
       matchQuery.role = req.query.role;
     }
@@ -388,393 +386,270 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       const escaped = search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
       const searchRegex = new RegExp(escaped, 'i');
       const searchConditions = [
-        { company_name: searchRegex },
-        { full_name: searchRegex },
-        { email: searchRegex },
-        { phone: searchRegex },
-        { address: searchRegex },
-        { postcode: searchRegex }
+        { company_name: searchRegex }, { full_name: searchRegex }, { email: searchRegex },
+        { phone: searchRegex }, { address: searchRegex }, { postcode: searchRegex }
       ];
       if (matchQuery.$or) {
-        matchQuery.$and = [
-          { $or: matchQuery.$or },
-          { $or: searchConditions }
-        ];
+        matchQuery.$and = [{ $or: matchQuery.$or }, { $or: searchConditions }];
         delete matchQuery.$or;
       } else {
         matchQuery.$or = searchConditions;
       }
     }
 
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = isUnpaginated ? 0 : Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
-    const skip = isUnpaginated ? 0 : (page - 1) * limit;
+    const skip  = isUnpaginated ? 0 : (page - 1) * limit;
 
     const userQuery = User.find(matchQuery).sort({ created_at: -1, createdAt: -1 });
-    if (!isUnpaginated) {
-      userQuery.skip(skip).limit(limit);
-    }
+    if (!isUnpaginated) userQuery.skip(skip).limit(limit);
 
-    const [total, users, [stats]] = await Promise.all([
+    const [total, users, [stats], staffCount] = await Promise.all([
       User.countDocuments(matchQuery),
       userQuery.lean(),
-      User.aggregate([
-        {
-          $facet: {
-            staff: [{ $match: { role: { $ne: 'client' } } }, { $count: 'c' }],
-            all: [{ $match: { role: 'client' } }, { $count: 'c' }],
-            bin: [
-              {
-                $match: {
-                  role: 'client',
-                  $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }]
-                }
-              },
-              { $count: 'c' }
-            ],
-            company: [
-              {
-                $match: {
-                  role: 'client',
-                  is_active: { $ne: false },
-                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
-                  company_category: 'certified'
-                }
-              },
-              { $count: 'c' }
-            ],
-            processing: [
-              {
-                $match: {
-                  role: 'client',
-                  is_active: { $ne: false },
-                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
-                  company_category: 'processing'
-                }
-              },
-              { $count: 'c' }
-            ],
-            signups: [
-              {
-                $match: {
-                  role: 'client',
-                  is_active: { $ne: false },
-                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
-                  company_category: 'signup'
-                }
-              },
-              { $count: 'c' }
-            ]
-          }
+      User.aggregate([{
+        $facet: {
+          all:        [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] } }, { $count: 'c' }],
+          bin:        [{ $match: { role: 'client', $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }] } }, { $count: 'c' }],
+          company:    [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'certified' } }, { $count: 'c' }],
+          processing: [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'processing' } }, { $count: 'c' }],
+          signups:    [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'signup' } }, { $count: 'c' }],
         }
-      ])
+      }]),
+      Admin.countDocuments({}),
     ]);
 
-    // Enrich ONLY the fetched page of users with apps and certs
-    const userIds = users.map(u => u._id);
+    // Enrich fetched page with app + cert stats
+    const userIds    = users.map(u => u._id);
     const userIdStrs = userIds.map(id => id.toString());
-    const allIds = [...userIds, ...userIdStrs];
+    const allIds     = [...userIds, ...userIdStrs];
 
     const [appStats, certStats] = await Promise.all([
       Application.aggregate([
         { $match: { client_id: { $in: allIds } } },
-        {
-          $group: {
-            _id: { $toString: '$client_id' },
-            appCount: { $sum: 1 },
-            approvedAppCount: {
-              $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] }
-            }
-          }
-        }
+        { $group: { _id: { $toString: '$client_id' }, appCount: { $sum: 1 }, approvedAppCount: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } } } }
       ]),
       Certificate.aggregate([
         { $match: { client_id: { $in: allIds }, status: 'active' } },
-        {
-          $group: {
-            _id: { $toString: '$client_id' },
-            certCount: { $sum: 1 }
-          }
-        }
+        { $group: { _id: { $toString: '$client_id' }, certCount: { $sum: 1 } } }
       ])
     ]);
 
-    const appMap = new Map();
-    appStats.forEach(a => { if (a._id) appMap.set(a._id, a); });
-    const certMap = new Map();
-    certStats.forEach(c => { if (c._id) certMap.set(c._id, c.certCount); });
+    const appMap  = new Map(appStats.map(a => [a._id, a]));
+    const certMap = new Map(certStats.map(c => [c._id, c.certCount]));
 
     const enrichedUsers = users.map(u => {
       const uId = u._id.toString();
-      const a = appMap.get(uId);
-      const certCount = certMap.get(uId) || 0;
-      const userRoles = (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : []);
+      const a   = appMap.get(uId);
       return {
         ...u,
-        roles: userRoles,
-        appCount: a ? a.appCount : 0,
+        roles:            (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : []),
+        appCount:         a ? a.appCount : 0,
         approvedAppCount: a ? a.approvedAppCount : 0,
-        certCount
+        certCount:        certMap.get(uId) || 0
       };
     });
 
     const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
-    const counts = {
-      all: stats?.all?.[0]?.c || 0,
-      company: stats?.company?.[0]?.c || 0,
-      processing: stats?.processing?.[0]?.c || 0,
-      signups: stats?.signups?.[0]?.c || 0,
-      bin: stats?.bin?.[0]?.c || 0,
-      staff: stats?.staff?.[0]?.c || 0
-    };
-
-    res.json({
+    return res.json({
       data: enrichedUsers,
-      pagination: {
-        page,
-        limit: isUnpaginated ? total : limit,
-        total,
-        totalPages,
-        hasPrevPage: page > 1,
-        hasNextPage: page < totalPages
-      },
-      counts
+      pagination: { page, limit: isUnpaginated ? total : limit, total, totalPages, hasPrevPage: page > 1, hasNextPage: page < totalPages },
+      counts: {
+        all:        stats?.all?.[0]?.c        || 0,
+        company:    stats?.company?.[0]?.c    || 0,
+        processing: stats?.processing?.[0]?.c || 0,
+        signups:    stats?.signups?.[0]?.c    || 0,
+        bin:        stats?.bin?.[0]?.c        || 0,
+        staff:      staffCount,
+      }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
-      assignedRoles = roles.filter(Boolean);
+      assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
     } else if (role) {
-      assignedRoles = Array.isArray(role) ? role : [role];
-    } else {
-      assignedRoles = ['food_tech'];
+      assignedRoles = (Array.isArray(role) ? role : [role]).filter(r => r !== 'client');
     }
+    if (!assignedRoles.length) assignedRoles = ['food_tech'];
 
-    const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'client'];
-    const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+    const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'];
+    const primaryRole  = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+    const isSuperAdmin = primaryRole === 'superadmin' || assignedRoles.includes('superadmin');
 
-    const updateObj = {
-      role: primaryRole,
-      roles: assignedRoles
-    };
-    if (primaryRole === 'superadmin' || assignedRoles.includes('superadmin')) {
+    const updateObj = { role: primaryRole, roles: assignedRoles };
+    if (isSuperAdmin) {
       updateObj.can_issue_direct_certificate = true;
-      updateObj.is_support_manager = true;
-      updateObj.can_sign_logsheet = true;
-      updateObj.can_review_certificate = true;
+      updateObj.is_support_manager           = true;
+      updateObj.can_sign_logsheet            = true;
+      updateObj.can_review_certificate       = true;
     } else {
-      if (can_issue_direct_certificate !== undefined) {
-        updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
-      }
-      if (is_support_manager !== undefined) {
-        updateObj.is_support_manager = Boolean(is_support_manager);
-      } else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) {
-        updateObj.is_support_manager = true;
-      }
-      if (can_sign_logsheet !== undefined) {
-        updateObj.can_sign_logsheet = Boolean(can_sign_logsheet);
-      }
-      if (can_review_certificate !== undefined) {
-        updateObj.can_review_certificate = Boolean(can_review_certificate);
-      }
+      if (can_issue_direct_certificate !== undefined) updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+      if (is_support_manager !== undefined)            updateObj.is_support_manager           = Boolean(is_support_manager);
+      else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) updateObj.is_support_manager = true;
+      if (can_sign_logsheet    !== undefined) updateObj.can_sign_logsheet    = Boolean(can_sign_logsheet);
+      if (can_review_certificate !== undefined) updateObj.can_review_certificate = Boolean(can_review_certificate);
     }
 
-    const data = await User.findByIdAndUpdate(req.params.id, updateObj, { new: true });
+    const data = await Admin.findByIdAndUpdate(req.params.id, updateObj, { new: true }).select('-password');
+    if (!data) return res.status(404).json({ error: 'Staff member not found' });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// PUT /api/users/:id/direct-cert-permission — Superadmin toggles Direct Certificate privilege (Admin)
 router.put('/:id/direct-cert-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { can_issue_direct_certificate } = req.body;
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
 
-    user.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
-    await user.save();
+    admin.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+    await admin.save();
 
-    if (user.can_issue_direct_certificate) {
-      await createNotification(
-        user._id,
-        'Privilege Granted: Direct Certificate Studio ⚡',
-        'Superadmin has granted you permission to directly issue Halal certificates and products without application.',
-        'success',
-        '/superadmin/direct-certificate'
-      );
-    } else {
-      await createNotification(
-        user._id,
-        'Privilege Revoked: Direct Certificate Studio',
-        'Your direct certificate issuance permission has been revoked by Superadmin.',
-        'warning',
-        '/dashboard'
-      );
-    }
+    await createNotification(
+      admin._id,
+      admin.can_issue_direct_certificate
+        ? 'Privilege Granted: Direct Certificate Studio ⚡'
+        : 'Privilege Revoked: Direct Certificate Studio',
+      admin.can_issue_direct_certificate
+        ? 'Superadmin has granted you permission to directly issue Halal certificates and products without application.'
+        : 'Your direct certificate issuance permission has been revoked by Superadmin.',
+      admin.can_issue_direct_certificate ? 'success' : 'warning',
+      admin.can_issue_direct_certificate ? '/superadmin/direct-certificate' : '/dashboard'
+    );
 
-    const resData = user.toJSON();
+    const resData = admin.toJSON();
     delete resData.password;
-    res.json({ data: resData, message: `Direct Certificate privilege ${user.can_issue_direct_certificate ? 'granted' : 'revoked'} successfully` });
+    res.json({ data: resData, message: `Direct Certificate privilege ${admin.can_issue_direct_certificate ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// PUT /api/users/:id/support-manager-permission — Superadmin toggles Support Manager privilege (Admin)
 router.put('/:id/support-manager-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { is_support_manager } = req.body;
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
 
-    user.is_support_manager = Boolean(is_support_manager);
-    await user.save();
+    admin.is_support_manager = Boolean(is_support_manager);
+    await admin.save();
 
-    if (user.is_support_manager) {
-      await createNotification(
-        user._id,
-        'Privilege Granted: Support Manager 🎧',
-        'Superadmin has granted you the Support Manager privilege. You can now receive live client support requests and assign tickets to staff.',
-        'success',
-        '/tickets'
-      );
-    } else {
-      await createNotification(
-        user._id,
-        'Privilege Revoked: Support Manager',
-        'Your Support Manager privilege has been revoked by Superadmin.',
-        'warning',
-        '/dashboard'
-      );
-    }
+    await createNotification(
+      admin._id,
+      admin.is_support_manager
+        ? 'Privilege Granted: Support Manager 🎧'
+        : 'Privilege Revoked: Support Manager',
+      admin.is_support_manager
+        ? 'Superadmin has granted you the Support Manager privilege. You can now receive live client support requests and assign tickets to staff.'
+        : 'Your Support Manager privilege has been revoked by Superadmin.',
+      admin.is_support_manager ? 'success' : 'warning',
+      admin.is_support_manager ? '/tickets' : '/dashboard'
+    );
 
-    const resData = user.toJSON();
+    const resData = admin.toJSON();
     delete resData.password;
-    res.json({ data: resData, message: `Support Manager privilege ${user.is_support_manager ? 'granted' : 'revoked'} successfully` });
+    res.json({ data: resData, message: `Support Manager privilege ${admin.is_support_manager ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/users/:id/logsheet-sign-permission — Superadmin toggles Signature Privilege
+// PUT /api/users/:id/logsheet-sign-permission — Superadmin toggles Signature Privilege (Admin)
 router.put('/:id/logsheet-sign-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { can_sign_logsheet } = req.body;
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
 
-    user.can_sign_logsheet = Boolean(can_sign_logsheet);
-    await user.save();
+    admin.can_sign_logsheet = Boolean(can_sign_logsheet);
+    await admin.save();
 
-    if (user.can_sign_logsheet) {
-      await createNotification(
-        user._id,
-        'Privilege Granted: Signature Privilege ✍️',
-        'Superadmin has granted you the Signature Privilege. You can now sign HFA logsheets as an authorised signatory.',
-        'success',
-        '/logsheet/waiting-signature'
-      );
-    } else {
-      await createNotification(
-        user._id,
-        'Privilege Revoked: Signature Privilege',
-        'Your Logsheet Signature privilege has been revoked by Superadmin.',
-        'warning',
-        '/dashboard'
-      );
-    }
+    await createNotification(
+      admin._id,
+      admin.can_sign_logsheet
+        ? 'Privilege Granted: Signature Privilege ✍️'
+        : 'Privilege Revoked: Signature Privilege',
+      admin.can_sign_logsheet
+        ? 'Superadmin has granted you the Signature Privilege. You can now sign HFA logsheets as an authorised signatory.'
+        : 'Your Logsheet Signature privilege has been revoked by Superadmin.',
+      admin.can_sign_logsheet ? 'success' : 'warning',
+      admin.can_sign_logsheet ? '/logsheet/waiting-signature' : '/dashboard'
+    );
 
-    const resData = user.toJSON();
+    const resData = admin.toJSON();
     delete resData.password;
-    res.json({ data: resData, message: `Signature Privilege ${user.can_sign_logsheet ? 'granted' : 'revoked'} successfully` });
+    res.json({ data: resData, message: `Signature Privilege ${admin.can_sign_logsheet ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/users/:id/review-certificate-permission — Superadmin toggles Review Certificate Privilege
+// PUT /api/users/:id/review-certificate-permission — Superadmin toggles Review Certificate Privilege (Admin)
 router.put('/:id/review-certificate-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { can_review_certificate } = req.body;
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
 
-    user.can_review_certificate = Boolean(can_review_certificate);
-    await user.save();
+    admin.can_review_certificate = Boolean(can_review_certificate);
+    await admin.save();
 
-    if (user.can_review_certificate) {
-      await createNotification(
-        user._id,
-        'Privilege Granted: Review Certificate Privilege 📋',
-        'Superadmin has granted you the Review Certificate Privilege. You can now access and review draft Halal certificates submitted for committee approval.',
-        'success',
-        '/certificates?status=under_review'
-      );
-    } else {
-      await createNotification(
-        user._id,
-        'Privilege Revoked: Review Certificate Privilege',
-        'Your Review Certificate privilege has been revoked by Superadmin.',
-        'warning',
-        '/dashboard'
-      );
-    }
+    await createNotification(
+      admin._id,
+      admin.can_review_certificate
+        ? 'Privilege Granted: Review Certificate Privilege 📋'
+        : 'Privilege Revoked: Review Certificate Privilege',
+      admin.can_review_certificate
+        ? 'Superadmin has granted you the Review Certificate Privilege. You can now access and review draft Halal certificates submitted for committee approval.'
+        : 'Your Review Certificate privilege has been revoked by Superadmin.',
+      admin.can_review_certificate ? 'success' : 'warning',
+      admin.can_review_certificate ? '/certificates?status=under_review' : '/dashboard'
+    );
 
-    const resData = user.toJSON();
+    const resData = admin.toJSON();
     delete resData.password;
-    res.json({ data: resData, message: `Review Certificate Privilege ${user.can_review_certificate ? 'granted' : 'revoked'} successfully` });
+    res.json({ data: resData, message: `Review Certificate Privilege ${admin.can_review_certificate ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// PUT /api/users/:id/status — Activate / suspend a CLIENT account (User collection)
 router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { is_active, status, suspension_reason } = req.body;
     const update = {};
     if (is_active !== undefined) {
       update.is_active = is_active;
-      if (is_active) {
-        update.is_verified = true;
-        update.suspension_reason = null;
-      }
+      if (is_active) { update.is_verified = true; update.suspension_reason = null; }
     }
     if (status !== undefined) {
       update.is_active = (status === 'active');
-      if (status === 'active') {
-        update.is_verified = true;
-        update.suspension_reason = null;
-      }
+      if (status === 'active') { update.is_verified = true; update.suspension_reason = null; }
     }
-    if (suspension_reason !== undefined) {
-      update.suspension_reason = suspension_reason;
-    }
-    
-    const data = await User.findByIdAndUpdate(req.params.id, update, { new: true });
+    if (suspension_reason !== undefined) update.suspension_reason = suspension_reason;
 
-    // Send Notification
+    let data = await Admin.findByIdAndUpdate(req.params.id, update, { new: true });
+    if (!data) {
+      data = await User.findByIdAndUpdate(req.params.id, update, { new: true });
+    }
+
     if (is_active === true || status === 'active') {
-      await createNotification(
-        req.params.id,
-        'Account Activated! 🚀',
-        'Welcome back! Your HFA portal account has been activated. You can now access all features.',
-        'success',
-        '/dashboard'
-      );
+      await createNotification(req.params.id, 'Account Activated! 🚀', 'Welcome back! Your HFA portal account has been activated. You can now access all features.', 'success', '/dashboard');
     } else if (is_active === false || suspension_reason) {
-      await createNotification(
-        req.params.id,
-        'Account Suspended ⚠️',
-        `Your account has been suspended. Reason: ${suspension_reason || 'Administrative decision'}. Please contact support for details.`,
-        'error'
-      );
+      await createNotification(req.params.id, 'Account Suspended ⚠️', `Your account has been suspended. Reason: ${suspension_reason || 'Administrative decision'}. Please contact support for details.`, 'error');
     }
 
     res.json({ data });
@@ -783,19 +658,16 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// PUT /api/users/:id/verify-email — Admin force-verifies a CLIENT email (User collection)
 router.put('/:id/verify-email', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const data = await User.findByIdAndUpdate(
       req.params.id,
-      {
-        is_verified: true,
-        verification_token: undefined,
-        verification_token_expiry: undefined
-      },
+      { is_verified: true, verification_token: undefined, verification_token_expiry: undefined },
       { new: true }
     );
     if (!data) return res.status(404).json({ error: 'User not found' });
-    
+
     await createNotification(
       req.params.id,
       'Email Verified by Admin ✅',
@@ -810,8 +682,12 @@ router.put('/:id/verify-email', authenticateToken, requireAdmin, async (req, res
   }
 });
 
+// DELETE /api/users/:id — Deletes from Admin first, then User if not found
 router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const deletedAdmin = await Admin.findByIdAndDelete(req.params.id);
+    if (deletedAdmin) return res.json({ message: 'Staff member deleted' });
+
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'User deleted' });
   } catch (err) {

@@ -72,7 +72,7 @@ const applicationSchema = new mongoose.Schema({
   statusHistory: [{
     status: { type: String },
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     note: { type: String, default: '' },
   }],
   certificate_url: String,
@@ -105,7 +105,7 @@ const applicationSchema = new mongoose.Schema({
     name: String,
     url: String,
     uploaded_at: { type: Date, default: Date.now },
-    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
   }],
   nc_reports: [{
     text: String,
@@ -115,7 +115,7 @@ const applicationSchema = new mongoose.Schema({
     client_responded_at: Date,
     admin_reply: String,
     admin_reply_at: Date,
-    admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     status: { type: String, enum: ['flagged', 'client_responded', 'admin_replied', 'closed'], default: 'flagged' },
     flagged_at: { type: Date, default: Date.now }
   }],
