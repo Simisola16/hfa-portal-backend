@@ -8,7 +8,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitToUser, emitToAdmins, emitToClients } from '../lib/socket.js';
 import { getClientUrl } from '../lib/urls.js';
-import { sendEmail, emailFrom } from '../lib/mailer.js';
+import { sendEmail, emailFrom, buildHfaEmailTemplate } from '../lib/mailer.js';
 
 const router = express.Router();
 
@@ -329,34 +329,15 @@ router.post('/', authenticateToken, async (req, res) => {
           await sendEmail({
             to: c.email,
             subject: `[HFA Announcement] ${subject || 'Important Notice from Halal Food Authority'}`,
-            html: `
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-                <div style="background:linear-gradient(135deg,#15803d 0%,#166534 100%);padding:32px 24px;text-align:center;color:white">
-                  <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px">Halal Food Authority</h1>
-                  <div style="font-size:13px;opacity:0.9;margin-top:4px;text-transform:uppercase;letter-spacing:1px">Official Broadcast Notification</div>
-                </div>
-                <div style="padding:32px 28px">
-                  <div style="display:inline-block;background:#ecfdf5;color:#166534;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-bottom:16px;border:1px solid #bbf7d0">
-                    📢 BROADCAST ANNOUNCEMENT
-                  </div>
-                  <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;line-height:1.3">
-                    ${subject || 'Important Notice from HFA Support'}
-                  </h2>
-                  <p style="font-size:14px;color:#475569;margin:0 0 16px">Dear <strong>${clientName}</strong>,</p>
-                  <div style="font-size:14.5px;color:#1e293b;line-height:1.7;background:#f8fafc;padding:20px;border-radius:10px;border-left:4px solid #16a34a;white-space:pre-wrap;margin-bottom:24px">${body}</div>
-                  <div style="text-align:center;margin:28px 0">
-                    <a href="${frontendClientUrl}/messages" style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:13px 32px;border-radius:8px;font-weight:700;font-size:14px;box-shadow:0 2px 6px rgba(22,163,74,0.3)">
-                      Open Portal Messages →
-                    </a>
-                  </div>
-                  <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0" />
-                  <div style="font-size:12px;color:#94a3b8;line-height:1.5">
-                    Sent by <strong>${senderName}</strong> via HFA Official Portal.<br/>
-                    You can reply to this message directly from your HFA Client Portal.
-                  </div>
-                </div>
-              </div>
-            `
+            html: buildHfaEmailTemplate({
+              recipientName: clientName,
+              introText: `An official announcement has been issued by the HFA Compliance & Certification Team regarding <strong>${subject || 'Compliance & Certification Updates'}</strong>:`,
+              boxTitle: 'Announcement Details:',
+              body: body,
+              buttonText: 'Open Portal Messages',
+              buttonUrl: `${frontendClientUrl}/messages`,
+              senderNote: `Sent by <strong>${senderName}</strong> via HFA Official Portal. You can reply to this notice directly from your client portal.`
+            })
           });
           emailsDispatched++;
         } catch (emailErr) {
@@ -417,32 +398,15 @@ router.post('/', authenticateToken, async (req, res) => {
           await sendEmail({
             to: c.email,
             subject: `[HFA Notice] ${subject || 'Important Notice from Halal Food Authority'}`,
-            html: `
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-                <div style="background:linear-gradient(135deg,#15803d 0%,#166534 100%);padding:32px 24px;text-align:center;color:white">
-                  <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px">Halal Food Authority</h1>
-                  <div style="font-size:13px;opacity:0.9;margin-top:4px;text-transform:uppercase;letter-spacing:1px">Targeted Company Notice</div>
-                </div>
-                <div style="padding:32px 28px">
-                  
-                  <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;line-height:1.3">
-                    ${subject || 'Important Notice from HFA'}
-                  </h2>
-                  <p style="font-size:14px;color:#475569;margin:0 0 16px">Dear <strong>${clientName}</strong>,</p>
-                  <div style="font-size:14.5px;color:#1e293b;line-height:1.7;background:#f8fafc;padding:20px;border-radius:10px;border-left:4px solid #16a34a;white-space:pre-wrap;margin-bottom:24px">${body}</div>
-                  <div style="text-align:center;margin:28px 0">
-                    <a href="${frontendClientUrl}/messages" style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:13px 32px;border-radius:8px;font-weight:700;font-size:14px;box-shadow:0 2px 6px rgba(22,163,74,0.3)">
-                      Open Portal Messages →
-                    </a>
-                  </div>
-                  <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0" />
-                  <div style="font-size:12px;color:#94a3b8;line-height:1.5">
-                    Sent by <strong>${senderName}</strong> via HFA Official Portal.<br/>
-                    You can reply to this message directly from your HFA Client Portal.
-                  </div>
-                </div>
-              </div>
-            `
+            html: buildHfaEmailTemplate({
+              recipientName: clientName,
+              introText: `An official notice has been directed to your organization regarding <strong>${subject || 'Compliance & Certification Updates'}</strong>:`,
+              boxTitle: 'Notice Details:',
+              body: body,
+              buttonText: 'Open Portal Messages',
+              buttonUrl: `${frontendClientUrl}/messages`,
+              senderNote: `Sent by <strong>${senderName}</strong> via HFA Official Portal. You can reply to this notice directly from your client portal.`
+            })
           });
           emailsDispatched++;
         } catch (emailErr) {
@@ -509,27 +473,19 @@ router.post('/', authenticateToken, async (req, res) => {
             const targetClient = await User.findById(recipient_id);
             if (targetClient?.email) {
               const frontendClientUrl = getClientUrl();
+              const clientName = targetClient.full_name || targetClient.company_name || 'Valued Client';
               await sendEmail({
                 to: targetClient.email,
                 subject: `[HFA Support] ${subject || 'New Message from Halal Food Authority'}`,
-                html: `
-                  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
-                    <div style="background:linear-gradient(135deg,#15803d,#166534);padding:28px 24px;text-align:center;color:white">
-                      <h1 style="margin:0;font-size:22px;font-weight:800">Halal Food Authority</h1>
-                      <div style="font-size:12px;opacity:0.9;margin-top:4px">Official Support Communication</div>
-                    </div>
-                    <div style="padding:28px 24px">
-                      <h3 style="margin:0 0 12px;font-size:18px;color:#0f172a">${subject || 'New Message from HFA Support'}</h3>
-                      <p style="font-size:14px;color:#475569;margin:0 0 16px">Dear <strong>${targetClient.full_name || targetClient.company_name || 'Client'}</strong>,</p>
-                      <div style="font-size:14px;color:#1e293b;line-height:1.6;background:#f8fafc;padding:16px;border-radius:8px;border-left:4px solid #16a34a;white-space:pre-wrap;margin-bottom:20px">${body}</div>
-                      <div style="text-align:center;margin:24px 0">
-                        <a href="${frontendClientUrl}/messages" style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px">
-                          View in Portal →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                `
+                html: buildHfaEmailTemplate({
+                  recipientName: clientName,
+                  introText: `You have received a new message from the HFA Support & Compliance Team regarding <strong>${subject || 'General Inquiry'}</strong>:`,
+                  boxTitle: 'Message:',
+                  body: body,
+                  buttonText: 'View in Portal',
+                  buttonUrl: `${frontendClientUrl}/messages`,
+                  senderNote: `Sent by <strong>${senderName}</strong> via HFA Official Portal.`
+                })
               });
             }
           } catch (e) {
@@ -652,4 +608,20 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/messages/preview-template - Preview email HTML format
+router.get('/preview-template', (req, res) => {
+  const html = buildHfaEmailTemplate({
+    recipientName: req.query.recipient || 'LSG SkyChef (Valued Client)',
+    introText: 'An official announcement has been issued by the HFA Compliance & Certification Team regarding <strong>Surveillance Audit & Compliance Standards</strong>:',
+    boxTitle: 'Announcement Details:',
+    body: req.query.body || 'Please be informed that the 2026 Surveillance Audits and Halal compliance document reviews are now open for scheduling.\n\nAll certified companies are requested to verify their active certificates and review uploaded compliance forms on the portal. If your organization has any upcoming product formulation or ingredient changes, kindly notify the Food Technologies desk promptly.',
+    buttonText: 'Open Portal Messages',
+    buttonUrl: 'https://www.hfaportal.company/messages',
+    senderNote: 'Sent by <strong>HFA Compliance Team</strong> via HFA Official Portal. You can reply to this notice directly from your client portal.'
+  });
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+});
+
 export default router;
+
