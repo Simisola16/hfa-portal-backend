@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
 import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
+import Site from '../models/Site.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -176,6 +177,73 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 });
 
 // ─── GENERAL USER ENDPOINTS ───────────────────────────────────────────────────────
+
+// GET /api/users/companies-directory - Fast list of all client companies and their sites for admin filtering/suggestions
+router.get('/companies-directory', authenticateToken, async (req, res) => {
+  try {
+    const [clients, sites] = await Promise.all([
+      User.find({ role: 'client' }).select('_id company_name full_name').lean(),
+      Site.find({}).select('_id client_id name est_name trading_name address_1').lean()
+    ]);
+
+    const companyMap = new Map();
+    clients.forEach(c => {
+      const name = (c.company_name || c.full_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!companyMap.has(key)) {
+        companyMap.set(key, {
+          id: String(c._id),
+          name: name,
+          sites: []
+        });
+      }
+    });
+
+    sites.forEach(s => {
+      const siteName = (s.name || s.est_name || s.trading_name || s.address_1 || '').trim();
+      if (!siteName) return;
+
+      let compEntry = null;
+      if (s.client_id) {
+        const cidStr = String(s.client_id);
+        for (const entry of companyMap.values()) {
+          if (entry.id === cidStr) {
+            compEntry = entry;
+            break;
+          }
+        }
+      }
+
+      if (!compEntry && s.est_name) {
+        compEntry = companyMap.get(s.est_name.trim().toLowerCase());
+      }
+
+      if (compEntry) {
+        if (!compEntry.sites.some(st => st.name.toLowerCase() === siteName.toLowerCase())) {
+          compEntry.sites.push({
+            id: String(s._id),
+            name: siteName
+          });
+        }
+      } else if (s.est_name && s.est_name.trim()) {
+        const estKey = s.est_name.trim().toLowerCase();
+        if (!companyMap.has(estKey)) {
+          companyMap.set(estKey, {
+            id: String(s.client_id || s._id),
+            name: s.est_name.trim(),
+            sites: [{ id: String(s._id), name: siteName }]
+          });
+        }
+      }
+    });
+
+    const list = Array.from(companyMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ data: list });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/users/:id
 router.get('/:id', authenticateToken, async (req, res) => {
