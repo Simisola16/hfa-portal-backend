@@ -427,7 +427,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
       item = await InitialProductApplication.findOne({
         application_id: targetApp._id
       })
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .sort({ updated_at: -1, created_at: -1, updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
         .populate('site_id', 'name address city postal_code country')
@@ -437,7 +437,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
         .populate('logsheet_id');
     } else if (isObjId) {
       item = await InitialProductApplication.findOne({ application_id: req.params.appId })
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .sort({ updated_at: -1, created_at: -1, updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
         .populate('site_id', 'name address city postal_code country')
@@ -485,7 +485,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ data });
   } catch (err) {

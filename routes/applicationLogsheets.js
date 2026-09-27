@@ -469,7 +469,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
-      .sort({ createdAt: -1, created_at: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     const mainLogsheet = logsheets.find(l => {
       if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;

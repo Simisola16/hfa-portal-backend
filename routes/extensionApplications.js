@@ -130,27 +130,27 @@ async function detectCertificateTypeAndScheme(app) {
   // 1. Try finding by site_id
   if (app?.site_id) {
     const sId = app.site_id?._id || app.site_id;
-    cert = await Certificate.findOne({ site_id: sId }).sort({ expiry_date: -1, createdAt: -1 });
+    cert = await Certificate.findOne({ site_id: sId }).sort({ expiry_date: -1, issue_date: -1, createdAt: -1 });
     if (!cert) {
-      prevApp = await Application.findOne({ site_id: sId, status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+      prevApp = await Application.findOne({ site_id: sId, status: { $ne: 'rejected' } }).sort({ created_at: -1, createdAt: -1 });
     }
   }
 
   // 2. Try finding by client_id
   if (!cert && !prevApp && app?.client_id) {
     const cId = String(app.client_id?._id || app.client_id);
-    cert = await Certificate.findOne({ client_id: cId }).sort({ expiry_date: -1, createdAt: -1 });
+    cert = await Certificate.findOne({ client_id: cId }).sort({ expiry_date: -1, issue_date: -1, createdAt: -1 });
     if (!cert) {
-      prevApp = await Application.findOne({ client_id: cId, status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+      prevApp = await Application.findOne({ client_id: cId, status: { $ne: 'rejected' } }).sort({ created_at: -1, createdAt: -1 });
     }
   }
 
   // 3. Try finding by company_name
   const compName = app?.company_name || app?.client_id?.company_name;
   if (!cert && !prevApp && compName) {
-    cert = await Certificate.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i') }).sort({ expiry_date: -1, createdAt: -1 });
+    cert = await Certificate.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i') }).sort({ expiry_date: -1, issue_date: -1, createdAt: -1 });
     if (!cert) {
-      prevApp = await Application.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i'), status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+      prevApp = await Application.findOne({ company_name: new RegExp(`^${compName.trim()}$`, 'i'), status: { $ne: 'rejected' } }).sort({ created_at: -1, createdAt: -1 });
     }
   }
 
@@ -304,7 +304,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
       .populate('certificate_id')
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ success: true, count: applications.length, data: applications });
   } catch (err) {

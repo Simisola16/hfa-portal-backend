@@ -483,7 +483,7 @@ router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
     if (type === 'applications') {
       const apps = await Application.find()
         .populate('client_id', 'company_name full_name email phone')
-        .sort({ createdAt: -1 })
+        .sort({ created_at: -1, createdAt: -1 })
         .lean();
 
       let csv = 'Application Number,Company Name,Contact Name,Email,Scheme,Status,Created Date\n';
@@ -520,7 +520,7 @@ router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
     if (type === 'invoices') {
       const invoices = await Invoice.find()
         .populate('client_id', 'company_name full_name email')
-        .sort({ createdAt: -1 })
+        .sort({ due_date: -1, paid_at: -1, createdAt: -1 })
         .lean();
 
       let csv = 'Invoice Number,Company,Amount,Currency,Status,Due Date,Paid Date\n';
