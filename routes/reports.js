@@ -120,6 +120,7 @@ const getReportStats = async (req, res) => {
     const now = new Date();
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    const in90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
     const totalCerts = await Certificate.countDocuments();
     const activeCerts = await Certificate.countDocuments({ status: 'active' });
@@ -134,6 +135,11 @@ const getReportStats = async (req, res) => {
     const expiringSoon60 = await Certificate.countDocuments({
       status: 'active',
       expiry_date: { $gte: now, $lte: in60Days }
+    });
+
+    const expiringSoon90 = await Certificate.countDocuments({
+      status: 'active',
+      expiry_date: { $gte: now, $lte: in90Days }
     });
 
     // Top 10 Expiring Certificates Watchlist
@@ -313,6 +319,7 @@ const getReportStats = async (req, res) => {
         underReview: underReviewCerts,
         expiringSoon30,
         expiringSoon60,
+        expiringSoon90,
         expiringWatchlist
       },
       financials: {
