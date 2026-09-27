@@ -1141,11 +1141,14 @@ async function runFullCompanyImport() {
           certStatus = 'active';
         }
 
+        const explicitSiteName = cleanStr(c.SiteName) || siteNameMap.get(cleanStr(c.SiteID)) || siteNameMap.get(String(siteId));
+
         const certDoc = {
           certificate_number: certNo,
           client_id: userIdStr,
           application_id: latestAppId || undefined,
           site_id: siteId,
+          site_name: explicitSiteName,
           certificate_type: cleanStr(c.CateficateType) || 'Halal Certification',
           company_name: companyName,
           company_address: cleanStr(c.COMPANYADDRESS) || address,

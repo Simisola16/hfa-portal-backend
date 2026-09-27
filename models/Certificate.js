@@ -5,6 +5,7 @@ const certificateSchema = new mongoose.Schema({
   client_id: { type: String, required: true },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
+  site_name: String,
   certificate_type: String,
   company_name: String,
   company_address: String,
