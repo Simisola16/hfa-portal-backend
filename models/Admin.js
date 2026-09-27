@@ -35,6 +35,7 @@ const adminSchema = new mongoose.Schema({
   can_review_certificate:       { type: Boolean, default: false },
   is_support_manager:           { type: Boolean, default: false },
   is_active:                    { type: Boolean, default: true },
+  is_verified:                  { type: Boolean, default: true },
   // Password reset
   reset_password_token:  String,
   reset_password_expiry: Date,
@@ -45,7 +46,6 @@ const adminSchema = new mongoose.Schema({
 });
 
 adminSchema.index({ role: 1 });
-adminSchema.index({ email: 1 });
 
 // Hash password before saving
 adminSchema.pre('save', async function () {

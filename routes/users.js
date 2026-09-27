@@ -322,6 +322,19 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     const category      = req.query.category || (hasPagination ? 'all' : '');
     const search        = req.query.search ? String(req.query.search).trim() : '';
 
+    // ── Specific staff role query (e.g. ?role=food_tech) ────────────────────────
+    if (req.query.role && req.query.role !== 'client') {
+      const targetRole = req.query.role;
+      const staffByRole = await Admin.find({
+        $or: [{ role: targetRole }, { roles: targetRole }],
+        is_active: { $ne: false }
+      }).select('-password').sort({ full_name: 1, created_at: -1 }).lean();
+      return res.json({
+        data: staffByRole,
+        pagination: { page: 1, limit: staffByRole.length, total: staffByRole.length, totalPages: 1, hasPrevPage: false, hasNextPage: false }
+      });
+    }
+
     // ── Staff category: query Admin collection ─────────────────────────────────
     if (category === 'staff') {
       const staffQuery = {};
@@ -450,10 +463,18 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       };
     });
 
+    // If unpaginated with NO category (e.g. GET /api/users used by dropdowns/selectors across the admin portal),
+    // prepend all active staff from the Admin collection so filters for staff/auditor/food_tech resolve properly.
+    let responseData = enrichedUsers;
+    if (isUnpaginated && !hasCategory) {
+      const allStaff = await Admin.find({ is_active: { $ne: false } }).select('-password').sort({ full_name: 1 }).lean();
+      responseData = [...allStaff, ...enrichedUsers];
+    }
+
     const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
     return res.json({
-      data: enrichedUsers,
-      pagination: { page, limit: isUnpaginated ? total : limit, total, totalPages, hasPrevPage: page > 1, hasNextPage: page < totalPages },
+      data: responseData,
+      pagination: { page, limit: isUnpaginated ? responseData.length : limit, total: isUnpaginated ? responseData.length : total, totalPages, hasPrevPage: page > 1, hasNextPage: page < totalPages },
       counts: {
         all:        stats?.all?.[0]?.c        || 0,
         company:    stats?.company?.[0]?.c    || 0,
