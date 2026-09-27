@@ -1191,7 +1191,8 @@ async function runFullCompanyImport() {
         const logDoc = {
           source_type: 'application',
           logsheet_type: 'application',
-          application_id: lAppId || undefined,
+          is_seed: true,
+          application_id: undefined,
           client_id: userIdStr,
           site_id: lSiteId,
           site_name: cleanStr(l.SiteName) || companyName,

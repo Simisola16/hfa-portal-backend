@@ -98,6 +98,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   comment: String,
   
   confirmed: { type: Boolean, default: false },
+  is_seed: { type: Boolean, default: false },
 
   status: { 
     type: String, 
