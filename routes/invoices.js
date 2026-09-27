@@ -5,6 +5,7 @@ import { uploadToS3 } from '../lib/s3.js';
 import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -553,7 +554,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
 
     // Notify admins
     try {
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech', 'accountant'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -655,7 +656,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
   try {
     const isFinalInvoice = invoice.invoice_type === 'final' || invoice.stage === 'final' || targetStatus === 'final_invoice_paid';
     if (!isFinalInvoice) {
-      const staffRecipients = await User.find({
+      const staffRecipients = await Admin.find({
         $or: [
           { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } },
           { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } }

@@ -51,7 +51,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   initial_product_application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'InitialProductApplication' },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
-  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   
   // Tab 1: Company Details
   site_name: String,

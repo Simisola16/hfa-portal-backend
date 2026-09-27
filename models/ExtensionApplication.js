@@ -36,7 +36,7 @@ const extensionApplicationSchema = new mongoose.Schema({
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     note: String
   }],
 

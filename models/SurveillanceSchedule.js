@@ -43,7 +43,7 @@ const surveillanceScheduleSchema = new mongoose.Schema({
   },
   admin_id: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'Admin'
   },
   admin_name: {
     type: String,

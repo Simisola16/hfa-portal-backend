@@ -23,7 +23,7 @@ const ticketSchema = new mongoose.Schema({
   status: { type: String, enum: ['open', 'in_progress', 'resolved', 'closed'], default: 'open' },
   source: { type: String, enum: ['portal', 'chat_widget'], default: 'portal' },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
-  assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   agent_viewed_at: Date,
   agent_connected: { type: Boolean, default: false },
   attachments: [{

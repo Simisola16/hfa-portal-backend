@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
-import User from './models/User.js';
 import dotenv from 'dotenv';
+import Admin from './models/Admin.js';
 
 dotenv.config();
 
@@ -9,14 +9,14 @@ const seedAdmin = async () => {
     await mongoose.connect(process.env.MONGODB_URI);
 
     // Check by username first — prevents duplicate key errors on re-runs
-    const existsByUsername = await User.findOne({ username: 'admin' });
+    const existsByUsername = await Admin.findOne({ username: 'admin' });
     if (existsByUsername) {
       console.log('Admin user already exists (username: admin). No changes made.');
       process.exit(0);
     }
 
     // Also check by email in case an old seed (email-only) was run before
-    const existsByEmail = await User.findOne({ email: 'admin@hfa.com' });
+    const existsByEmail = await Admin.findOne({ email: 'admin@hfa.com' });
     if (existsByEmail) {
       // Patch the existing record to add username if it's missing
       if (!existsByEmail.username) {
@@ -30,7 +30,7 @@ const seedAdmin = async () => {
     }
 
     // Create fresh admin account
-    const admin = new User({
+    const admin = new Admin({
       email: 'admin@hfa.com',
       username: 'admin',
       password: 'password123',
@@ -44,7 +44,7 @@ const seedAdmin = async () => {
     console.log('✅ Admin user created successfully.');
     console.log('   Username : admin');
     console.log('   Password : password123');
-    console.log('   Email    : admin2@hfa.com');
+    console.log('   Email    : admin@hfa.com');
     process.exit(0);
   } catch (error) {
     console.error('Error seeding admin:', error);

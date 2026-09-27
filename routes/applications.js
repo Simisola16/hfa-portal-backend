@@ -5,6 +5,7 @@ import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import Application from '../models/Application.js';
 import Site from '../models/Site.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Certificate from '../models/Certificate.js';
 import Proposal from '../models/Proposal.js';
 import Invoice from '../models/Invoice.js';
@@ -653,7 +654,7 @@ router.post('/', authenticateToken, upload.fields([
     }
 
     // Notify Admin
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+    const admins = await Admin.find({});
     for (const admin of admins) {
       await createNotification(
         admin._id,
@@ -1280,7 +1281,7 @@ router.post('/renew', authenticateToken, upload.fields([
     }
 
     // Notify admins
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin'] } });
+    const admins = await Admin.find({});
     for (const admin of admins) {
       await createNotification(
         admin._id,
