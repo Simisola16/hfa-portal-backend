@@ -929,6 +929,7 @@ async function seedAnike() {
       role: 'client',
       client_role: 'owner',
       roles: ['client'],
+      company_category: 'certified',
       is_active: true,
       is_verified: true,
     };
