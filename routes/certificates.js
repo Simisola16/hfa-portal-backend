@@ -209,32 +209,30 @@ router.get('/', authenticateToken, async (req, res) => {
       query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
     }
     const data = await Certificate.find(query)
-      .populate('site_id')
+      .select('-product_details')
+      .populate('site_id', 'name est_name trading_name')
       .populate('application_id', 'establishment_name site_name scope status application_type category')
-      .populate('created_by', 'full_name email role')
-      .populate('reviewed_by', 'full_name email role')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     // Auto-expire: mark any active certificate whose expiry_date is in the past and not renewed
     const now = new Date();
-    const expiredIds = data
-      .filter(c => c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now)
-      .map(c => c._id);
+    const expiredIds = [];
+    data.forEach(c => {
+      if (c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now) {
+        c.status = 'expired';
+        expiredIds.push(c._id);
+      }
+    });
 
     if (expiredIds.length > 0) {
-      await Certificate.updateMany(
+      Certificate.updateMany(
         { _id: { $in: expiredIds } },
         { $set: { status: 'expired', updated_at: now } }
-      );
-      data.forEach(c => {
-        if (expiredIds.some(id => id.equals(c._id))) {
-          c.status = 'expired';
-        }
-      });
+      ).catch(() => {});
     }
 
-    // Attach has_ongoing_renewal flag to each certificate
-    let finalData = data;
+    // Attach has_ongoing_renewal flag to each certificate using O(1) Map lookups
     try {
       const clientIds = [...new Set(data.map(c => c.client_id ? String(c.client_id._id || c.client_id) : null).filter(Boolean))];
       if (clientIds.length > 0) {
@@ -242,37 +240,35 @@ router.get('/', authenticateToken, async (req, res) => {
           client_id: { $in: clientIds },
           application_type: 'renewal',
           status: { $nin: ['rejected', 'certificate_issued'] }
-        }).select('_id application_number site_id renewed_certificate_id status');
+        }).select('_id application_number site_id renewed_certificate_id status').lean();
 
-        finalData = data.map(c => {
-          const cObj = c.toObject ? c.toObject() : { ...c };
+        const renCertMap = new Map();
+        const renSiteMap = new Map();
+        ongoingRenewals.forEach(app => {
+          if (app.renewed_certificate_id) renCertMap.set(String(app.renewed_certificate_id), app);
+          if (app.site_id) renSiteMap.set(String(app.site_id), app);
+        });
+
+        data.forEach(c => {
           const cIdStr = String(c._id);
           const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
 
-          const matchingApp = ongoingRenewals.find(app => {
-            const renCertStr = app.renewed_certificate_id ? String(app.renewed_certificate_id) : '';
-            if (renCertStr && renCertStr === cIdStr) return true;
-            const appSiteStr = app.site_id ? String(app.site_id) : '';
-            if (appSiteStr && cSiteStr && appSiteStr === cSiteStr) return true;
-            return false;
-          });
-
+          const matchingApp = renCertMap.get(cIdStr) || (cSiteStr ? renSiteMap.get(cSiteStr) : null);
           if (matchingApp) {
-            cObj.has_ongoing_renewal = true;
-            cObj.ongoing_renewal_id = matchingApp._id;
-            cObj.ongoing_renewal_number = matchingApp.application_number;
-            cObj.ongoing_renewal_status = matchingApp.status;
+            c.has_ongoing_renewal = true;
+            c.ongoing_renewal_id = matchingApp._id;
+            c.ongoing_renewal_number = matchingApp.application_number;
+            c.ongoing_renewal_status = matchingApp.status;
           } else {
-            cObj.has_ongoing_renewal = false;
+            c.has_ongoing_renewal = false;
           }
-          return cObj;
         });
       }
     } catch (renewalErr) {
       console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
     }
 
-    res.json({ data: finalData });
+    res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
