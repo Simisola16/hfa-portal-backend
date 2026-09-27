@@ -2,10 +2,12 @@ import mongoose from 'mongoose';
 
 const messageSchema = new mongoose.Schema({
   sender_id: { type: String, required: true },
-  recipient_id: { type: String, required: true }, // User ID or 'admin' / 'support' / 'all_clients'
+  recipient_id: { type: String, required: true }, // User ID or 'admin' / 'support' / 'all_clients' / 'selected_clients'
+  recipient_ids: [{ type: String }], // For targeted broadcasts: array of specific client IDs
   subject: { type: String, required: true },
   body: { type: String, required: true },
   is_broadcast: { type: Boolean, default: false },
+  is_targeted_broadcast: { type: Boolean, default: false }, // true when sent to selected companies
   broadcast_stats: {
     recipient_count: { type: Number, default: 0 },
     email_count: { type: Number, default: 0 }

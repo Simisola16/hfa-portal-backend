@@ -18,7 +18,6 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1138.0",
     "@aws-sdk/s3-request-presigner": "^3.1138.0",
-    "@azure/msal-node": "^7.0.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "@pdfsmaller/pdf-encrypt-lite": "^1.2.0",
     "@supabase/supabase-js": "^2.104.1",
@@ -33,7 +32,6 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "multer-storage-cloudinary": "^4.0.0",
-    "nodemailer": "^10.0.11",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "puppeteer": "^25.3.0",
