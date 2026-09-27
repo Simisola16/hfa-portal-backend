@@ -184,7 +184,7 @@ router.get('/', authenticateToken, async (req, res) => {
     let invoices = await Invoice.find(query)
       .populate('application_id')
       .populate('profiles')
-      .sort({ createdAt: -1 })
+      .sort({ due_date: -1, paid_at: -1, createdAt: -1 })
       .lean();
 
     // Ensure profiles is populated even if virtual population had mismatched types
@@ -229,7 +229,7 @@ router.get('/application/:appId/all', authenticateToken, async (req, res) => {
       if (appDoc) targetAppId = appDoc._id;
       else return res.json({ data: [] });
     }
-    const data = await Invoice.find({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    const data = await Invoice.find({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId/all] Error:', err);
@@ -250,7 +250,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       if (appDoc) targetAppId = appDoc._id;
       else return res.json({ data: null });
     }
-    const data = await Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    const data = await Invoice.findOne({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId] Error:', err);
@@ -346,7 +346,7 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
             ]
           };
 
-      let existingInvoice = await Invoice.findOne(typeQuery).sort({ createdAt: -1 });
+      let existingInvoice = await Invoice.findOne(typeQuery).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
 
       if (existingInvoice) {
         isRevision = true;
@@ -783,7 +783,7 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
         if (appDoc) validAppId = appDoc._id;
       }
       if (mongoose.isValidObjectId(validAppId)) {
-        invoice = await Invoice.findOne({ application_id: validAppId }).sort({ createdAt: -1 });
+        invoice = await Invoice.findOne({ application_id: validAppId }).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
       }
     }
 

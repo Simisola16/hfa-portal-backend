@@ -231,7 +231,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ data });
   } catch (err) {
@@ -1102,7 +1102,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       cert = await Certificate.findOne({ client_id: app.client_id, status: 'active' });
     }
     if (!cert && app.client_id) {
-      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ createdAt: -1 });
+      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ issue_date: -1, created_at: -1, createdAt: -1 });
     }
 
     if (!cert) {

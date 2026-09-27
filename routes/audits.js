@@ -65,7 +65,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const audits = await Audit.find(query)
       .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
       .populate('inspector_id', 'full_name email phone')
-      .sort({ createdAt: -1 });
+      .sort({ finalized_date: -1, scheduled_date: -1, createdAt: -1 });
 
     // Fetch clients and staff users safely
     const clientIds = audits

@@ -59,7 +59,7 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
     );
 
     if (isRenewal || isSurveillance) {
-      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
+      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
       if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
           error: `The ${isSurveillance ? 'Surveillance' : 'Renewal'} Invoice must be paid before a ${isSurveillance ? 'Letter' : 'Certificate'} can be issued.`,
@@ -212,7 +212,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .select('-product_details')
       .populate('site_id', 'name est_name trading_name')
       .populate('application_id', 'establishment_name site_name scope status application_type category')
-      .sort({ createdAt: -1 })
+      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .lean();
 
     // Auto-expire: mark any active certificate whose expiry_date is in the past and not renewed
@@ -277,7 +277,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET certificate by application ID
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 })
+    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .populate('site_id')
       .populate('application_id')
       .populate('created_by', 'full_name email role')
@@ -310,7 +310,7 @@ router.get('/direct-history', authenticateToken, requireDirectCertificatePermiss
     })
       .populate('site_id')
       .populate('issued_by', 'full_name email username')
-      .sort({ createdAt: -1 })
+      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .lean();
 
     const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];

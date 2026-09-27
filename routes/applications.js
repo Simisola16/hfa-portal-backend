@@ -47,7 +47,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('client_id', 'company_name full_name email phone address country postcode city')
       .populate('profiles')
       .populate('inspectors')
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     // Collect site_ids and client_ids for missing site_name resolution
     const missingSiteIds = [];
@@ -166,24 +166,24 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       products
     ] = await Promise.all([
       Proposal.findOne({ application_id: targetAppId }).lean().catch(() => null),
-      Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
-      Invoice.find({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => []),
-      Agreement.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
-      Audit.find({ application_id: targetAppId }).populate('inspector_id').sort({ stage: 1, created_at: -1 }).lean().catch(() => []),
+      Invoice.findOne({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
+      Invoice.find({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean().catch(() => []),
+      Agreement.findOne({ application_id: targetAppId }).sort({ created_at: -1, updatedAt: -1, createdAt: -1 }).lean().catch(() => null),
+      Audit.find({ application_id: targetAppId }).populate('inspector_id').sort({ stage: 1, finalized_date: -1, scheduled_date: -1, created_at: -1 }).lean().catch(() => []),
       ApplicationLogsheet.find({
         $or: [
           { application_id: targetAppId },
           { application_id: String(targetAppId) },
           ...(appDoc.logsheet_id ? [{ _id: appDoc.logsheet_id }] : [])
         ]
-      }).sort({ createdAt: -1, created_at: -1 }).lean().catch(() => []),
-      InitialProduct.find({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => []),
-      Certificate.findOne({ application_id: targetAppId }).sort({ createdAt: -1 }).lean().catch(() => null),
+      }).sort({ created_at: -1, createdAt: -1 }).lean().catch(() => []),
+      InitialProduct.find({ application_id: targetAppId }).sort({ created_at: -1, createdAt: -1 }).lean().catch(() => []),
+      Certificate.findOne({ application_id: targetAppId }).sort({ issue_date: -1, created_at: -1, createdAt: -1 }).lean().catch(() => null),
       (appDoc.site_id && mongoose.Types.ObjectId.isValid(appDoc.site_id))
         ? mongoose.model('Site').findById(appDoc.site_id).lean().catch(() => null)
         : Promise.resolve(null),
       clientOrSiteIds.length > 0
-        ? Product.find({ $or: clientOrSiteIds, status: { $ne: 'rejected' } }).sort({ createdAt: -1 }).lean().catch(() => [])
+        ? Product.find({ $or: clientOrSiteIds, status: { $ne: 'rejected' } }).sort({ created_at: -1, createdAt: -1 }).lean().catch(() => [])
         : Promise.resolve([])
     ]);
 
@@ -278,7 +278,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             { application_id: String(data._id) },
             ...(data.logsheet_id ? [{ _id: data.logsheet_id }] : [])
           ]
-        }).select('suggested_certificate_type certificate_type certificate_standard').sort({ createdAt: -1 }).lean();
+        }).select('suggested_certificate_type certificate_type certificate_standard').sort({ created_at: -1, createdAt: -1 }).lean();
         if (logDoc) {
           finalData.suggested_certificate_type = logDoc.suggested_certificate_type || logDoc.certificate_type || logDoc.certificate_standard || '';
         }
@@ -312,7 +312,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
           ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : []),
           ...(data.logsheet_id ? [{ _id: data.logsheet_id }] : [])
         ]
-      }).sort({ createdAt: -1, created_at: -1 }).lean();
+      }).sort({ created_at: -1, createdAt: -1 }).lean();
 
       const logsheet = logsheets.find(l => {
         if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
@@ -377,7 +377,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
               { application_id: data._id },
               ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
             ]
-          }).sort({ created_at: -1 });
+          }).sort({ finalized_date: -1, scheduled_date: -1, created_at: -1, createdAt: -1 });
 
           let properStatus = 'audit_completed';
           if (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) {
@@ -545,7 +545,7 @@ router.post('/', authenticateToken, upload.fields([
       priorApp = await Application.findOne({
         site_id: String(site_id),
         client_id: req.user._id
-      }).sort({ created_at: -1 });
+      }).sort({ created_at: -1, createdAt: -1 });
 
       if (priorApp) {
         // Inherit core document URLs if not explicitly provided in request

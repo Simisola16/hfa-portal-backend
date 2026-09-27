@@ -35,7 +35,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const data = await Agreement.find(query)
       .populate('application_id')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -45,7 +45,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/agreements/application/:appId
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Agreement.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
+    const data = await Agreement.findOne({ application_id: req.params.appId }).sort({ created_at: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
