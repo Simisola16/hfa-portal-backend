@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
 import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
+import Site from '../models/Site.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
@@ -177,6 +178,73 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 
 // ─── GENERAL USER ENDPOINTS ───────────────────────────────────────────────────────
 
+// GET /api/users/companies-directory - Fast list of all client companies and their sites for admin filtering/suggestions
+router.get('/companies-directory', authenticateToken, async (req, res) => {
+  try {
+    const [clients, sites] = await Promise.all([
+      User.find({ role: 'client' }).select('_id company_name full_name').lean(),
+      Site.find({}).select('_id client_id name est_name trading_name address_1').lean()
+    ]);
+
+    const companyMap = new Map();
+    clients.forEach(c => {
+      const name = (c.company_name || c.full_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!companyMap.has(key)) {
+        companyMap.set(key, {
+          id: String(c._id),
+          name: name,
+          sites: []
+        });
+      }
+    });
+
+    sites.forEach(s => {
+      const siteName = (s.name || s.est_name || s.trading_name || s.address_1 || '').trim();
+      if (!siteName) return;
+
+      let compEntry = null;
+      if (s.client_id) {
+        const cidStr = String(s.client_id);
+        for (const entry of companyMap.values()) {
+          if (entry.id === cidStr) {
+            compEntry = entry;
+            break;
+          }
+        }
+      }
+
+      if (!compEntry && s.est_name) {
+        compEntry = companyMap.get(s.est_name.trim().toLowerCase());
+      }
+
+      if (compEntry) {
+        if (!compEntry.sites.some(st => st.name.toLowerCase() === siteName.toLowerCase())) {
+          compEntry.sites.push({
+            id: String(s._id),
+            name: siteName
+          });
+        }
+      } else if (s.est_name && s.est_name.trim()) {
+        const estKey = s.est_name.trim().toLowerCase();
+        if (!companyMap.has(estKey)) {
+          companyMap.set(estKey, {
+            id: String(s.client_id || s._id),
+            name: s.est_name.trim(),
+            sites: [{ id: String(s._id), name: siteName }]
+          });
+        }
+      }
+    });
+
+    const list = Array.from(companyMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ data: list });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/users/:id
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
@@ -253,9 +321,163 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [users, appStats, certStats] = await Promise.all([
-      User.find().sort({ created_at: -1 }).lean(),
+    const hasCategory = req.query.category !== undefined && req.query.category !== '';
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+    const isUnpaginated = req.query.all === 'true' || req.query.pagination === 'false' || (!hasCategory && !hasPagination);
+    const category = req.query.category || (hasPagination ? 'all' : '');
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const matchQuery = {};
+
+    if (category === 'staff') {
+      matchQuery.role = { $ne: 'client' };
+    } else if (category === 'company') {
+      matchQuery.role = 'client';
+      matchQuery.company_category = 'certified';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'processing') {
+      matchQuery.role = 'client';
+      matchQuery.company_category = 'processing';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'signups') {
+      matchQuery.role = 'client';
+      matchQuery.company_category = 'signup';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'bin') {
+      matchQuery.role = 'client';
+      matchQuery.$or = [
+        { is_active: false },
+        { suspension_reason: { $exists: true, $nin: [null, ''] } }
+      ];
+    } else if (category === 'all') {
+      matchQuery.role = 'client';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (req.query.role) {
+      matchQuery.role = req.query.role;
+    }
+
+    if (search) {
+      const escaped = search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
+      const searchConditions = [
+        { company_name: searchRegex },
+        { full_name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { address: searchRegex },
+        { postcode: searchRegex }
+      ];
+      if (matchQuery.$or) {
+        matchQuery.$and = [
+          { $or: matchQuery.$or },
+          { $or: searchConditions }
+        ];
+        delete matchQuery.$or;
+      } else {
+        matchQuery.$or = searchConditions;
+      }
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = isUnpaginated ? 0 : Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+    const skip = isUnpaginated ? 0 : (page - 1) * limit;
+
+    const userQuery = User.find(matchQuery).sort({ created_at: -1, createdAt: -1 });
+    if (!isUnpaginated) {
+      userQuery.skip(skip).limit(limit);
+    }
+
+    const [total, users, [stats]] = await Promise.all([
+      User.countDocuments(matchQuery),
+      userQuery.lean(),
+      User.aggregate([
+        {
+          $facet: {
+            staff: [{ $match: { role: { $ne: 'client' } } }, { $count: 'c' }],
+            all: [{ $match: { role: 'client' } }, { $count: 'c' }],
+            bin: [
+              {
+                $match: {
+                  role: 'client',
+                  $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }]
+                }
+              },
+              { $count: 'c' }
+            ],
+            company: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'certified'
+                }
+              },
+              { $count: 'c' }
+            ],
+            processing: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'processing'
+                }
+              },
+              { $count: 'c' }
+            ],
+            signups: [
+              {
+                $match: {
+                  role: 'client',
+                  is_active: { $ne: false },
+                  $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }],
+                  company_category: 'signup'
+                }
+              },
+              { $count: 'c' }
+            ]
+          }
+        }
+      ])
+    ]);
+
+    // Enrich ONLY the fetched page of users with apps and certs
+    const userIds = users.map(u => u._id);
+    const userIdStrs = userIds.map(id => id.toString());
+    const allIds = [...userIds, ...userIdStrs];
+
+    const [appStats, certStats] = await Promise.all([
       Application.aggregate([
+        { $match: { client_id: { $in: allIds } } },
         {
           $group: {
             _id: { $toString: '$client_id' },
@@ -267,7 +489,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         }
       ]),
       Certificate.aggregate([
-        { $match: { status: 'active' } },
+        { $match: { client_id: { $in: allIds }, status: 'active' } },
         {
           $group: {
             _id: { $toString: '$client_id' },
@@ -278,14 +500,9 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     ]);
 
     const appMap = new Map();
-    appStats.forEach(a => {
-      if (a._id) appMap.set(a._id, a);
-    });
-
+    appStats.forEach(a => { if (a._id) appMap.set(a._id, a); });
     const certMap = new Map();
-    certStats.forEach(c => {
-      if (c._id) certMap.set(c._id, c.certCount);
-    });
+    certStats.forEach(c => { if (c._id) certMap.set(c._id, c.certCount); });
 
     const enrichedUsers = users.map(u => {
       const uId = u._id.toString();
@@ -301,7 +518,28 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       };
     });
 
-    res.json({ data: enrichedUsers });
+    const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
+    const counts = {
+      all: stats?.all?.[0]?.c || 0,
+      company: stats?.company?.[0]?.c || 0,
+      processing: stats?.processing?.[0]?.c || 0,
+      signups: stats?.signups?.[0]?.c || 0,
+      bin: stats?.bin?.[0]?.c || 0,
+      staff: stats?.staff?.[0]?.c || 0
+    };
+
+    res.json({
+      data: enrichedUsers,
+      pagination: {
+        page,
+        limit: isUnpaginated ? total : limit,
+        total,
+        totalPages,
+        hasPrevPage: page > 1,
+        hasNextPage: page < totalPages
+      },
+      counts
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
