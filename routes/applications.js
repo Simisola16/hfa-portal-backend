@@ -97,6 +97,12 @@ router.get('/', authenticateToken, async (req, res) => {
       return item;
     });
 
+    results.sort((a, b) => {
+      const dateA = new Date(a.created_at || a.submission_date || a.createdAt || 0).getTime();
+      const dateB = new Date(b.created_at || b.submission_date || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     res.json({ data: results });
   } catch (err) {
     res.status(500).json({ error: err.message });
