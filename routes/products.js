@@ -30,15 +30,17 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
-    // Deduplicate products by client_id + name + code
+    // Deduplicate products only per site (client_id + site_id + name + code)
+    // Products across different manufacturing sites are distinct physical site authorizations and must NOT be deduplicated
     const uniqueProducts = [];
     const seenProductKeys = new Set();
     for (const p of products) {
       const cIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : 'global';
+      const siteIdStr = p.site_id ? (p.site_id._id ? p.site_id._id.toString() : p.site_id.toString()) : 'no-site';
       const nameStr = (p.name || '').trim().toLowerCase();
       const codeStr = (p.code || p.barcode || '').trim().toLowerCase();
       if (!nameStr) continue;
-      const key = `${cIdStr}:${nameStr}:${codeStr}`;
+      const key = `${cIdStr}:${siteIdStr}:${nameStr}:${codeStr}`;
       if (!seenProductKeys.has(key)) {
         seenProductKeys.add(key);
         uniqueProducts.push(p);
