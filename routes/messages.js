@@ -424,9 +424,7 @@ router.post('/', authenticateToken, async (req, res) => {
                   <div style="font-size:13px;opacity:0.9;margin-top:4px;text-transform:uppercase;letter-spacing:1px">Targeted Company Notice</div>
                 </div>
                 <div style="padding:32px 28px">
-                  <div style="display:inline-block;background:#ecfdf5;color:#166534;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-bottom:16px;border:1px solid #bbf7d0">
-                    🎯 SELECTED COMPANY NOTICE
-                  </div>
+                  
                   <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0f172a;line-height:1.3">
                     ${subject || 'Important Notice from HFA'}
                   </h2>
