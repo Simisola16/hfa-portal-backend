@@ -3,6 +3,7 @@ import multer from 'multer';
 import { uploadToS3 } from '../lib/s3.js';
 import Proposal from '../models/Proposal.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
@@ -22,7 +23,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const data = await Proposal.find(query)
       .populate('application_id')
       .populate({ path: 'application_id', populate: { path: 'profiles' } })
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -31,7 +32,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    const data = await Proposal.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 });
+    const data = await Proposal.findOne({ application_id: req.params.appId }).sort({ created_at: -1, createdAt: -1 });
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -450,7 +451,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       try {
         const clientName = req.user.company_name || req.user.full_name || 'A client';
         const statusLabel = status === 'accepted' ? 'accepted ✅' : status === 'rejected' ? 'rejected ❌' : `updated to "${status}"`;
-        const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager'] } });
+        const admins = await Admin.find({});
         for (const admin of admins) {
           await createNotification(
             admin._id,

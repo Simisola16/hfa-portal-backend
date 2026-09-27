@@ -18,7 +18,7 @@ const ncReportSchema = new mongoose.Schema({
   correction_document_url: String,
   admin_reply: String,
   admin_reply_at: Date,
-  admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   admin_reply_document_url: String,
   status: { type: String, enum: ['flagged', 'corrected', 'client_responded', 'admin_replied', 'closed'], default: 'flagged' },
   flagged_at: { type: Date, default: Date.now },

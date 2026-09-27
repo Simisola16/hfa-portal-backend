@@ -59,7 +59,7 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
     );
 
     if (isRenewal || isSurveillance) {
-      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ createdAt: -1 });
+      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
       if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
         return res.status(403).json({
           error: `The ${isSurveillance ? 'Surveillance' : 'Renewal'} Invoice must be paid before a ${isSurveillance ? 'Letter' : 'Certificate'} can be issued.`,
@@ -203,38 +203,40 @@ router.get('/view/*', handlePublicCertificateAccess);
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    const isAdminUser = req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
+
+    if (!isAdminUser) {
       query.client_id = req.user._id.toString();
       // Clients only see active, expired, renewed, outdated, or superseded certificates (NOT drafts or under_review)
       query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
     }
     const data = await Certificate.find(query)
-      .populate('site_id')
+      .select('-product_details')
+      .populate('site_id', 'name est_name trading_name')
       .populate('application_id', 'establishment_name site_name scope status application_type category')
-      .populate('created_by', 'full_name email role')
-      .populate('reviewed_by', 'full_name email role')
-      .sort({ createdAt: -1 });
+      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
+      .lean();
 
     // Auto-expire: mark any active certificate whose expiry_date is in the past and not renewed
     const now = new Date();
-    const expiredIds = data
-      .filter(c => c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now)
-      .map(c => c._id);
+    const expiredIds = [];
+    data.forEach(c => {
+      if (c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now) {
+        c.status = 'expired';
+        expiredIds.push(c._id);
+      }
+    });
 
     if (expiredIds.length > 0) {
-      await Certificate.updateMany(
+      Certificate.updateMany(
         { _id: { $in: expiredIds } },
         { $set: { status: 'expired', updated_at: now } }
-      );
-      data.forEach(c => {
-        if (expiredIds.some(id => id.equals(c._id))) {
-          c.status = 'expired';
-        }
-      });
+      ).catch(() => {});
     }
 
-    // Attach has_ongoing_renewal flag to each certificate
-    let finalData = data;
+    // Attach has_ongoing_renewal flag to each certificate using O(1) Map lookups
     try {
       const clientIds = [...new Set(data.map(c => c.client_id ? String(c.client_id._id || c.client_id) : null).filter(Boolean))];
       if (clientIds.length > 0) {
@@ -242,37 +244,41 @@ router.get('/', authenticateToken, async (req, res) => {
           client_id: { $in: clientIds },
           application_type: 'renewal',
           status: { $nin: ['rejected', 'certificate_issued'] }
-        }).select('_id application_number site_id renewed_certificate_id status');
+        }).select('_id application_number site_id renewed_certificate_id status').lean();
 
-        finalData = data.map(c => {
-          const cObj = c.toObject ? c.toObject() : { ...c };
+        const renCertMap = new Map();
+        const renSiteMap = new Map();
+        ongoingRenewals.forEach(app => {
+          if (app.renewed_certificate_id) renCertMap.set(String(app.renewed_certificate_id), app);
+          if (app.site_id) renSiteMap.set(String(app.site_id), app);
+        });
+
+        data.forEach(c => {
           const cIdStr = String(c._id);
           const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
 
-          const matchingApp = ongoingRenewals.find(app => {
-            const renCertStr = app.renewed_certificate_id ? String(app.renewed_certificate_id) : '';
-            if (renCertStr && renCertStr === cIdStr) return true;
-            const appSiteStr = app.site_id ? String(app.site_id) : '';
-            if (appSiteStr && cSiteStr && appSiteStr === cSiteStr) return true;
-            return false;
-          });
-
+          const matchingApp = renCertMap.get(cIdStr) || (cSiteStr ? renSiteMap.get(cSiteStr) : null);
           if (matchingApp) {
-            cObj.has_ongoing_renewal = true;
-            cObj.ongoing_renewal_id = matchingApp._id;
-            cObj.ongoing_renewal_number = matchingApp.application_number;
-            cObj.ongoing_renewal_status = matchingApp.status;
+            c.has_ongoing_renewal = true;
+            c.ongoing_renewal_id = matchingApp._id;
+            c.ongoing_renewal_number = matchingApp.application_number;
+            c.ongoing_renewal_status = matchingApp.status;
           } else {
-            cObj.has_ongoing_renewal = false;
+            c.has_ongoing_renewal = false;
           }
-          return cObj;
         });
       }
     } catch (renewalErr) {
       console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
     }
 
-    res.json({ data: finalData });
+    data.sort((a, b) => {
+      const dateA = new Date(a.issue_date || a.created_at || a.createdAt || 0).getTime();
+      const dateB = new Date(b.issue_date || b.created_at || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
+    res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -281,7 +287,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET certificate by application ID
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ createdAt: -1 })
+    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .populate('site_id')
       .populate('application_id')
       .populate('created_by', 'full_name email role')
@@ -314,7 +320,7 @@ router.get('/direct-history', authenticateToken, requireDirectCertificatePermiss
     })
       .populate('site_id')
       .populate('issued_by', 'full_name email username')
-      .sort({ createdAt: -1 })
+      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .lean();
 
     const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
@@ -1159,23 +1165,38 @@ async function performCertificateIssuance({ certificate, application_id, client_
     }
   }
 
-  // Mark previous active certificates for this site / application as outdated/superseded
-  const prevQuery = [];
-  if (site_id) prevQuery.push({ site_id });
-  if (application_id) prevQuery.push({ application_id });
-  if (client_id && prevQuery.length === 0) prevQuery.push({ client_id });
+  // When a certificate is issued for a site, mark all previous certificates for that site as superseded / inactive
+  const siteFilter = [];
+  if (site_id) {
+    siteFilter.push({ site_id });
+    if (mongoose.Types.ObjectId.isValid(site_id)) {
+      siteFilter.push({ site_id: new mongoose.Types.ObjectId(site_id) });
+    }
+  }
+  if (certificate.site_name && certificate.site_name.trim()) {
+    siteFilter.push({ site_name: certificate.site_name.trim() });
+  }
+  if (certificate.establishment_name && certificate.establishment_name.trim()) {
+    siteFilter.push({ establishment_name: certificate.establishment_name.trim() });
+  }
+  if (application_id) {
+    siteFilter.push({ application_id });
+  }
+  if (siteFilter.length === 0 && client_id) {
+    siteFilter.push({ client_id: client_id.toString() });
+  }
 
-  if (prevQuery.length > 0) {
+  if (siteFilter.length > 0) {
     await Certificate.updateMany(
       {
         _id: { $ne: certificate._id },
-        client_id,
-        $or: prevQuery,
-        status: 'active'
+        $or: siteFilter,
+        status: { $in: ['active', 'draft', 'under_review'] }
       },
       {
         $set: {
-          status: 'outdated',
+          status: 'superseded',
+          is_renewed: true,
           superseded_by: certificate._id,
           updated_at: new Date()
         }
@@ -2245,23 +2266,38 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     const savedCert = await certificate.save();
 
-    // Mark previous active certificates for this site / client as outdated
-    const prevSiteFilter = targetSiteId ? { site_id: targetSiteId } : { client_id: targetClientId };
-    await Certificate.updateMany(
-      {
-        _id: { $ne: savedCert._id },
-        client_id: targetClientId,
-        ...prevSiteFilter,
-        status: 'active'
-      },
-      {
-        $set: {
-          status: 'outdated',
-          superseded_by: savedCert._id,
-          updated_at: new Date()
-        }
+    // Mark previous active certificates for this site / client as superseded / inactive
+    const prevSiteFilter = [];
+    if (targetSiteId) {
+      prevSiteFilter.push({ site_id: targetSiteId });
+      if (mongoose.Types.ObjectId.isValid(targetSiteId)) {
+        prevSiteFilter.push({ site_id: new mongoose.Types.ObjectId(targetSiteId) });
       }
-    );
+    }
+    if (savedCert.site_name && savedCert.site_name.trim()) {
+      prevSiteFilter.push({ site_name: savedCert.site_name.trim() });
+    }
+    if (prevSiteFilter.length === 0 && targetClientId) {
+      prevSiteFilter.push({ client_id: targetClientId.toString() });
+    }
+
+    if (prevSiteFilter.length > 0) {
+      await Certificate.updateMany(
+        {
+          _id: { $ne: savedCert._id },
+          $or: prevSiteFilter,
+          status: { $in: ['active', 'draft', 'under_review'] }
+        },
+        {
+          $set: {
+            status: 'superseded',
+            is_renewed: true,
+            superseded_by: savedCert._id,
+            updated_at: new Date()
+          }
+        }
+      );
+    }
 
     // 7. Save / Link Products in Product collection linked to certificate
     const createdProductDocs = [];

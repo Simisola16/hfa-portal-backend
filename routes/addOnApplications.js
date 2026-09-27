@@ -4,6 +4,7 @@ import multer from 'multer';
 import AddOnApplication from '../models/AddOnApplication.js';
 import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
@@ -76,7 +77,7 @@ async function pushHistory(app, status, note, changedBy) {
 
 async function notifyAdmins(title, body) {
   try {
-    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(a._id, title, body, 'info', '/addon-applications');
     }
@@ -230,7 +231,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ data });
   } catch (err) {
@@ -354,7 +355,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
     // Validate selected system IDs are food_tech users if any provided
     let ftUsers = [];
     if (ftIds.length > 0) {
-      ftUsers = await User.find({ _id: { $in: ftIds } });
+      ftUsers = await Admin.find({ _id: { $in: ftIds } });
     }
 
     const app = await AddOnApplication.findById(req.params.id);
@@ -1101,7 +1102,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       cert = await Certificate.findOne({ client_id: app.client_id, status: 'active' });
     }
     if (!cert && app.client_id) {
-      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ createdAt: -1 });
+      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ issue_date: -1, created_at: -1, createdAt: -1 });
     }
 
     if (!cert) {

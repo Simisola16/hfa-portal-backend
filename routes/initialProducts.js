@@ -5,6 +5,7 @@ import InitialProductApplication from '../models/InitialProductApplication.js';
 import Application from '../models/Application.js';
 import Invoice from '../models/Invoice.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
@@ -86,7 +87,7 @@ async function pushHistory(app, status, note, changedBy) {
 
 async function notifyAdmins(title, body) {
   try {
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'food_tech_manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(a._id, title, body, 'info', '/admin/initial-products');
     }
@@ -276,7 +277,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Email all Food Technology Managers & Superadmins — professional notification
     try {
-      const staffRecipients = await User.find({
+      const staffRecipients = await Admin.find({
         $or: [
           { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } },
           { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin'] } }
@@ -426,7 +427,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
       item = await InitialProductApplication.findOne({
         application_id: targetApp._id
       })
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .sort({ updated_at: -1, created_at: -1, updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
         .populate('site_id', 'name address city postal_code country')
@@ -436,7 +437,7 @@ router.get(['/by-application/:appId', '/application/:appId'], authenticateToken,
         .populate('logsheet_id');
     } else if (isObjId) {
       item = await InitialProductApplication.findOne({ application_id: req.params.appId })
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .sort({ updated_at: -1, created_at: -1, updatedAt: -1, createdAt: -1 })
         .populate('client_id', 'company_name full_name email phone address')
         .populate('application_id', 'application_number establishment_name site_name scope status category manufacturer_name manufacturer_address')
         .populate('site_id', 'name address city postal_code country')
@@ -484,7 +485,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ data });
   } catch (err) {
@@ -613,7 +614,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 
     let ftUsers = [];
     if (ftIds.length > 0) {
-      ftUsers = await User.find({ _id: { $in: ftIds } });
+      ftUsers = await Admin.find({ _id: { $in: ftIds } });
     }
 
     const app = await InitialProductApplication.findById(req.params.id);
@@ -1205,7 +1206,7 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
 
           // Email notification to Audit Managers & Superadmins
           try {
-            const recipients = await User.find({
+            const recipients = await Admin.find({
               $or: [
                 { role: { $in: ['audit_manager', 'superadmin'] } },
                 { roles: { $in: ['audit_manager', 'superadmin'] } }

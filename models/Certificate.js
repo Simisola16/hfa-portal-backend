@@ -5,6 +5,7 @@ const certificateSchema = new mongoose.Schema({
   client_id: { type: String, required: true },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
+  site_name: String,
   certificate_type: String,
   company_name: String,
   company_address: String,
@@ -37,9 +38,9 @@ const certificateSchema = new mongoose.Schema({
   revocation_reason: String,
   is_add_on: { type: Boolean, default: false },
   is_direct_issuance: { type: Boolean, default: false },
-  issued_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  issued_by:   { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+  created_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+  reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   reviewed_at: Date,
   review_notes: String,
   notes: String,
@@ -54,5 +55,7 @@ const certificateSchema = new mongoose.Schema({
 certificateSchema.index({ client_id: 1 });
 certificateSchema.index({ status: 1 });
 certificateSchema.index({ site_id: 1 });
+certificateSchema.index({ createdAt: -1 });
+certificateSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model('Certificate', certificateSchema);

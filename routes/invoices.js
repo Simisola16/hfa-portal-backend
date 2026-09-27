@@ -5,6 +5,7 @@ import { uploadToS3 } from '../lib/s3.js';
 import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -183,7 +184,7 @@ router.get('/', authenticateToken, async (req, res) => {
     let invoices = await Invoice.find(query)
       .populate('application_id')
       .populate('profiles')
-      .sort({ createdAt: -1 })
+      .sort({ due_date: -1, paid_at: -1, createdAt: -1 })
       .lean();
 
     // Ensure profiles is populated even if virtual population had mismatched types
@@ -208,6 +209,12 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
+    invoices.sort((a, b) => {
+      const dateA = new Date(a.due_date || a.paid_at || a.createdAt || 0).getTime();
+      const dateB = new Date(b.due_date || b.paid_at || b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     res.json({ data: invoices });
   } catch (err) {
     console.error('[Invoices GET /] Error:', err);
@@ -228,7 +235,7 @@ router.get('/application/:appId/all', authenticateToken, async (req, res) => {
       if (appDoc) targetAppId = appDoc._id;
       else return res.json({ data: [] });
     }
-    const data = await Invoice.find({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    const data = await Invoice.find({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId/all] Error:', err);
@@ -249,7 +256,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       if (appDoc) targetAppId = appDoc._id;
       else return res.json({ data: null });
     }
-    const data = await Invoice.findOne({ application_id: targetAppId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+    const data = await Invoice.findOne({ application_id: targetAppId }).sort({ due_date: -1, paid_at: -1, updatedAt: -1, createdAt: -1 }).lean();
     res.json({ data });
   } catch (err) {
     console.error('[Invoices GET /application/:appId] Error:', err);
@@ -345,7 +352,7 @@ router.post('/', authenticateToken, upload.single('invoice_file'), async (req, r
             ]
           };
 
-      let existingInvoice = await Invoice.findOne(typeQuery).sort({ createdAt: -1 });
+      let existingInvoice = await Invoice.findOne(typeQuery).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
 
       if (existingInvoice) {
         isRevision = true;
@@ -553,7 +560,7 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
 
     // Notify admins
     try {
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech', 'accountant'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -655,7 +662,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
   try {
     const isFinalInvoice = invoice.invoice_type === 'final' || invoice.stage === 'final' || targetStatus === 'final_invoice_paid';
     if (!isFinalInvoice) {
-      const staffRecipients = await User.find({
+      const staffRecipients = await Admin.find({
         $or: [
           { role: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } },
           { roles: { $in: ['food_tech_manager', 'food_tech', 'superadmin', 'accountant'] } }
@@ -782,7 +789,7 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
         if (appDoc) validAppId = appDoc._id;
       }
       if (mongoose.isValidObjectId(validAppId)) {
-        invoice = await Invoice.findOne({ application_id: validAppId }).sort({ createdAt: -1 });
+        invoice = await Invoice.findOne({ application_id: validAppId }).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
       }
     }
 

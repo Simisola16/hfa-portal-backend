@@ -1,4 +1,5 @@
 import express from 'express';
+import Admin from '../models/Admin.js';
 import multer from 'multer';
 import { uploadToS3 } from '../lib/s3.js';
 import SurveillanceRequest from '../models/SurveillanceRequest.js';
@@ -45,7 +46,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Notify all admins
     const User = (await import('../models/User.js')).default;
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+    const admins = await Admin.find({});
     for (const admin of admins) {
       await createNotification(
         admin._id,

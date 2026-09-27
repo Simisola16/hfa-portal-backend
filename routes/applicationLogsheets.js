@@ -4,6 +4,7 @@ import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Application from '../models/Application.js';
 import Audit from '../models/Audit.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
@@ -468,7 +469,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
-      .sort({ createdAt: -1, created_at: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     const mainLogsheet = logsheets.find(l => {
       if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
@@ -666,7 +667,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     const logsheets = await ApplicationLogsheet.find(filter)
-      .populate('application_id', 'application_number application_type status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name')
+      .populate('application_id', 'application_number application_type status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name notes')
       .populate('addon_application_id', 'status')
       .populate('initial_product_application_id', 'status')
       .populate('client_id', 'full_name company_name email phone address')
@@ -1112,7 +1113,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
                   // Email notification to Audit Managers
                   try {
-                    const recipients = await User.find({
+                    const recipients = await Admin.find({
                       $or: [
                         { role: { $in: ['audit_manager', 'superadmin'] } },
                         { roles: { $in: ['audit_manager', 'superadmin'] } }

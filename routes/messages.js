@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Resend } from 'resend';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Application from '../models/Application.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -45,12 +46,16 @@ const populateMessagesSafely = async (messages) => {
     }
   });
 
-  const [users, apps] = await Promise.all([
+  const [users, admins, apps] = await Promise.all([
     userIds.size > 0 ? User.find({ _id: { $in: Array.from(userIds) } }).select('full_name company_name email role avatar_url').lean() : [],
+    userIds.size > 0 ? Admin.find({ _id: { $in: Array.from(userIds) } }).select('full_name username email role roles avatar_url').lean() : [],
     appIds.size > 0 ? Application.find({ _id: { $in: Array.from(appIds) } }).select('company_name scheme status').lean() : []
   ]);
 
-  const userMap = new Map(users.map(u => [u._id.toString(), u]));
+  const userMap = new Map([
+    ...users.map(u => [u._id.toString(), u]),
+    ...admins.map(a => [a._id.toString(), a])
+  ]);
   const appMap = new Map(apps.map(a => [a._id.toString(), a]));
 
   const enriched = msgList.map(m => {
@@ -481,7 +486,7 @@ router.post('/', authenticateToken, async (req, res) => {
       emitToAdmins('new_message', populated);
 
       // Create notification for staff
-      const admins = await User.find({ role: { $in: STAFF_ROLES } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,

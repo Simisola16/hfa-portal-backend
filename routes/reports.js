@@ -120,6 +120,7 @@ const getReportStats = async (req, res) => {
     const now = new Date();
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    const in90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
     const totalCerts = await Certificate.countDocuments();
     const activeCerts = await Certificate.countDocuments({ status: 'active' });
@@ -134,6 +135,11 @@ const getReportStats = async (req, res) => {
     const expiringSoon60 = await Certificate.countDocuments({
       status: 'active',
       expiry_date: { $gte: now, $lte: in60Days }
+    });
+
+    const expiringSoon90 = await Certificate.countDocuments({
+      status: 'active',
+      expiry_date: { $gte: now, $lte: in90Days }
     });
 
     // Top 10 Expiring Certificates Watchlist
@@ -313,6 +319,7 @@ const getReportStats = async (req, res) => {
         underReview: underReviewCerts,
         expiringSoon30,
         expiringSoon60,
+        expiringSoon90,
         expiringWatchlist
       },
       financials: {
@@ -357,6 +364,124 @@ const getReportStats = async (req, res) => {
 router.get('/stats', authenticateToken, requireAdmin, getReportStats);
 router.get('/dashboard', authenticateToken, requireAdmin, getReportStats);
 
+// GET /api/reports/dashboard-overview - Instant metrics and 5 pipeline apps for Admin Dashboard
+router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const now = new Date();
+
+    const [
+      appFacet,
+      certFacet,
+      totalProducts,
+      recentApps
+    ] = await Promise.all([
+      Application.aggregate([
+        {
+          $facet: {
+            total: [{ $count: 'c' }],
+            submitted: [{ $match: { status: 'submitted' } }, { $count: 'c' }],
+            under_review: [{ $match: { status: 'under_review' } }, { $count: 'c' }],
+            renewals: [{ $match: { application_type: 'renewal' } }, { $count: 'c' }],
+            accepted: [
+              {
+                $match: {
+                  status: {
+                    $in: [
+                      'approved', 'accepted', 'certificate_issued', 
+                      'application_successful', 'ready_for_certificate', 'certified'
+                    ]
+                  }
+                }
+              },
+              { $count: 'c' }
+            ],
+            rejected: [{ $match: { status: 'rejected' } }, { $count: 'c' }]
+          }
+        }
+      ]),
+      Certificate.aggregate([
+        {
+          $facet: {
+            total: [{ $count: 'c' }],
+            active: [
+              {
+                $match: {
+                  status: 'active',
+                  $or: [
+                    { expiry_date: null },
+                    { expiry_date: { $exists: false } },
+                    { expiry_date: { $gte: now } }
+                  ]
+                }
+              },
+              { $count: 'c' }
+            ],
+            expired: [
+              {
+                $match: {
+                  $or: [
+                    { status: 'expired' },
+                    { expiry_date: { $lt: now } }
+                  ]
+                }
+              },
+              { $count: 'c' }
+            ],
+            pending: [
+              { $match: { status: { $in: ['pending', 'under_review'] } } },
+              { $count: 'c' }
+            ]
+          }
+        }
+      ]),
+      Product.estimatedDocumentCount(),
+      Application.find()
+        .sort({ updated_at: -1, created_at: -1, createdAt: -1 })
+        .limit(5)
+        .populate('client_id', 'company_name full_name email')
+        .lean()
+    ]);
+
+    const apps = appFacet[0] || {};
+    const certs = certFacet[0] || {};
+
+    const totalApps = apps.total?.[0]?.c || 0;
+    const submitted = apps.submitted?.[0]?.c || 0;
+    const underReview = apps.under_review?.[0]?.c || 0;
+    const renewalApps = apps.renewals?.[0]?.c || 0;
+    const acceptedApps = apps.accepted?.[0]?.c || 0;
+    const rejectedApps = apps.rejected?.[0]?.c || 0;
+    const pendingApps = submitted + underReview;
+
+    const totalCerts = certs.total?.[0]?.c || 0;
+    const activeCerts = certs.active?.[0]?.c || 0;
+    const expiredCerts = certs.expired?.[0]?.c || 0;
+    const pendingCerts = certs.pending?.[0]?.c || 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalApps,
+        submittedApps: submitted,
+        underReviewApps: underReview,
+        pendingApps,
+        renewalApps,
+        acceptedApps,
+        rejectedApps,
+        totalCerts,
+        activeCerts,
+        expiredCerts,
+        pendingCerts,
+        totalProducts
+      },
+      pipeline: recentApps
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard overview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/reports/export - Generates CSV reports
 router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -365,7 +490,7 @@ router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
     if (type === 'applications') {
       const apps = await Application.find()
         .populate('client_id', 'company_name full_name email phone')
-        .sort({ createdAt: -1 })
+        .sort({ created_at: -1, createdAt: -1 })
         .lean();
 
       let csv = 'Application Number,Company Name,Contact Name,Email,Scheme,Status,Created Date\n';
@@ -402,7 +527,7 @@ router.get('/export', authenticateToken, requireAdmin, async (req, res) => {
     if (type === 'invoices') {
       const invoices = await Invoice.find()
         .populate('client_id', 'company_name full_name email')
-        .sort({ createdAt: -1 })
+        .sort({ due_date: -1, paid_at: -1, createdAt: -1 })
         .lean();
 
       let csv = 'Invoice Number,Company,Amount,Currency,Status,Due Date,Paid Date\n';

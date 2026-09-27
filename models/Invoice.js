@@ -14,7 +14,7 @@ const invoiceSchema = new mongoose.Schema({
   due_date: Date,
   paid_at: Date,
   payment_date: Date,
-  confirmed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  confirmed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   confirmed_at: Date,
   invoice_url: String,
   payment_proof_url: String,
