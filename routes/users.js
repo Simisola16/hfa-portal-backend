@@ -253,42 +253,67 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const isUnpaginated = req.query.all === 'true' || req.query.pagination === 'false';
-    const category = req.query.category || 'all';
+    const hasCategory = req.query.category !== undefined && req.query.category !== '';
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+    const isUnpaginated = req.query.all === 'true' || req.query.pagination === 'false' || (!hasCategory && !hasPagination);
+    const category = req.query.category || (hasPagination ? 'all' : '');
     const search = req.query.search ? String(req.query.search).trim() : '';
 
     const matchQuery = {};
 
     if (category === 'staff') {
       matchQuery.role = { $ne: 'client' };
-    } else {
+    } else if (category === 'company') {
       matchQuery.role = 'client';
-      if (category === 'bin') {
-        matchQuery.$or = [
-          { is_active: false },
-          { suspension_reason: { $exists: true, $nin: [null, ''] } }
-        ];
-      } else {
-        const activeCondition = {
-          is_active: { $ne: false },
-          $or: [
-            { suspension_reason: null },
-            { suspension_reason: '' },
-            { suspension_reason: { $exists: false } }
-          ]
-        };
-
-        if (category === 'company') {
-          matchQuery.company_category = 'certified';
-          Object.assign(matchQuery, activeCondition);
-        } else if (category === 'processing') {
-          matchQuery.company_category = 'processing';
-          Object.assign(matchQuery, activeCondition);
-        } else if (category === 'signups') {
-          matchQuery.company_category = 'signup';
-          Object.assign(matchQuery, activeCondition);
-        }
-      }
+      matchQuery.company_category = 'certified';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'processing') {
+      matchQuery.role = 'client';
+      matchQuery.company_category = 'processing';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'signups') {
+      matchQuery.role = 'client';
+      matchQuery.company_category = 'signup';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (category === 'bin') {
+      matchQuery.role = 'client';
+      matchQuery.$or = [
+        { is_active: false },
+        { suspension_reason: { $exists: true, $nin: [null, ''] } }
+      ];
+    } else if (category === 'all') {
+      matchQuery.role = 'client';
+      Object.assign(matchQuery, {
+        is_active: { $ne: false },
+        $or: [
+          { suspension_reason: null },
+          { suspension_reason: '' },
+          { suspension_reason: { $exists: false } }
+        ]
+      });
+    } else if (req.query.role) {
+      matchQuery.role = req.query.role;
     }
 
     if (search) {
