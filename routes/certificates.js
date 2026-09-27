@@ -203,7 +203,11 @@ router.get('/view/*', handlePublicCertificateAccess);
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    const isAdminUser = req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
+
+    if (!isAdminUser) {
       query.client_id = req.user._id.toString();
       // Clients only see active, expired, renewed, outdated, or superseded certificates (NOT drafts or under_review)
       query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
@@ -1161,23 +1165,38 @@ async function performCertificateIssuance({ certificate, application_id, client_
     }
   }
 
-  // Mark previous active certificates for this site / application as outdated/superseded
-  const prevQuery = [];
-  if (site_id) prevQuery.push({ site_id });
-  if (application_id) prevQuery.push({ application_id });
-  if (client_id && prevQuery.length === 0) prevQuery.push({ client_id });
+  // When a certificate is issued for a site, mark all previous certificates for that site as superseded / inactive
+  const siteFilter = [];
+  if (site_id) {
+    siteFilter.push({ site_id });
+    if (mongoose.Types.ObjectId.isValid(site_id)) {
+      siteFilter.push({ site_id: new mongoose.Types.ObjectId(site_id) });
+    }
+  }
+  if (certificate.site_name && certificate.site_name.trim()) {
+    siteFilter.push({ site_name: certificate.site_name.trim() });
+  }
+  if (certificate.establishment_name && certificate.establishment_name.trim()) {
+    siteFilter.push({ establishment_name: certificate.establishment_name.trim() });
+  }
+  if (application_id) {
+    siteFilter.push({ application_id });
+  }
+  if (siteFilter.length === 0 && client_id) {
+    siteFilter.push({ client_id: client_id.toString() });
+  }
 
-  if (prevQuery.length > 0) {
+  if (siteFilter.length > 0) {
     await Certificate.updateMany(
       {
         _id: { $ne: certificate._id },
-        client_id,
-        $or: prevQuery,
-        status: 'active'
+        $or: siteFilter,
+        status: { $in: ['active', 'draft', 'under_review'] }
       },
       {
         $set: {
-          status: 'outdated',
+          status: 'superseded',
+          is_renewed: true,
           superseded_by: certificate._id,
           updated_at: new Date()
         }
@@ -2247,23 +2266,38 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     const savedCert = await certificate.save();
 
-    // Mark previous active certificates for this site / client as outdated
-    const prevSiteFilter = targetSiteId ? { site_id: targetSiteId } : { client_id: targetClientId };
-    await Certificate.updateMany(
-      {
-        _id: { $ne: savedCert._id },
-        client_id: targetClientId,
-        ...prevSiteFilter,
-        status: 'active'
-      },
-      {
-        $set: {
-          status: 'outdated',
-          superseded_by: savedCert._id,
-          updated_at: new Date()
-        }
+    // Mark previous active certificates for this site / client as superseded / inactive
+    const prevSiteFilter = [];
+    if (targetSiteId) {
+      prevSiteFilter.push({ site_id: targetSiteId });
+      if (mongoose.Types.ObjectId.isValid(targetSiteId)) {
+        prevSiteFilter.push({ site_id: new mongoose.Types.ObjectId(targetSiteId) });
       }
-    );
+    }
+    if (savedCert.site_name && savedCert.site_name.trim()) {
+      prevSiteFilter.push({ site_name: savedCert.site_name.trim() });
+    }
+    if (prevSiteFilter.length === 0 && targetClientId) {
+      prevSiteFilter.push({ client_id: targetClientId.toString() });
+    }
+
+    if (prevSiteFilter.length > 0) {
+      await Certificate.updateMany(
+        {
+          _id: { $ne: savedCert._id },
+          $or: prevSiteFilter,
+          status: { $in: ['active', 'draft', 'under_review'] }
+        },
+        {
+          $set: {
+            status: 'superseded',
+            is_renewed: true,
+            superseded_by: savedCert._id,
+            updated_at: new Date()
+          }
+        }
+      );
+    }
 
     // 7. Save / Link Products in Product collection linked to certificate
     const createdProductDocs = [];
