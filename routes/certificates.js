@@ -203,7 +203,11 @@ router.get('/view/*', handlePublicCertificateAccess);
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    const isAdminUser = req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
+
+    if (!isAdminUser) {
       query.client_id = req.user._id.toString();
       // Clients only see active, expired, renewed, outdated, or superseded certificates (NOT drafts or under_review)
       query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
