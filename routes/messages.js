@@ -1,6 +1,5 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { Resend } from 'resend';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
@@ -9,10 +8,9 @@ import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitToUser, emitToAdmins, emitToClients } from '../lib/socket.js';
 import { getClientUrl } from '../lib/urls.js';
+import { sendEmail, emailFrom } from '../lib/mailer.js';
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'Halal Food Authority <info@hfaportal.company>';
 
 const STAFF_ROLES = ['admin', 'superadmin', 'scheme_manager', 'food_tech_manager', 'food_tech', 'certificate_officer', 'accountant', 'audit_manager', 'staff'];
 
@@ -320,7 +318,7 @@ router.post('/', authenticateToken, async (req, res) => {
         ).catch(() => {});
       }
 
-      // Email notifications to all clients via Resend
+      // Email notifications to all clients via Microsoft Graph
       const frontendClientUrl = getClientUrl();
       const clientsWithEmail = clients.filter(c => c.email && c.email.includes('@'));
 
@@ -328,8 +326,7 @@ router.post('/', authenticateToken, async (req, res) => {
       const emailBatch = clientsWithEmail.map(async (c) => {
         try {
           const clientName = c.full_name || c.company_name || 'Valued Client';
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: c.email,
             subject: `[HFA Announcement] ${subject || 'Important Notice from Halal Food Authority'}`,
             html: `
@@ -363,7 +360,7 @@ router.post('/', authenticateToken, async (req, res) => {
           });
           emailsDispatched++;
         } catch (emailErr) {
-          console.error(`[Resend Broadcast Error for ${c.email}]:`, emailErr.message);
+          console.error(`[Microsoft Broadcast Error for ${c.email}]:`, emailErr.message);
         }
       });
 
@@ -409,7 +406,7 @@ router.post('/', authenticateToken, async (req, res) => {
         ).catch(() => {});
       }
 
-      // Email selected clients
+      // Email selected clients via Microsoft Graph
       const frontendClientUrl = getClientUrl();
       const clientsWithEmail = selectedClients.filter(c => c.email && c.email.includes('@'));
       let emailsDispatched = 0;
@@ -417,8 +414,7 @@ router.post('/', authenticateToken, async (req, res) => {
       const emailBatch = clientsWithEmail.map(async (c) => {
         try {
           const clientName = c.full_name || c.company_name || 'Valued Client';
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: c.email,
             subject: `[HFA Notice] ${subject || 'Important Notice from Halal Food Authority'}`,
             html: `
@@ -452,7 +448,7 @@ router.post('/', authenticateToken, async (req, res) => {
           });
           emailsDispatched++;
         } catch (emailErr) {
-          console.error(`[Resend Targeted Broadcast Error for ${c.email}]:`, emailErr.message);
+          console.error(`[Microsoft Targeted Broadcast Error for ${c.email}]:`, emailErr.message);
         }
       });
 
@@ -515,8 +511,7 @@ router.post('/', authenticateToken, async (req, res) => {
             const targetClient = await User.findById(recipient_id);
             if (targetClient?.email) {
               const frontendClientUrl = getClientUrl();
-              await resend.emails.send({
-                from: emailFrom,
+              await sendEmail({
                 to: targetClient.email,
                 subject: `[HFA Support] ${subject || 'New Message from Halal Food Authority'}`,
                 html: `
@@ -531,7 +526,7 @@ router.post('/', authenticateToken, async (req, res) => {
                       <div style="font-size:14px;color:#1e293b;line-height:1.6;background:#f8fafc;padding:16px;border-radius:8px;border-left:4px solid #16a34a;white-space:pre-wrap;margin-bottom:20px">${body}</div>
                       <div style="text-align:center;margin:24px 0">
                         <a href="${frontendClientUrl}/messages" style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px">
-                          View & Reply in Portal →
+                          View in Portal →
                         </a>
                       </div>
                     </div>
@@ -540,7 +535,7 @@ router.post('/', authenticateToken, async (req, res) => {
               });
             }
           } catch (e) {
-            console.error('Direct Message Resend Email error:', e.message);
+            console.error('Direct Message Microsoft Email error:', e.message);
           }
         }
       }
