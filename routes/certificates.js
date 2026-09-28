@@ -26,6 +26,22 @@ const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init')
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Helper: recognize all admin and staff roles
+const isAdminUser = (user, req) => {
+  if (!user) return false;
+  if (req?.userModelType === 'Admin') return true;
+  if (user.constructor?.modelName === 'Admin') return true;
+  if (user.role === 'superadmin' || user.roles?.includes('superadmin')) return true;
+  const adminRoles = [
+    'admin', 'superadmin', 'scheme_manager', 'certificate_officer',
+    'accountant', 'inspector', 'audit_manager', 'food_tech_manager',
+    'food_tech', 'support_manager'
+  ];
+  if (adminRoles.includes(user.role)) return true;
+  if (Array.isArray(user.roles) && user.roles.some(r => adminRoles.includes(r))) return true;
+  return user.role !== 'client';
+};
+
 // Middleware: ensure final invoice is sent and paid before certificate issuance
 async function requireFinalInvoicePaidForCertificate(req, res, next) {
   try {
@@ -793,8 +809,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     if (!data) return res.status(404).json({ error: 'Certificate not found' });
 
-    // Client authorization check
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    // Client authorization check (all admin roles are permitted)
+    if (!isAdminUser(req.user, req)) {
       if (data.client_id !== req.user._id.toString() || data.status === 'under_review' || data.status === 'draft') {
         return res.status(403).json({ error: 'Access denied' });
       }
@@ -1933,8 +1949,8 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     const certificate = await Certificate.findById(req.params.id);
     if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
 
-    // Client can only download their own certificate
-    if (!['admin', 'superadmin'].includes(req.user.role) && certificate.client_id !== req.user._id.toString()) {
+    // Client can only download their own certificate; all admin tokens are authorized
+    if (!isAdminUser(req.user, req) && certificate.client_id?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
