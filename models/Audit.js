@@ -81,4 +81,14 @@ const auditSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+auditSchema.index({ client_id: 1 });
+auditSchema.index({ application_id: 1 });
+auditSchema.index({ status: 1 });
+auditSchema.index({ inspector_id: 1 });
+auditSchema.index({ site_id: 1 });
+auditSchema.index({ scheduled_date: 1 });
+auditSchema.index({ client_id: 1, status: 1 });
+auditSchema.index({ createdAt: -1 });
+auditSchema.index({ status: 1, createdAt: -1 });
+
 export default mongoose.model('Audit', auditSchema);

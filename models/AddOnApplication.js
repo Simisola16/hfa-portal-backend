@@ -121,4 +121,15 @@ addOnApplicationSchema.pre('save', function(next) {
   next();
 });
 
+addOnApplicationSchema.index({ client_id: 1 });
+addOnApplicationSchema.index({ status: 1 });
+addOnApplicationSchema.index({ application_number: 1 });
+addOnApplicationSchema.index({ site_id: 1 });
+addOnApplicationSchema.index({ certificate_id: 1 });
+addOnApplicationSchema.index({ logsheet_id: 1 });
+addOnApplicationSchema.index({ client_id: 1, status: 1 });
+addOnApplicationSchema.index({ created_at: -1 });
+addOnApplicationSchema.index({ createdAt: -1 });
+addOnApplicationSchema.index({ status: 1, created_at: -1 });
+
 export default mongoose.model('AddOnApplication', addOnApplicationSchema);

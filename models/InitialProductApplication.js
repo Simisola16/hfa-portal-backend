@@ -96,4 +96,15 @@ const initialProductApplicationSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+initialProductApplicationSchema.index({ client_id: 1 });
+initialProductApplicationSchema.index({ status: 1 });
+initialProductApplicationSchema.index({ application_number: 1 });
+initialProductApplicationSchema.index({ site_id: 1 });
+initialProductApplicationSchema.index({ application_id: 1 });
+initialProductApplicationSchema.index({ logsheet_id: 1 });
+initialProductApplicationSchema.index({ client_id: 1, status: 1 });
+initialProductApplicationSchema.index({ created_at: -1 });
+initialProductApplicationSchema.index({ createdAt: -1 });
+initialProductApplicationSchema.index({ status: 1, created_at: -1 });
+
 export default mongoose.model('InitialProductApplication', initialProductApplicationSchema);

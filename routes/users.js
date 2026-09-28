@@ -489,6 +489,158 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// PUT /api/users/:id — Edit staff member or client details (full_name, email, username, password, roles, etc.)
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      full_name, email, username, password, phone,
+      roles, role,
+      can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate,
+      company_name, address, postcode, country
+    } = req.body;
+
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+
+    // Check if target is an Admin (Staff member)
+    let admin = await Admin.findById(id);
+
+    if (admin) {
+      // Permission check: modifying superadmin accounts requires superadmin role
+      const targetIsSuperAdmin = admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'));
+      if (targetIsSuperAdmin && !isSuperAdmin) {
+        return res.status(403).json({ error: 'Only Superadmin can modify another Superadmin account.' });
+      }
+
+      // Check email uniqueness if modified
+      if (email && email.trim().toLowerCase() !== admin.email) {
+        const existingEmail = await Admin.findOne({ email: email.trim().toLowerCase(), _id: { $ne: id } });
+        if (existingEmail) return res.status(400).json({ error: 'This email address is already in use by another staff member.' });
+        admin.email = email.trim().toLowerCase();
+      }
+
+      // Check username uniqueness if modified
+      if (username !== undefined) {
+        const cleanUser = username?.trim();
+        if (cleanUser && cleanUser !== admin.username) {
+          const existingUsername = await Admin.findOne({ username: cleanUser, _id: { $ne: id } });
+          if (existingUsername) return res.status(400).json({ error: 'This username is already taken.' });
+          admin.username = cleanUser;
+        } else if (!cleanUser) {
+          admin.username = undefined;
+        }
+      }
+
+      if (full_name !== undefined) admin.full_name = full_name.trim();
+      if (phone !== undefined) admin.phone = phone.trim();
+
+      // Password update if provided
+      if (password && typeof password === 'string' && password.trim().length > 0) {
+        if (password.trim().length < 6) {
+          return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+        }
+        admin.password = password.trim(); // Will be hashed by adminSchema.pre('save')
+      }
+
+      // Roles update if provided and user is Superadmin
+      if (isSuperAdmin && (roles !== undefined || role !== undefined)) {
+        let assignedRoles = [];
+        if (Array.isArray(roles) && roles.length > 0) {
+          assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
+        } else if (role) {
+          assignedRoles = (Array.isArray(role) ? role : [role]).filter(r => r !== 'client');
+        }
+        if (assignedRoles.length > 0) {
+          const rolePriority = ['superadmin', 'admin', 'support_manager', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector'];
+          const primaryRole = assignedRoles.slice().sort((a, b) => rolePriority.indexOf(a) - rolePriority.indexOf(b))[0] || 'food_tech';
+          admin.roles = assignedRoles;
+          admin.role = primaryRole;
+        }
+      }
+
+      // Grants update if provided and user is Superadmin
+      if (isSuperAdmin) {
+        const hasSuperAdminRole = admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'));
+        if (hasSuperAdminRole) {
+          admin.can_issue_direct_certificate = true;
+          admin.is_support_manager = true;
+          admin.can_sign_logsheet = true;
+          admin.can_review_certificate = true;
+        } else {
+          if (can_issue_direct_certificate !== undefined) admin.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+          if (is_support_manager !== undefined) admin.is_support_manager = Boolean(is_support_manager);
+          if (can_sign_logsheet !== undefined) admin.can_sign_logsheet = Boolean(can_sign_logsheet);
+          if (can_review_certificate !== undefined) admin.can_review_certificate = Boolean(can_review_certificate);
+        }
+      }
+
+      await admin.save();
+      const resData = admin.toJSON();
+      delete resData.password;
+      return res.json({ data: resData, message: 'Staff member login details updated successfully' });
+    }
+
+    // Otherwise check User collection (clients)
+    let user = await User.findById(id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (email && email.trim().toLowerCase() !== user.email) {
+      const existingEmail = await User.findOne({ email: email.trim().toLowerCase(), _id: { $ne: id } });
+      if (existingEmail) return res.status(400).json({ error: 'This email is already in use.' });
+      user.email = email.trim().toLowerCase();
+    }
+    if (full_name !== undefined) user.full_name = full_name.trim();
+    if (company_name !== undefined) user.company_name = company_name.trim();
+    if (phone !== undefined) user.phone = phone.trim();
+    if (address !== undefined) user.address = address;
+    if (postcode !== undefined) user.postcode = postcode;
+    if (country !== undefined) user.country = country;
+
+    if (password && typeof password === 'string' && password.trim().length > 0) {
+      if (password.trim().length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      }
+      user.password = password.trim();
+    }
+
+    await user.save();
+    const resUserData = user.toJSON();
+    delete resUserData.password;
+    return res.json({ data: resUserData, message: 'User updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/password — Dedicated password change endpoint for staff or clients
+router.put('/:id/password', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password || password.trim().length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    }
+
+    let admin = await Admin.findById(id);
+    if (admin) {
+      admin.password = password.trim();
+      await admin.save();
+      return res.json({ message: 'Staff member password updated successfully' });
+    }
+
+    let user = await User.findById(id);
+    if (user) {
+      user.password = password.trim();
+      await user.save();
+      return res.json({ message: 'User password updated successfully' });
+    }
+
+    return res.status(404).json({ error: 'User not found' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {

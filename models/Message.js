@@ -29,4 +29,10 @@ const messageSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+messageSchema.index({ recipient_id: 1, is_read: 1, created_at: -1 });
+messageSchema.index({ recipient_id: 1, created_at: -1 });
+messageSchema.index({ sender_id: 1, created_at: -1 });
+messageSchema.index({ application_id: 1 });
+messageSchema.index({ is_broadcast: 1, created_at: -1 });
+
 export default mongoose.model('Message', messageSchema);
