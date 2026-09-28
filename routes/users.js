@@ -648,7 +648,8 @@ router.put('/:id/review-certificate-permission', authenticateToken, requireSuper
 });
 
 // PUT /api/users/:id/status — Activate / suspend a CLIENT account (User collection)
-router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+// Restricted to superadmin only
+router.put('/:id/status', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const { is_active, status, suspension_reason } = req.body;
     const update = {};
