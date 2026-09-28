@@ -11,4 +11,8 @@ const logsheetSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+logsheetSchema.index({ entity_type: 1, entity_id: 1 });
+logsheetSchema.index({ entity_type: 1, entity_id: 1, created_at: -1 });
+logsheetSchema.index({ created_at: -1 });
+
 export default mongoose.model('Logsheet', logsheetSchema);

@@ -147,5 +147,14 @@ applicationSchema.virtual('inspectors', {
 applicationSchema.index({ client_id: 1 });
 applicationSchema.index({ status: 1 });
 applicationSchema.index({ site_id: 1 });
+applicationSchema.index({ application_type: 1 });
+applicationSchema.index({ renewed_certificate_id: 1 });
+applicationSchema.index({ client_id: 1, application_type: 1 });
+applicationSchema.index({ client_id: 1, status: 1 });
+applicationSchema.index({ client_id: 1, application_type: 1, status: 1 });
+applicationSchema.index({ created_at: -1 });
+applicationSchema.index({ createdAt: -1 });
+applicationSchema.index({ status: 1, created_at: -1 });
+applicationSchema.index({ logsheet_id: 1 });
 
 export default mongoose.model('Application', applicationSchema);

@@ -70,4 +70,10 @@ const extensionLogsheetSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+extensionLogsheetSchema.index({ status: 1 });
+extensionLogsheetSchema.index({ created_at: -1 });
+extensionLogsheetSchema.index({ client_id: 1 });
+extensionLogsheetSchema.index({ application_id: 1 });
+extensionLogsheetSchema.index({ status: 1, created_at: -1 });
+
 export default mongoose.model('ExtensionLogsheet', extensionLogsheetSchema);

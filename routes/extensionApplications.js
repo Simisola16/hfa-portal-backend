@@ -304,7 +304,8 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id')
       .populate('certificate_id')
-      .sort({ created_at: -1, createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 })
+      .lean();
 
     res.json({ success: true, count: applications.length, data: applications });
   } catch (err) {

@@ -215,7 +215,7 @@ router.get('/verify/*', handlePublicCertificateAccess);
 router.get('/view/:certNumber', handlePublicCertificateAccess);
 router.get('/view/*', handlePublicCertificateAccess);
 
-// GET all certificates (admin: all, client: own)
+// GET all certificates (admin: all, client: own) — paginated & filtered
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
@@ -225,17 +225,52 @@ router.get('/', authenticateToken, async (req, res) => {
 
     if (!isAdminUser) {
       query.client_id = req.user._id.toString();
-      // Clients only see active, expired, renewed, outdated, or superseded certificates (NOT drafts or under_review)
       query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
     }
-    const data = await Certificate.find(query)
-      .select('-product_details')
-      .populate('site_id', 'name est_name trading_name')
-      .populate('application_id', 'establishment_name site_name scope status application_type category')
-      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
-      .lean();
 
-    // Auto-expire: mark any active certificate whose expiry_date is in the past and not renewed
+    // ── Server-side filtering ──────────────────────────────────────────────────
+    const { status, search, page: pageQ, limit: limitQ, all } = req.query;
+    if (status && status !== 'all') {
+      // Only override client status filter if admin
+      if (isAdminUser) query.status = status;
+    }
+    if (search && search.trim()) {
+      const esc = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const rx = new RegExp(esc, 'i');
+      query.$or = [
+        { certificate_number: rx },
+        { company_name: rx },
+        { scope: rx },
+      ];
+    }
+
+    // If client only needs lightweight status/id mapping (e.g. logsheets checking certificate status)
+    if (req.query.minimal === 'true') {
+      const minData = await Certificate.find(query)
+        .select('_id application_id status site_id certificate_number')
+        .lean();
+      return res.json({ data: minData, total: minData.length });
+    }
+
+    // Pagination (skip for clients since they have few certs; always paginate for admin)
+    const fetchAll = all === 'true' || !isAdminUser;
+    const page = Math.max(1, parseInt(pageQ) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(limitQ) || 50));
+    const skip = (page - 1) * limit;
+
+    const [total, data] = await Promise.all([
+      Certificate.countDocuments(query),
+      Certificate.find(query)
+        .select('-product_details -products_covered')
+        .populate('site_id', 'name est_name trading_name')
+        .populate('application_id', 'establishment_name site_name scope status application_type category')
+        .sort({ issue_date: -1, createdAt: -1 })
+        .skip(fetchAll ? 0 : skip)
+        .limit(fetchAll ? 0 : limit)
+        .lean()
+    ]);
+
+    // Auto-expire: fire-and-forget background update
     const now = new Date();
     const expiredIds = [];
     data.forEach(c => {
@@ -244,7 +279,6 @@ router.get('/', authenticateToken, async (req, res) => {
         expiredIds.push(c._id);
       }
     });
-
     if (expiredIds.length > 0) {
       Certificate.updateMany(
         { _id: { $in: expiredIds } },
@@ -252,49 +286,49 @@ router.get('/', authenticateToken, async (req, res) => {
       ).catch(() => {});
     }
 
-    // Attach has_ongoing_renewal flag to each certificate using O(1) Map lookups
+    // Attach has_ongoing_renewal flag using a single batched query + O(1) Map lookups
     try {
-      const clientIds = [...new Set(data.map(c => c.client_id ? String(c.client_id._id || c.client_id) : null).filter(Boolean))];
-      if (clientIds.length > 0) {
-        const ongoingRenewals = await Application.find({
-          client_id: { $in: clientIds },
-          application_type: 'renewal',
-          status: { $nin: ['rejected', 'certificate_issued'] }
-        }).select('_id application_number site_id renewed_certificate_id status').lean();
+      const certIdsOnPage = data.map(c => c._id);
+      const siteIdsOnPage = data.map(c => c.site_id?._id || c.site_id).filter(Boolean);
 
-        const renCertMap = new Map();
-        const renSiteMap = new Map();
-        ongoingRenewals.forEach(app => {
-          if (app.renewed_certificate_id) renCertMap.set(String(app.renewed_certificate_id), app);
-          if (app.site_id) renSiteMap.set(String(app.site_id), app);
-        });
+      const ongoingRenewals = await Application.find({
+        $or: [
+          { renewed_certificate_id: { $in: certIdsOnPage } },
+          { site_id: { $in: siteIdsOnPage } }
+        ],
+        application_type: 'renewal',
+        status: { $nin: ['rejected', 'certificate_issued'] }
+      }).select('_id application_number site_id renewed_certificate_id status').lean();
 
-        data.forEach(c => {
-          const cIdStr = String(c._id);
-          const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
+      const renCertMap = new Map();
+      const renSiteMap = new Map();
+      ongoingRenewals.forEach(app => {
+        if (app.renewed_certificate_id) renCertMap.set(String(app.renewed_certificate_id), app);
+        if (app.site_id) renSiteMap.set(String(app.site_id), app);
+      });
 
-          const matchingApp = renCertMap.get(cIdStr) || (cSiteStr ? renSiteMap.get(cSiteStr) : null);
-          if (matchingApp) {
-            c.has_ongoing_renewal = true;
-            c.ongoing_renewal_id = matchingApp._id;
-            c.ongoing_renewal_number = matchingApp.application_number;
-            c.ongoing_renewal_status = matchingApp.status;
-          } else {
-            c.has_ongoing_renewal = false;
-          }
-        });
-      }
+      data.forEach(c => {
+        const cIdStr = String(c._id);
+        const cSiteStr = c.site_id ? String(c.site_id._id || c.site_id) : '';
+        const matchingApp = renCertMap.get(cIdStr) || (cSiteStr ? renSiteMap.get(cSiteStr) : null);
+        c.has_ongoing_renewal = Boolean(matchingApp);
+        if (matchingApp) {
+          c.ongoing_renewal_id = matchingApp._id;
+          c.ongoing_renewal_number = matchingApp.application_number;
+          c.ongoing_renewal_status = matchingApp.status;
+        }
+      });
     } catch (renewalErr) {
       console.warn('Error attaching ongoing renewal data to certificates:', renewalErr.message);
     }
 
-    data.sort((a, b) => {
-      const dateA = new Date(a.issue_date || a.created_at || a.createdAt || 0).getTime();
-      const dateB = new Date(b.issue_date || b.created_at || b.createdAt || 0).getTime();
-      return dateB - dateA;
+    res.json({
+      data,
+      total,
+      page: fetchAll ? 1 : page,
+      limit: fetchAll ? total : limit,
+      totalPages: fetchAll ? 1 : Math.ceil(total / limit)
     });
-
-    res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -328,40 +362,61 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 // GET /api/certificates/direct-history (Superadmin & Authorized Staff - MUST be before /:id)
 router.get('/direct-history', authenticateToken, requireDirectCertificatePermission, async (req, res) => {
   try {
-    const certs = await Certificate.find({
+    const { page: pageQ, limit: limitQ } = req.query;
+    const page = Math.max(1, parseInt(pageQ) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(limitQ) || 50));
+    const skip = (page - 1) * limit;
+
+    const baseQuery = {
       is_direct_issuance: true,
       certificate_type: { $ne: 'Extension' },
       is_extension: { $ne: true },
       notes: { $not: /Issued via Extension Application/i }
-    })
-      .populate('site_id')
-      .populate('issued_by', 'full_name email username')
-      .sort({ issue_date: -1, created_at: -1, createdAt: -1 })
-      .lean();
+    };
 
+    const [total, certs] = await Promise.all([
+      Certificate.countDocuments(baseQuery),
+      Certificate.find(baseQuery)
+        .select('-product_details')
+        .populate('site_id', 'name est_name trading_name head_office_address')
+        .populate('issued_by', 'full_name email username')
+        .sort({ issue_date: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+    ]);
+
+    // Batch-fetch users for this page of certs (no per-document queries)
     const userIds = [...new Set(certs.map(c => c.client_id).filter(Boolean))];
     const validUserIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
     const users = await User.find({ _id: { $in: validUserIds } }, 'company_name full_name email phone address country').lean();
     const userMap = {};
     users.forEach(u => { userMap[u._id.toString()] = u; });
 
-    const enriched = await Promise.all(certs.map(async (c) => {
-      const client = userMap[c.client_id] || null;
-      const products = await Product.find({
-        $or: [
-          { certificate_id: c._id.toString() },
-          { certificate_id: c.certificate_number }
-        ]
-      }).lean();
-      return {
-        ...c,
-        id: c._id.toString(),
-        client,
-        products
-      };
+    // Batch-fetch products for all certs on this page — eliminates N+1 queries
+    const certObjectIds = certs.map(c => c._id.toString());
+    const certNumbers = certs.map(c => c.certificate_number).filter(Boolean);
+    const allProducts = await Product.find({
+      $or: [
+        { certificate_id: { $in: certObjectIds } },
+        { certificate_id: { $in: certNumbers } }
+      ]
+    }).lean();
+    const productsByCert = {};
+    allProducts.forEach(p => {
+      const key = p.certificate_id;
+      if (!productsByCert[key]) productsByCert[key] = [];
+      productsByCert[key].push(p);
+    });
+
+    const enriched = certs.map(c => ({
+      ...c,
+      id: c._id.toString(),
+      client: userMap[c.client_id] || null,
+      products: productsByCert[c._id.toString()] || productsByCert[c.certificate_number] || []
     }));
 
-    res.json({ data: enriched });
+    res.json({ data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
     console.error('Direct history error:', err);
     res.status(500).json({ error: err.message });

@@ -144,10 +144,12 @@ router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) 
       filter.logsheet_type = req.query.type;
     }
     const logsheets = await ApplicationLogsheet.find(filter)
+      .select('-products_list -document_urls -audit_reports -nc_reports_files')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username')
-      .sort({ created_at: -1, createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 })
+      .lean();
     res.json({ data: logsheets });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -469,7 +471,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
-      .sort({ created_at: -1, createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 })
+      .lean();
 
     const mainLogsheet = logsheets.find(l => {
       if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
@@ -667,11 +670,19 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     if (req.query.source_type) {
       filter.source_type = req.query.source_type;
     }
+    if (req.query.client_id) {
+      filter.client_id = req.query.client_id;
+    }
     if (req.query.status) {
-      filter.status = req.query.status;
+      if (req.query.status.includes(',')) {
+        filter.status = { $in: req.query.status.split(',').map(s => s.trim()) };
+      } else {
+        filter.status = req.query.status;
+      }
     }
 
-    const logsheets = await ApplicationLogsheet.find(filter)
+    let queryExec = ApplicationLogsheet.find(filter)
+      .select('-products_list -document_urls -audit_reports -nc_reports_files')
       .populate('application_id', 'application_number application_type type is_renewal is_surveillance status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name notes')
       .populate('addon_application_id', 'status')
       .populate('initial_product_application_id', 'status')
@@ -679,6 +690,15 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username')
       .sort({ created_at: -1, createdAt: -1 });
+
+    if (req.query.limit) {
+      const lim = parseInt(req.query.limit, 10);
+      if (!isNaN(lim) && lim > 0) {
+        queryExec = queryExec.limit(lim);
+      }
+    }
+
+    const logsheets = await queryExec.lean();
 
     // Auto-sync logsheets where certificate has already been issued (exclude historical seed logsheets)
     const certIssuedLogs = logsheets.filter(l => !l.is_seed && l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
