@@ -30,7 +30,7 @@ const addOnApplicationSchema = new mongoose.Schema({
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
 
   // Contact Person (receives email at every stage — may differ from the client account email)
-  contact_name: { type: String, required: true },
+  contact_name: { type: String, required: false, default: '' },
   contact_email: { type: String, required: true },
   contact_phone: { type: String },
 
