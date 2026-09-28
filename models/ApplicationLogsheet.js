@@ -10,6 +10,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
     default: 'application' 
   },
   direct_ref: String, // e.g. DL-2026-XXXX for direct logsheets
+  legacy_id: { type: String, index: true },
   certificate_standard: String, // GSO MEAT, GSO NON MEAT, SMIIC, HFA SCHEME, COSMETICS
   certificate_type: String,
   suggested_certificate_type: String,

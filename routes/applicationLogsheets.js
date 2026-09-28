@@ -652,7 +652,9 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 // GET /api/application-logsheets (Admin only)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const filter = {};
+    const filter = {
+      status: { $nin: ['Bin', 'bin', 'BIN'] }
+    };
     if (req.query.initial_product_application_id) {
       filter.initial_product_application_id = req.query.initial_product_application_id;
     }
@@ -665,6 +667,9 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     if (req.query.source_type) {
       filter.source_type = req.query.source_type;
     }
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
 
     const logsheets = await ApplicationLogsheet.find(filter)
       .populate('application_id', 'application_number application_type status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name notes')
@@ -675,16 +680,16 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('created_by', 'full_name email role username')
       .sort({ created_at: -1, createdAt: -1 });
 
-    // Auto-sync logsheets where certificate has already been issued
-    const certIssuedLogs = logsheets.filter(l => l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
+    // Auto-sync logsheets where certificate has already been issued (exclude historical seed logsheets)
+    const certIssuedLogs = logsheets.filter(l => !l.is_seed && l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
     if (certIssuedLogs.length > 0) {
       const idsToComplete = certIssuedLogs.map(l => l._id);
       ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
       certIssuedLogs.forEach(l => { l.status = 'Completed'; });
     }
 
-    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate
-    const ipLogsToComplete = logsheets.filter(l => (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
+    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate (exclude seed logsheets)
+    const ipLogsToComplete = logsheets.filter(l => !l.is_seed && (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
     if (ipLogsToComplete.length > 0) {
       const ipIdsToComplete = ipLogsToComplete.map(l => l._id);
       ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
