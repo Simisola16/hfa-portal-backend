@@ -17,6 +17,7 @@ const certificateSchema = new mongoose.Schema({
   certification_start_date: Date,
   current_cycle_start_date: Date,
   original_cycle_start_date: Date,
+  audit_date: Date,
   products_covered: { type: [String], default: [] },
   product_details: [{
     name: String,
