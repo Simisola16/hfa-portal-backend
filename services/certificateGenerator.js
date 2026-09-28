@@ -356,7 +356,7 @@ export function formatDate(dateVal) {
  * - HFA SCHEME MEAT: base HFA SCHEME.pdf, 3 dates, default Option 1 (2 columns: NO., NAME OF THE PRODUCTS)
  * - HFA SCHEME NON MEAT: base HFA SCHEME.pdf, 3 dates, default Option 1 (2 columns: NO., NAME OF THE PRODUCTS)
  * - COSMETICS: base COSMETICS.pdf, 3 dates, default Option 1 (2 columns: NO., NAME OF THE PRODUCTS)
- * - SMIIC: base SMIIC.pdf, 3 dates, default Option 1 (2 columns: NO., NAME OF THE PRODUCTS)
+ * - SMIIC: base GSO NON MEAT.pdf, 3 dates, default Option 1 (2 columns: NO., NAME OF THE PRODUCTS)
  */
 export const CERTIFICATE_SCHEMES = {
   'GSO MEAT': {
@@ -435,20 +435,22 @@ export const CERTIFICATE_SCHEMES = {
 
 // Compatibility aliases
 CERTIFICATE_SCHEMES['GSO meat'] = CERTIFICATE_SCHEMES['GSO MEAT'];
+CERTIFICATE_SCHEMES['GSO (meat)'] = CERTIFICATE_SCHEMES['GSO MEAT'];
 CERTIFICATE_SCHEMES['GSO non-meat'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme (meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
-CERTIFICATE_SCHEMES['HFA Scheme'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
-CERTIFICATE_SCHEMES['HFA SCHEME'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme (non-meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme Non-Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
 CERTIFICATE_SCHEMES['Cosmetics'] = CERTIFICATE_SCHEMES['COSMETICS'];
+CERTIFICATE_SCHEMES['Cosmetic'] = CERTIFICATE_SCHEMES['COSMETICS'];
 CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];
+CERTIFICATE_SCHEMES['SMIIC Scheme'] = CERTIFICATE_SCHEMES['SMIIC'];
 
 /**
  * Normalize certificate type to one of the 6 official schemes.
+ * Context (product category / company name) is used when type is generic 'HFA Scheme'.
  */
-export function normalizeCertificateType(rawType) {
+export function normalizeCertificateType(rawType, context = '') {
   if (!rawType) return 'GSO MEAT';
   const str = String(rawType).trim().toUpperCase();
 
@@ -471,7 +473,10 @@ export function normalizeCertificateType(rawType) {
     if (str.includes('MEAT')) {
       return 'HFA SCHEME MEAT';
     }
-    return 'HFA SCHEME MEAT';
+    // For generic 'HFA Scheme' from SQL, check context (scope, category, company name)
+    const ctx = String(context || '').toLowerCase();
+    const isMeat = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(ctx);
+    return isMeat ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
   }
 
   return CERTIFICATE_SCHEMES[str] ? str : 'GSO MEAT';
@@ -517,7 +522,8 @@ export async function generateCertificate(certData) {
     verificationUrl
   } = certData;
 
-  const normalizedScheme = normalizeCertificateType(certificateType || certData.certificate_type);
+  const ctx = scopeOfCertification || scope || productCategory || certData.product_category || companyName || certData.company_name || businessName || '';
+  const normalizedScheme = normalizeCertificateType(certificateType || certData.certificate_type, ctx);
   const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['GSO MEAT'];
   const isGso = scheme.templateType === 'gso';
 

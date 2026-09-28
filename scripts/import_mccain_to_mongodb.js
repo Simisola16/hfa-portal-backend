@@ -6085,7 +6085,7 @@ async function seedMcCain() {
         products_covered: c.products_covered,
         product_details: c.product_details,
         site_id: site ? site._id : null,
-        notes: 'Imported from legacy HFA database (CID: 185, Site: ' + c.site_name + ')'
+        notes: ''
       };
 
       const savedCert = await Certificate.findOneAndUpdate(
