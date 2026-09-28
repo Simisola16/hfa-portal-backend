@@ -1326,7 +1326,7 @@ async function runFullCompanyImport() {
         const expDoc = {
           client_id: userIdStr,
           reference_number: refNo,
-          destination_country: cleanStr(exp.PortofEntry) || 'United Arab Emirates',
+          destination_country: cleanStr(exp.PortofEntry) || '',
           shipment_date: safeDate(exp.Dateee || exp.ExportDate),
           consignee_name: cleanStr(exp.ConsigneeNameAddress) || 'Consignee on file',
           consignee_address: cleanStr(exp.DistributorsNameAddress) || 'Address on file',
