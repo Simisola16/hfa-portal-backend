@@ -150,7 +150,6 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Validate required fields
-    if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact Person Name is required.' });
     if (!contact_email?.trim()) return res.status(400).json({ error: 'Contact Person Email is required.' });
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product entry is required.' });
@@ -160,12 +159,14 @@ router.post('/', authenticateToken, async (req, res) => {
       if (!p.type) return res.status(400).json({ error: 'Each product must have a type selected.' });
     }
 
+    const resolvedContactName = contact_name?.trim() || req.user?.full_name || req.user?.company_name || '';
+
     const newApp = new AddOnApplication({
       client_id: req.user._id,
       certificate_id: targetCertId || undefined,
       application_id: application_id || undefined,
       site_id: site_id || undefined,
-      contact_name,
+      contact_name: resolvedContactName,
       contact_email,
       contact_phone,
       message,
@@ -191,7 +192,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Email Contact Person
     await sendContactEmail({
       contactEmail: contact_email,
-      contactName: contact_name,
+      contactName: resolvedContactName || 'Client',
       subject: '✅ HFA Add-on Application Submitted',
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
