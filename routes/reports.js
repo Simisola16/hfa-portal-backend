@@ -379,7 +379,7 @@ router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, r
         {
           $facet: {
             total: [{ $count: 'c' }],
-            submitted: [{ $match: { status: 'submitted' } }, { $count: 'c' }],
+            submitted: [{ $match: { status: { $in: ['submitted', 'application_submitted'] } } }, { $count: 'c' }],
             under_review: [{ $match: { status: 'under_review' } }, { $count: 'c' }],
             renewals: [{ $match: { application_type: 'renewal' } }, { $count: 'c' }],
             accepted: [
