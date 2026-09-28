@@ -433,52 +433,115 @@ export const CERTIFICATE_SCHEMES = {
   }
 };
 
-// Compatibility aliases
+// Compatibility aliases — covers every value found in the production database
 CERTIFICATE_SCHEMES['GSO meat'] = CERTIFICATE_SCHEMES['GSO MEAT'];
 CERTIFICATE_SCHEMES['GSO (meat)'] = CERTIFICATE_SCHEMES['GSO MEAT'];
+CERTIFICATE_SCHEMES['GSO Scheme (meat)'] = CERTIFICATE_SCHEMES['GSO MEAT'];
 CERTIFICATE_SCHEMES['GSO non-meat'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['GSO (non-meat)'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['GSO Scheme (non-meat)'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['GSO Scheme'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['HFA Scheme'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT']; // DB default — resolved to NON MEAT; meat detected via context in generateCertificate
 CERTIFICATE_SCHEMES['HFA Scheme (meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme (non-meat)'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
 CERTIFICATE_SCHEMES['HFA Scheme Non-Meat'] = CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
 CERTIFICATE_SCHEMES['Cosmetics'] = CERTIFICATE_SCHEMES['COSMETICS'];
 CERTIFICATE_SCHEMES['Cosmetic'] = CERTIFICATE_SCHEMES['COSMETICS'];
-CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];
-CERTIFICATE_SCHEMES['SMIIC Scheme'] = CERTIFICATE_SCHEMES['SMIIC'];
+CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];        // SMIIC uses GSO NON MEAT template
+CERTIFICATE_SCHEMES['SMIIC Scheme'] = CERTIFICATE_SCHEMES['SMIIC']; // SMIIC uses GSO NON MEAT template
+CERTIFICATE_SCHEMES['Surveillance Letter'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['UAE/GSO Halal Surveillance Letter'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
 
 /**
- * Normalize certificate type to one of the 6 official schemes.
- * Context (product category / company name) is used when type is generic 'HFA Scheme'.
+ * Normalize a raw certificate_type string (from DB, form, or application category)
+ * to one of the 6 canonical scheme keys: 'GSO MEAT' | 'GSO NON MEAT' | 'HFA SCHEME MEAT' |
+ * 'HFA SCHEME NON MEAT' | 'COSMETICS' | 'SMIIC'
+ *
+ * Handles all values found in the production database:
+ *   'HFA Scheme'        → HFA SCHEME NON MEAT (meat detected via context)
+ *   'GSO non-meat'      → GSO NON MEAT
+ *   'GSO (meat)'        → GSO MEAT
+ *   'SMIIC Scheme'      → SMIIC  (uses GSO NON MEAT template + 4 dates)
+ *   'Cosmetic'          → COSMETICS
+ *   'Surveillance Letter' → GSO NON MEAT
+ *
+ * Also handles application category strings:
+ *   'Annual Certification – Food and General processing' → HFA SCHEME NON MEAT
+ *   'Annual Certification – Meat Processing'             → HFA SCHEME MEAT
+ *
+ * @param {string} rawType  - Raw stored value or application category string
+ * @param {string} context  - Optional extra context: cert.scope, product_category, etc.
  */
 export function normalizeCertificateType(rawType, context = '') {
   if (!rawType) return 'GSO MEAT';
   const str = String(rawType).trim().toUpperCase();
 
-  if (str === 'COSMETICS' || str.includes('COSMETIC')) return 'COSMETICS';
-  if (str === 'SMIIC' || str.includes('SMIIC')) return 'SMIIC';
-
-  // GSO Meat vs Non-Meat
-  if (str.includes('GSO')) {
-    if (str.includes('NON') || str.includes('FOOD') || str.includes('BAKERY')) {
-      return 'GSO NON MEAT';
+  // ── 1. Exact / alias lookup first (covers all DB values directly) ─────────
+  if (CERTIFICATE_SCHEMES[rawType.trim()]) {
+    const aliased = CERTIFICATE_SCHEMES[rawType.trim()];
+    // For the plain 'HFA Scheme' alias which maps to NON MEAT by default,
+    // check context to see if it should actually be MEAT
+    if (rawType.trim() === 'HFA Scheme') {
+      const ctx = String(context || '').toLowerCase();
+      const isMeat = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(ctx);
+      return isMeat ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
     }
-    return 'GSO MEAT';
+    // Return the canonical key for this alias
+    const canonical = Object.keys(CERTIFICATE_SCHEMES).find(
+      k => CERTIFICATE_SCHEMES[k] === aliased && ['GSO MEAT','GSO NON MEAT','HFA SCHEME MEAT','HFA SCHEME NON MEAT','COSMETICS','SMIIC'].includes(k)
+    );
+    if (canonical) return canonical;
   }
 
-  // HFA Scheme Meat vs Non-Meat
-  if (str.includes('HFA') || str.includes('SCHEME') || str.includes('STANDARD') || str.includes('ANNUAL')) {
-    if (str.includes('NON')) {
+  // ── 2. Cosmetics ──────────────────────────────────────────────────────────
+  if (str === 'COSMETICS' || str.includes('COSMETIC')) return 'COSMETICS';
+
+  // ── 3. SMIIC (uses GSO NON MEAT template) ────────────────────────────────
+  if (str === 'SMIIC' || str.includes('SMIIC')) return 'SMIIC';
+
+  // ── 4. Surveillance → GSO NON MEAT ───────────────────────────────────────
+  if (str.includes('SURVEILLANCE')) return 'GSO NON MEAT';
+
+  // ── 5. GSO (checked before ANNUAL/HFA so GSO-annual entries resolve correctly)
+  if (str.includes('GSO') || str.includes('UAE.S') || str.includes('UAE S')) {
+    if (str.includes('NON') || str.includes('BAKERY') || str.includes('BEVERAGE') || str.includes('CONFECTION')) {
+      return 'GSO NON MEAT';
+    }
+    if (str.includes('MEAT') || str.includes('SLAUGHTER') || str.includes('POULTRY')) {
+      return 'GSO MEAT';
+    }
+    // Generic 'GSO' or 'GSO Scheme' without explicit meat/non-meat → non-meat default
+    return 'GSO NON MEAT';
+  }
+
+  // ── 6. HFA Scheme / Annual Certification category strings ────────────────
+  const isHfaLike = (
+    str.includes('HFA') ||
+    str.includes('SCHEME') ||
+    str.includes('STANDARD') ||
+    str.includes('ANNUAL') ||
+    str.includes('CERTIFICATION')
+  );
+
+  if (isHfaLike) {
+    // Explicit non-meat keywords
+    if (str.includes('NON') || str.includes('FOOD') || str.includes('GENERAL') || str.includes('BEVERAGE') || str.includes('BAKERY')) {
+      // Only override to MEAT if str explicitly says MEAT without NON
+      if (str.includes('MEAT') && !str.includes('NON')) return 'HFA SCHEME MEAT';
       return 'HFA SCHEME NON MEAT';
     }
-    if (str.includes('MEAT')) {
+    // Explicit meat keywords
+    if (str.includes('MEAT') || str.includes('SLAUGHTER') || str.includes('ABATTOIR') || str.includes('POULTRY')) {
       return 'HFA SCHEME MEAT';
     }
-    // For generic 'HFA Scheme' from SQL, check context (scope, category, company name)
+    // Ambiguous — use context (scope / product_category) to decide
     const ctx = String(context || '').toLowerCase();
     const isMeat = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(ctx);
     return isMeat ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
   }
 
+  // ── 7. Fallback: check aliases table, then default to GSO MEAT ────────────
   return CERTIFICATE_SCHEMES[str] ? str : 'GSO MEAT';
 }
 
