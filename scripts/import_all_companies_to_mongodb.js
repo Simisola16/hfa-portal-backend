@@ -120,9 +120,11 @@ async function loadAllCompanies() {
   if (fs.existsSync(CACHE_FILE)) {
     try {
       const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      if (Array.isArray(cached) && cached.length >= 1300 && cached[0].category) {
-        console.log(`   ✓ Loaded ${cached.length} categorized companies from offline cache (${CACHE_FILE})`);
-        return cached;
+      // Filter out non-API fallback companies to strictly preserve the clean 4-APIs company list
+      const apiCompanies = cached.filter(c => c.source !== 'sql_table_fallback');
+      if (Array.isArray(apiCompanies) && apiCompanies.length >= 1000 && apiCompanies[0].category) {
+        console.log(`   ✓ Loaded ${apiCompanies.length} official API categorized companies from cache (${CACHE_FILE})`);
+        return apiCompanies;
       }
     } catch (_) {}
   }
@@ -162,52 +164,6 @@ async function loadAllCompanies() {
   }
 
   console.log(`   ✓ Active companies from APIs: ${cidMap.size}`);
-
-  // Scan remaining companies from SQL Server tables outside the APIs
-  console.log('   🔍 Scanning SQL Server tables for remaining companies not in APIs...');
-  const compRegis1 = readSqlTable('HalalyMain/tables/dbo.CompRegis.json');
-  const compRegis2 = readSqlTable('HalalyMains/tables/dbo.CompRegis.json');
-  const certRows = readSqlTable('HalalCert/tables/dbo.tlbcertMas.json');
-  const certCids = new Set(certRows.map(c => cleanStr(c.CName)).filter(Boolean));
-  const appRows = readSqlTable('HalalApp/tables/dbo.AppleReg.json');
-  const appCids = new Set(appRows.map(a => cleanStr(a.CID)).filter(Boolean));
-
-  let addedFromSql = 0;
-  function addRemainingSqlCompany(r, defaultCat = 'signup') {
-    const cid = cleanStr(r.CID || r.cid || r.KingID || r.CName);
-    if (!cid || ignoredNrlCids.has(cid) || cidMap.has(cid)) return;
-
-    let cat = defaultCat;
-    const isNew = cleanStr(r.IsNew);
-    if (isNew === 'Cert' || certCids.has(cid)) cat = 'certified';
-    else if (isNew === 'Processing' || appCids.has(cid)) cat = 'processing';
-    else if (isNew === 'Yes') cat = 'signup';
-
-    cidMap.set(cid, {
-      cid,
-      cCompanyName: cleanStr(r.CCompanyName || r.CompanyName || r.CompName || r.COMPANYNAME),
-      ceaKingp: cleanStr(r.CeaKingp || r.Email || r.email),
-      pcnKinga: cleanStr(r.PcnKinga || r.Phone || r.phone),
-      address1: cleanStr(r.Address1 || r.address1 || r.COMPANYADDRESS),
-      address2: cleanStr(r.Address2 || r.address2),
-      city: cleanStr(r.City || r.city),
-      state: cleanStr(r.State || r.state),
-      postCode: cleanStr(r.PostCode || r.postCode),
-      country: cleanStr(r.Country || r.country || 'United Kingdom'),
-      firstName: cleanStr(r.FirstName || r.firstName),
-      lastName: cleanStr(r.LastName || r.lastName),
-      category: cat,
-      source: 'sql_table_fallback'
-    });
-    addedFromSql++;
-  }
-
-  compRegis2.forEach(r => addRemainingSqlCompany(r));
-  compRegis1.forEach(r => addRemainingSqlCompany(r));
-  certRows.forEach(r => addRemainingSqlCompany({ CID: r.CName, CCompanyName: r.COMPANYNAME, Address1: r.COMPANYADDRESS }, 'certified'));
-  appRows.forEach(r => addRemainingSqlCompany({ CID: r.CID, CCompanyName: r.CompanyName || r.CompName, Email: r.Email }, 'processing'));
-
-  console.log(`   ✓ Added ${addedFromSql} remaining companies from SQL Server tables`);
 
   const companies = Array.from(cidMap.values());
   const counts = { certified: 0, processing: 0, signup: 0 };
@@ -849,6 +805,7 @@ async function runFullCompanyImport() {
         trackerState.stats.usersCreated++;
         existingEmailSet.add(finalEmail);
       } else {
+        delete userFields.password; // Preserve existing user password
         await User.updateOne({ _id: user._id }, { $set: userFields });
         trackerState.stats.usersUpdated++;
       }
@@ -958,14 +915,14 @@ async function runFullCompanyImport() {
           category: pCategory,
           status: 'approved',
           product_type: 'General',
-          ingredients: cleanStr(p.FileNamee) || '',
+          ingredients: cleanStr(p.FileNamee) ? [cleanStr(p.FileNamee)] : [],
           barcode: pCode,
           halal_status: 'Halal Certified',
           notes: `Imported from legacy HFA database (ProID: ${cleanStr(p.ProID)})`
         };
 
         await Product.findOneAndUpdate(
-          { client_id: userIdStr, name: pName },
+          { client_id: userIdStr, site_id: assignedSiteId, name: pName },
           { $set: prodDoc },
           { upsert: true, new: true }
         );
@@ -1161,6 +1118,7 @@ async function runFullCompanyImport() {
           issue_date: safeDate(c.IssueDate, safeDate(c.Dateer)),
           expiry_date: expDate,
           certification_start_date: safeDate(c.CurrentCyStartDate, safeDate(c.IssueDate)),
+          current_cycle_start_date: safeDate(c.CurrentCyStartDate, safeDate(c.IssueDate)),
           original_cycle_start_date: safeDate(c.OriginalCyStartDate, safeDate(c.IssueDate)),
           status: certStatus,
           is_direct_issuance: false,
@@ -1240,8 +1198,14 @@ async function runFullCompanyImport() {
           mufti2_sign_date: safeDate(l.Mufitydate1, null)
         };
 
+        const logQuery = logDoc.audit_date
+          ? { client_id: userIdStr, company_name: companyName, audit_date: logDoc.audit_date }
+          : (logDoc.issue_date
+            ? { client_id: userIdStr, company_name: companyName, issue_date: logDoc.issue_date }
+            : { client_id: userIdStr, company_name: companyName, reviewer_name: logDoc.reviewer_name });
+
         const logRes = await ApplicationLogsheet.findOneAndUpdate(
-          { client_id: userIdStr, company_name: companyName, audit_date: logDoc.audit_date },
+          logQuery,
           { $set: logDoc },
           { upsert: true, new: true }
         );
