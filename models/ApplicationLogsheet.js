@@ -125,6 +125,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   mufti2_sign_date: Date,
 
   created_at: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 });
 

@@ -18,10 +18,82 @@ function cleanStr(val, defaultVal = '') {
   return s === '' || s === '-' || s === 'None' || s === 'null' ? defaultVal : s;
 }
 
-function safeDate(val, defaultVal = null) {
-  if (!val) return defaultVal;
-  const d = new Date(typeof val === 'string' ? val.trim() : val);
-  return isNaN(d.getTime()) ? defaultVal : d;
+const monthMap = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+};
+
+function parseSqlDate(val, fallbackYear = null) {
+  if (!val) return null;
+  let s = String(val).trim();
+  if (!s || s === '-' || s === 'NA' || s === 'None' || s === 'null' || s === 'N/A') return null;
+
+  if (s.includes('0001') || s.startsWith('01-Jan-0001') || s.startsWith('0001-01-01')) return null;
+
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    const d = parseInt(isoMatch[3], 10);
+    if (y >= 1990 && y <= 2050 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    }
+  }
+
+  if (/^\d{1,2}-[A-Za-z]{3}-20\d\s*$/.test(s)) {
+    if (fallbackYear) {
+      const m = s.match(/^(\d{1,2}-[A-Za-z]{3}-)(20\d)$/);
+      if (m) {
+        const lastDigit = String(fallbackYear).slice(-1);
+        s = `${m[1]}${m[2]}${lastDigit}`;
+      }
+    }
+  }
+
+  const dMonYMatch = s.match(/^(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-]+(\d{2,4})/);
+  if (dMonYMatch) {
+    const day = parseInt(dMonYMatch[1], 10);
+    const monStr = dMonYMatch[2].toLowerCase().slice(0, 3);
+    let yr = parseInt(dMonYMatch[3], 10);
+    if (yr < 100) yr += 2000;
+    const mo = monthMap[monStr];
+    if (mo && yr >= 1990 && yr <= 2050 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(yr, mo - 1, day, 12, 0, 0));
+    }
+  }
+
+  const dmyMatch = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const mo = parseInt(dmyMatch[2], 10);
+    let yr = parseInt(dmyMatch[3], 10);
+    if (yr < 100) yr += 2000;
+    if (yr >= 1990 && yr <= 2050 && mo >= 1 && mo <= 12 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(yr, mo - 1, day, 12, 0, 0));
+    }
+  }
+
+  const usMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usMatch) {
+    const mo = parseInt(usMatch[1], 10);
+    const day = parseInt(usMatch[2], 10);
+    const yr = parseInt(usMatch[3], 10);
+    if (yr >= 1990 && yr <= 2050 && mo >= 1 && mo <= 12 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(yr, mo - 1, day, 12, 0, 0));
+    }
+  }
+
+  const generic = new Date(s);
+  if (!isNaN(generic.getTime())) {
+    const yr = generic.getFullYear();
+    const mo = generic.getMonth();
+    const day = generic.getDate();
+    if (yr >= 1990 && yr <= 2050) {
+      return new Date(Date.UTC(yr, mo, day, 12, 0, 0));
+    }
+  }
+
+  return null;
 }
 
 function normalizeName(str) {
@@ -152,11 +224,14 @@ async function run() {
         // Map status strictly according to user's instructions:
         // - "Done" -> "Signed"
         // - "Certificate Sent" -> "Completed"
+        // - "Ready for Certificate." (103 rows) -> "Completed"
         // - "Waiting for Signature" -> "Waiting for Signature"
         // - "Account Approval" / "Product(s) Review" / "Ready for Certificate" -> "Waiting For Certificate"
         let mappedStatus = 'Waiting for Signature';
         const lowerRaw = rawStatus.toLowerCase();
-        if (lowerRaw === 'done') {
+        if (rawStatus === 'Ready for Certificate.') {
+          mappedStatus = 'Completed';
+        } else if (lowerRaw === 'done') {
           mappedStatus = 'Signed';
         } else if (lowerRaw.includes('certificate sent') || lowerRaw === 'certficate sent') {
           mappedStatus = 'Completed';
@@ -206,7 +281,6 @@ async function run() {
           matchedSite = siteByCid.get(cid);
         }
 
-        // Match application
         // Match application strictly by AppID if provided
         let matchedApp = null;
         const appId = cleanStr(row.AppID);
@@ -215,6 +289,18 @@ async function run() {
             appByAppNum.get(`app-${appId}-${cid}`.toLowerCase()) ||
             appByAppNum.get(`ren-${appId}-${cid}`.toLowerCase()) || null;
         }
+
+        let fbYear = null;
+        if (row.dayy) {
+          const m = String(row.dayy).match(/^(\d{4})/);
+          if (m) fbYear = parseInt(m[1], 10);
+        }
+
+        const dayyDate = parseSqlDate(row.dayy) || parseSqlDate(row.Datee, fbYear);
+
+        const hasMuftiSig = Boolean(cleanStr(row.MufityBy) || cleanStr(row.NameC) || row.Mufitysinf || row.Singnaturee);
+        const hasCeoSig = Boolean(cleanStr(row.ceoby) || cleanStr(row.NameC2) || row.cebsing);
+        const hasMgrSig = Boolean(cleanStr(row.SchemBy) || cleanStr(row.NameC3) || row.SchemSing);
 
         const logDoc = {
           legacy_id: ider,
@@ -236,40 +322,42 @@ async function run() {
           product_category: cleanStr(row.ProCate) || 'General',
           certificate_standard: cleanStr(row.ApplicationCategory) || 'HFA Standard',
           certificate_type: cleanStr(row.ApplicationType) || 'Halal Certification',
-          issue_date: safeDate(row.IssDateOCert, null),
-          expiry_date: safeDate(row.ExPiryDatCert, null),
+          issue_date: parseSqlDate(row.IssDateOCert, fbYear),
+          expiry_date: parseSqlDate(row.ExPiryDatCert, fbYear),
           audit_type: cleanStr(row.AuditTy) || 'Annual',
-          audit_date: safeDate(row.Audidate, null),
+          audit_date: parseSqlDate(row.Audidate, fbYear),
           auditors: cleanStr(row.Auditors) || '',
           ncs_close: cleanStr(row.NCsCloseifany) || '',
           docs_satisfactory: cleanStr(row.ADRAFS) || '',
           pork_free_statement: cleanStr(row.PFSSPPS) || '',
           reviewer_name: cleanStr(row.Name) || cleanStr(row.FoodTecName) || 'HFA Auditor',
-          review_date: safeDate(row.ReDate, null),
+          review_date: parseSqlDate(row.ReDate, fbYear),
           annual_certificate: row.AnCer && String(row.AnCer).toLowerCase().includes('y') ? 'Yes' : 'No',
           batch_certificate: row.BaCert && String(row.BaCert).toLowerCase().includes('y') ? 'Yes' : 'No',
           new_products_only: row.OnAddONePro && String(row.OnAddONePro).toLowerCase().includes('y') ? 'Yes' : 'No',
           new_site_line: row.AddONewSite && String(row.AddONewSite).toLowerCase().includes('y') ? 'Yes' : 'No',
           new_client: row.NewClite && String(row.NewClite).toLowerCase().includes('y') ? 'Yes' : 'No',
           agreement_signed: row.AgSig && String(row.AgSig).toLowerCase().includes('y') ? 'Yes' : 'No',
-          status_date: safeDate(row.daOAgree, null),
+          status_date: parseSqlDate(row.Datee, fbYear) || parseSqlDate(row.daOAgree, fbYear) || dayyDate,
+          current_cycle_start: parseSqlDate(row.CurrentCycleStartDate, fbYear),
+          original_cycle_start: parseSqlDate(row.OriginalCycleStartDate, fbYear),
           comment: cleanStr(row.Commenter) || cleanStr(row.Commenter1) || '',
           status: mappedStatus,
           // Signatures
           mufti_signature: row.Mufitysinf ? `data:image/png;base64,${row.Mufitysinf}` : (row.Singnaturee ? `data:image/png;base64,${row.Singnaturee}` : null),
           mufti_sign_name: cleanStr(row.MufityBy) || cleanStr(row.NameC) || 'Mufti Signatory',
-          mufti_sign_date: safeDate(row.Mufitydate, safeDate(row.Datee, new Date())),
+          mufti_sign_date: hasMuftiSig ? (parseSqlDate(row.Mufitydate, fbYear) || parseSqlDate(row.Datee, fbYear) || dayyDate) : null,
           ceo_signature: row.cebsing ? `data:image/png;base64,${row.cebsing}` : null,
           ceo_sign_name: cleanStr(row.ceoby) || cleanStr(row.NameC2) || 'CEO Signatory',
-          ceo_sign_date: safeDate(row.ceodateby, safeDate(row.Datee, new Date())),
+          ceo_sign_date: hasCeoSig ? (parseSqlDate(row.ceodateby, fbYear) || parseSqlDate(row.Datee, fbYear) || dayyDate) : null,
           manager_signature: row.SchemSing ? `data:image/png;base64,${row.SchemSing}` : null,
           manager_sign_name: cleanStr(row.SchemBy) || cleanStr(row.NameC3) || 'Scheme Manager',
-          manager_sign_date: safeDate(row.SchemDate, safeDate(row.Datee, new Date())),
+          manager_sign_date: hasMgrSig ? (parseSqlDate(row.SchemDate, fbYear) || parseSqlDate(row.Datee, fbYear) || dayyDate) : null,
           mufti2_signature: row.Mufitysinf1 ? `data:image/png;base64,${row.Mufitysinf1}` : null,
           mufti2_sign_name: cleanStr(row.MufityBy1) || cleanStr(row.NameC4) || '',
-          mufti2_sign_date: safeDate(row.Mufitydate1, null),
-          created_at: safeDate(row.dayy, safeDate(row.Datee, new Date())),
-          createdAt: safeDate(row.dayy, safeDate(row.Datee, new Date()))
+          mufti2_sign_date: (row.Mufitysinf1 || cleanStr(row.MufityBy1) || cleanStr(row.NameC4)) ? (parseSqlDate(row.Mufitydate1, fbYear) || parseSqlDate(row.Datee, fbYear) || dayyDate) : null,
+          created_at: dayyDate,
+          createdAt: dayyDate
         };
 
         validLogsheetDocs.push(logDoc);
