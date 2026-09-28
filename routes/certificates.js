@@ -15,7 +15,7 @@ import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
-import { generateCertificate } from '../services/certificateGenerator.js';
+import { generateCertificate, normalizeCertificateType, CERTIFICATE_SCHEMES } from '../services/certificateGenerator.js';
 import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 import { getSuperadminEmails } from '../lib/mailer.js';
 
@@ -1505,6 +1505,14 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
     const certPath = getS3PathFromKey(s3Key);
     const fullCertUrl = resolveCertificateUrl(certPath);
 
+    // Derive the normalised scheme to get its defaultColumns
+    const regenNormScheme = normalizeCertificateType(cert.certificate_type || 'HFA Scheme', cert.scope || cert.product_category || '');
+    const regenSchemeDef = CERTIFICATE_SCHEMES[regenNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+    // Respect any explicitly stored column count; otherwise use the scheme default (HFA=1, GSO/SMIIC=2)
+    const regenTableCols = [1, 2, 3].includes(Number(cert.product_table_columns))
+      ? Number(cert.product_table_columns)
+      : regenSchemeDef.defaultColumns;
+
     const pdfBuffer = await generateCertificate({
       certificateType: cert.certificate_type || 'HFA Scheme',
       businessName: cert.company_name || '',
@@ -1515,7 +1523,7 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       productCategory: cert.scope,
       productCategories: prods,
       products: prods,
-      productTableColumns: cert.product_table_columns || 2,
+      productTableColumns: regenTableCols,
       issueDate: cert.issue_date || new Date(),
       expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
@@ -1626,6 +1634,14 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
       const certPath = getS3PathFromKey(s3Key);
       const fullCertUrl = resolveCertificateUrl(certPath);
 
+      // Derive the normalised scheme to get its defaultColumns
+      const approveNormScheme = normalizeCertificateType(cert.certificate_type || 'HFA Scheme', cert.scope || cert.product_category || '');
+      const approveSchemeDef = CERTIFICATE_SCHEMES[approveNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+      // Respect any explicitly stored column count; otherwise use the scheme default (HFA=1, GSO/SMIIC=2)
+      const approveTableCols = [1, 2, 3].includes(Number(cert.product_table_columns))
+        ? Number(cert.product_table_columns)
+        : approveSchemeDef.defaultColumns;
+
       const pdfBuffer = await generateCertificate({
         certificateType: cert.certificate_type || 'HFA Scheme',
         businessName: cert.company_name || '',
@@ -1636,7 +1652,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
         productCategory: cert.scope,
         productCategories: prods,
         products: prods,
-        productTableColumns: cert.product_table_columns || 2,
+        productTableColumns: approveTableCols,
         issueDate: cert.issue_date || new Date(),
         expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
@@ -1965,17 +1981,32 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
         const certPath = getS3PathFromKey(s3Key);
         const fullCertUrl = resolveCertificateUrl(certPath);
 
+        // Resolve the scheme so we can pick the correct column default
+        const dlNormScheme = normalizeCertificateType(
+          certificate.certificate_type || 'HFA Scheme',
+          certificate.scope || certificate.product_category || ''
+        );
+        const dlSchemeDef = CERTIFICATE_SCHEMES[dlNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+        const dlTableCols = [1, 2, 3].includes(Number(certificate.product_table_columns))
+          ? Number(certificate.product_table_columns)
+          : dlSchemeDef.defaultColumns;
+
         const pdfBuffer = await generateCertificate({
+          certificateType: certificate.certificate_type || 'HFA Scheme',
           businessName: certificate.company_name || '',
           businessAddress: certificate.company_address || '',
           manufacturerAddress: certificate.manufacturing_address || '',
           certificateNumber: certificate.certificate_number,
           scopeOfCertification: certificate.scope || '',
-          scheme: certificate.certificate_type || 'GSO non-meat',
+          productCategory: certificate.product_category || certificate.scope || '',
           productCategories: productsList,
+          products: productsList,
+          productTableColumns: dlTableCols,
           issueDate: certificate.issue_date || new Date(),
           expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          cycleStartDate: certificate.current_cycle_start_date || certificate.issue_date,
+          certificationStartDate: certificate.certification_start_date || certificate.issue_date || new Date(),
+          currentCycleStartDate: certificate.current_cycle_start_date || certificate.issue_date || new Date(),
+          originalCycleStartDate: certificate.original_cycle_start_date || certificate.issue_date || new Date(),
           certificate_url: fullCertUrl
         });
 
