@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import connectDB from './lib/db.js';
@@ -52,20 +54,31 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
-// 2. Logging
+// 2. Performance: Gzip / Deflate Compression
+app.use(compression({
+  threshold: 1024, // Only compress responses larger than 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
+
+// 3. Logging
 app.use(morgan('dev'));
 
-// 3. Body parsers
+// 4. Body parsers
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// 4. DB Connection Middleware with Timeout
+// 5. DB Connection Middleware with Fast-Path Throughput
 app.use(async (req, res, next) => {
   // Skip DB connection for preflight OPTIONS, health check or simple root route
   if (req.method === 'OPTIONS' || req.path === '/api/health') return next();
 
+  // Instant fast-path: if MongoDB is connected, proceed immediately
+  if (mongoose.connection.readyState === 1) return next();
+
   try {
-    // Set a timeout for the DB connection
     const dbPromise = connectDB();
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Database connection timeout')), 8000)
@@ -150,6 +163,12 @@ const isVercel = process.env.VERCEL === '1';
 if (!isVercel || process.env.NODE_ENV !== 'production') {
   server.listen(port, () => {
     console.log(`🚀 Server running on port ${port}`);
+    // Eagerly connect to MongoDB for instant first-request responsiveness
+    connectDB().then(() => {
+      console.log('🍃 MongoDB connected eagerly at server startup');
+    }).catch(err => {
+      console.warn('⚠️ MongoDB initial eager connection pending/failed:', err.message);
+    });
   });
 }
 

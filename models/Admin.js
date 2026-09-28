@@ -46,6 +46,11 @@ const adminSchema = new mongoose.Schema({
 });
 
 adminSchema.index({ role: 1 });
+adminSchema.index({ roles: 1 });
+adminSchema.index({ email: 1 });
+adminSchema.index({ username: 1 });
+adminSchema.index({ is_active: 1 });
+adminSchema.index({ created_at: -1 });
 
 // Hash password before saving
 adminSchema.pre('save', async function () {

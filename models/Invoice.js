@@ -32,4 +32,13 @@ invoiceSchema.virtual('profiles', {
   justOne: true
 });
 
+invoiceSchema.index({ client_id: 1 });
+invoiceSchema.index({ status: 1 });
+invoiceSchema.index({ invoice_type: 1 });
+invoiceSchema.index({ application_id: 1 });
+invoiceSchema.index({ client_id: 1, status: 1 });
+invoiceSchema.index({ created_at: -1 });
+invoiceSchema.index({ createdAt: -1 });
+invoiceSchema.index({ status: 1, created_at: -1 });
+
 export default mongoose.model('Invoice', invoiceSchema);

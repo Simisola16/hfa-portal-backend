@@ -364,9 +364,17 @@ const getReportStats = async (req, res) => {
 router.get('/stats', authenticateToken, requireAdmin, getReportStats);
 router.get('/dashboard', authenticateToken, requireAdmin, getReportStats);
 
+let dashboardCache = null;
+let dashboardCacheTime = 0;
+const DASHBOARD_CACHE_TTL_MS = 20 * 1000; // 20-second fast cache
+
 // GET /api/reports/dashboard-overview - Instant metrics and 5 pipeline apps for Admin Dashboard
 router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const isFresh = req.query.fresh === 'true';
+    if (!isFresh && dashboardCache && (Date.now() - dashboardCacheTime < DASHBOARD_CACHE_TTL_MS)) {
+      return res.json(dashboardCache);
+    }
     const now = new Date();
 
     const [
@@ -436,7 +444,7 @@ router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, r
       ]),
       Product.estimatedDocumentCount(),
       Application.find()
-        .sort({ updated_at: -1, created_at: -1, createdAt: -1 })
+        .sort({ updated_at: -1 })
         .limit(5)
         .populate('client_id', 'company_name full_name email')
         .lean()
@@ -458,7 +466,7 @@ router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, r
     const expiredCerts = certs.expired?.[0]?.c || 0;
     const pendingCerts = certs.pending?.[0]?.c || 0;
 
-    res.json({
+    const payload = {
       success: true,
       stats: {
         totalApps,
@@ -475,7 +483,10 @@ router.get('/dashboard-overview', authenticateToken, requireAdmin, async (req, r
         totalProducts
       },
       pipeline: recentApps
-    });
+    };
+    dashboardCache = payload;
+    dashboardCacheTime = Date.now();
+    res.json(payload);
   } catch (err) {
     console.error('Error fetching dashboard overview:', err);
     res.status(500).json({ error: err.message });

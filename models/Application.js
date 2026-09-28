@@ -156,5 +156,9 @@ applicationSchema.index({ created_at: -1 });
 applicationSchema.index({ createdAt: -1 });
 applicationSchema.index({ status: 1, created_at: -1 });
 applicationSchema.index({ logsheet_id: 1 });
+applicationSchema.index({ updated_at: -1 });
+applicationSchema.index({ updatedAt: -1 });
+applicationSchema.index({ company_name: 1 });
+applicationSchema.index({ status: 1, updated_at: -1 });
 
 export default mongoose.model('Application', applicationSchema);

@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
-import { getClientUrl } from '../lib/urls.js';
+import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -425,36 +425,77 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
 
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
+  const { email, username, portal } = req.body;
   try {
-    // Check Admin collection first, then User (client)
-    let user = await Admin.findOne({ email });
-    if (!user) user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const rawVal = (email || username || '').trim();
+    if (!rawVal) {
+      return res.status(400).json({ error: 'Please enter your registered email address or username.' });
+    }
+    const escapedVal = rawVal.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+    let user;
+    let isAdmin = false;
+
+    // If requested from admin portal, check Admin collection first
+    if (portal === 'admin') {
+      user = await Admin.findOne({
+        $or: [
+          { email:    { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
+        ]
+      });
+      if (user) isAdmin = true;
+    }
+
+    if (!user) {
+      user = await Admin.findOne({
+        $or: [
+          { email:    { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
+        ]
+      });
+      if (user) isAdmin = true;
+    }
+
+    if (!user) {
+      user = await User.findOne({ email: { $regex: new RegExp(`^${escapedVal}$`, 'i') } });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'No account was found with those credentials.' });
+    }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.reset_password_token  = resetToken;
     user.reset_password_expiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    const resetUrl = `${getClientUrl()}/reset-password?token=${resetToken}`;
+    const baseUrl = (isAdmin || portal === 'admin') ? getAdminUrl() : getClientUrl();
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    const portalName = isAdmin ? 'HFA Staff Admin Portal' : 'HFA Certification Portal';
+    const recipientEmail = user.email;
+
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      console.log(`\n🔑 [PASSWORD RESET LINK GENERATED for ${recipientEmail}]:\n${resetUrl}\n`);
+    }
 
     try {
       await resend.emails.send({
         from: emailFrom,
-        to: email,
-        subject: 'Reset Your Password - HFA Portal',
+        to: recipientEmail,
+        subject: `Reset Your Password - ${portalName}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9fafb;padding:32px">
             <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
               <h1 style="color:white;margin:0;font-size:28px">Halal Food Authority</h1>
-              <p style="color:#bbf7d0;margin-top:8px">Password Reset Request</p>
+              <p style="color:#bbf7d0;margin-top:8px">${portalName} Password Reset</p>
             </div>
             <div style="background:white;border-radius:12px;padding:32px">
-              <h2 style="color:#166534">Hello, ${user.full_name}!</h2>
-              <p style="color:#4b5563">We received a request to reset your password. If you didn't make this request, you can safely ignore this email.</p>
+              <h2 style="color:#166534">Hello, ${user.full_name || user.username || 'User'}!</h2>
+              <p style="color:#4b5563">We received a request to reset your password for the ${portalName}. If you didn't make this request, you can safely ignore this email.</p>
               <div style="text-align:center;margin:32px 0">
-                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">Reset Password</a>
+                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">Reset Password</a>
               </div>
               <p style="color:#94a3b8;font-size:12px;text-align:center">This link will expire in 1 hour.<br>If the button doesn't work, copy and paste this link:<br>${resetUrl}</p>
             </div>
@@ -465,7 +506,7 @@ router.post('/forgot-password', async (req, res) => {
       console.error('Resend Reset Email Error:', emailErr);
     }
 
-    res.json({ message: 'Password reset link sent to your email.' });
+    res.json({ message: `A password reset link has been sent to ${recipientEmail}.`, resetUrl: process.env.NODE_ENV === 'development' ? resetUrl : undefined });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

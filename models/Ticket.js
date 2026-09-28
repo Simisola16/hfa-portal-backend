@@ -42,4 +42,13 @@ const ticketSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+ticketSchema.index({ user_id: 1 });
+ticketSchema.index({ status: 1 });
+ticketSchema.index({ assigned_to: 1 });
+ticketSchema.index({ department: 1 });
+ticketSchema.index({ priority: 1 });
+ticketSchema.index({ user_id: 1, status: 1 });
+ticketSchema.index({ createdAt: -1 });
+ticketSchema.index({ status: 1, createdAt: -1 });
+
 export default mongoose.model('Ticket', ticketSchema);

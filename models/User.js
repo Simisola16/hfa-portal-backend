@@ -53,6 +53,10 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ role: 1 });
 userSchema.index({ is_verified: 1 });
 userSchema.index({ company_category: 1 });
+userSchema.index({ role: 1, is_active: 1 });
+userSchema.index({ company_name: 1 });
+userSchema.index({ created_at: -1 });
+userSchema.index({ createdAt: -1 });
 
 // Hash password before saving
 userSchema.pre('save', async function () {
