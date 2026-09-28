@@ -134,4 +134,21 @@ applicationLogsheetSchema.pre('save', function(next) {
   next();
 });
 
+// Performance Indexes for fast listing, filtering, and sorting
+applicationLogsheetSchema.index({ status: 1 });
+applicationLogsheetSchema.index({ created_at: -1 });
+applicationLogsheetSchema.index({ createdAt: -1 });
+applicationLogsheetSchema.index({ status: 1, created_at: -1 });
+applicationLogsheetSchema.index({ status: 1, createdAt: -1 });
+applicationLogsheetSchema.index({ application_id: 1 });
+applicationLogsheetSchema.index({ addon_application_id: 1 });
+applicationLogsheetSchema.index({ initial_product_application_id: 1 });
+applicationLogsheetSchema.index({ client_id: 1 });
+applicationLogsheetSchema.index({ client_id: 1, created_at: -1 });
+applicationLogsheetSchema.index({ site_id: 1 });
+applicationLogsheetSchema.index({ source_type: 1 });
+applicationLogsheetSchema.index({ source_type: 1, logsheet_type: 1 });
+applicationLogsheetSchema.index({ source_type: 1, created_at: -1 });
+applicationLogsheetSchema.index({ direct_ref: 1 });
+
 export default mongoose.model('ApplicationLogsheet', applicationLogsheetSchema);
