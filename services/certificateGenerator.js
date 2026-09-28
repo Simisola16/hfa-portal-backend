@@ -752,10 +752,18 @@ export async function generateCertificate(certData) {
     ''
   ).trim();
 
-  let resolvedMfgAddress = '';
-  if (rawMfg && rawMfg !== '-' && rawMfg !== '—' && rawMfg.toUpperCase() !== 'N/A') {
-    resolvedMfgAddress = sanitizeForPdf(rawMfg.toUpperCase());
-  }
+  const isMfgEmpty = (
+    !rawMfg ||
+    rawMfg === '-' ||
+    rawMfg === '—' ||
+    rawMfg.toUpperCase() === 'N/A' ||
+    rawMfg.toUpperCase() === 'NONE' ||
+    rawMfg.toUpperCase() === 'NULL' ||
+    rawMfg.toUpperCase() === 'UNDEFINED' ||
+    rawMfg.toUpperCase() === 'SAME AS ABOVE' ||
+    rawMfg.toUpperCase() === 'NOT APPLICABLE'
+  );
+  let resolvedMfgAddress = isMfgEmpty ? '' : sanitizeForPdf(rawMfg.toUpperCase());
 
   const rawName = (companyName || businessName || certData.company_name || '').trim();
   const isNameEmpty = !rawName || rawName === '-' || rawName === '—' || rawName.toUpperCase() === 'N/A';
@@ -1324,10 +1332,18 @@ export async function buildCertificateHtml(certData) {
     ''
   ).trim();
 
-  let resolvedMfgAddress = '';
-  if (rawMfg && rawMfg !== '-' && rawMfg !== '—' && rawMfg.toUpperCase() !== 'N/A') {
-    resolvedMfgAddress = rawMfg.toUpperCase();
-  }
+  const isMfgEmpty = (
+    !rawMfg ||
+    rawMfg === '-' ||
+    rawMfg === '—' ||
+    rawMfg.toUpperCase() === 'N/A' ||
+    rawMfg.toUpperCase() === 'NONE' ||
+    rawMfg.toUpperCase() === 'NULL' ||
+    rawMfg.toUpperCase() === 'UNDEFINED' ||
+    rawMfg.toUpperCase() === 'SAME AS ABOVE' ||
+    rawMfg.toUpperCase() === 'NOT APPLICABLE'
+  );
+  let resolvedMfgAddress = isMfgEmpty ? '' : rawMfg.toUpperCase();
 
   const rawName = (companyName || businessName || certData.company_name || '').trim();
   const isNameEmpty = !rawName || rawName === '-' || rawName === '—' || rawName.toUpperCase() === 'N/A';
