@@ -76,7 +76,7 @@ async function runUbuntuReconciliation() {
   console.log('🚀 RECONCILING APPLICATIONS, AUDITS & LOGSHEETS ON UBUNTU PRODUCTION SERVER');
   console.log('=============================================================================');
 
-  console.log('\n1. Establishing SSH tunnel to Ubuntu server (155.117.43.205)...');
+  console.log('\n1. Establishing SSH tunnel to Ubuntu server...');
   await ensureMongoTunnel();
 
   const remoteUri = 'mongodb://127.0.0.1:27018/hfa_portal_dev?directConnection=true';

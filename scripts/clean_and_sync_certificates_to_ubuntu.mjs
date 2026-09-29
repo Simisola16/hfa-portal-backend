@@ -33,7 +33,7 @@ async function syncCertificatesToUbuntu() {
   }
   console.log('   ✓ Integrity verified: 0 dirty scopes, 0 legacy notes, 0 fake categories.');
 
-  console.log('\n2. Opening SSH tunnel to Ubuntu Server (155.117.43.205)...');
+  console.log('\n2. Opening SSH tunnel to Ubuntu Server...');
   await ensureMongoTunnel();
 
   console.log('3. Connecting to Remote MongoDB on Ubuntu Server (hfa_portal_dev)...');

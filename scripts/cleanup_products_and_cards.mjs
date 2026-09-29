@@ -223,10 +223,10 @@ async function main() {
         reject(e);
       }
     }).connect({
-      host: '155.117.43.205',
-      port: 22,
-      username: 'administrator',
-      password: 'halalfa@123'
+      host: process.env.SSH_TUNNEL_HOST || process.env.UBUNTU_SERVER_IP,
+      port: parseInt(process.env.SSH_TUNNEL_PORT, 10) || 22,
+      username: process.env.SSH_TUNNEL_USER || 'administrator',
+      password: process.env.SSH_TUNNEL_PASSWORD || process.env.UBUNTU_SERVER_PASSWORD
     });
   });
 

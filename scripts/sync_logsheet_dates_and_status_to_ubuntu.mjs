@@ -107,7 +107,7 @@ async function run() {
   console.log('🚀 SYNCING LOGSHEET DATES & STATUSES TO UBUNTU PRODUCTION SERVER');
   console.log('=============================================================================');
 
-  console.log('1. Opening SSH tunnel to Ubuntu Server (155.117.43.205)...');
+  console.log('1. Opening SSH tunnel to Ubuntu Server...');
   await ensureMongoTunnel();
 
   console.log('2. Connecting to Remote MongoDB on Ubuntu (hfa_portal_dev)...');

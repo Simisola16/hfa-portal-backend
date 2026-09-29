@@ -29,7 +29,7 @@ async function syncToUbuntu() {
     throw new Error(`CRITICAL: Found ${binDocs.length} Bin documents in source! Aborting.`);
   }
 
-  console.log('\n2. Opening SSH tunnel to Ubuntu Server (155.117.43.205)...');
+  console.log('\n2. Opening SSH tunnel to Ubuntu Server...');
   await ensureMongoTunnel();
 
   console.log('3. Connecting to Remote MongoDB on Ubuntu Server (hfa_portal_dev)...');
