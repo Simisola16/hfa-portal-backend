@@ -227,16 +227,16 @@ async function run() {
         // - "Ready for Certificate." (103 rows) -> "Completed"
         // - "Waiting for Signature" -> "Waiting for Signature"
         // - "Account Approval" / "Product(s) Review" / "Ready for Certificate" -> "Waiting For Certificate"
-        let mappedStatus = 'Waiting for Signature';
+        let mappedStatus = 'Completed';
         const lowerRaw = rawStatus.toLowerCase();
-        if (rawStatus === 'Ready for Certificate.') {
+        if (lowerRaw.includes('waiting for signature')) {
+          mappedStatus = 'Waiting for Signature';
+        } else if (rawStatus === 'Ready for Certificate.') {
           mappedStatus = 'Completed';
         } else if (lowerRaw === 'done') {
           mappedStatus = 'Signed';
         } else if (lowerRaw.includes('certificate sent') || lowerRaw === 'certficate sent') {
           mappedStatus = 'Completed';
-        } else if (lowerRaw.includes('waiting for signature')) {
-          mappedStatus = 'Waiting for Signature';
         } else if (
           lowerRaw.includes('ready for certificate') ||
           lowerRaw.includes('account approval') ||
@@ -248,7 +248,7 @@ async function run() {
           if (row.ceoby || row.MufityBy || row.SchemBy || row.Singnaturee) {
             mappedStatus = 'Signed';
           } else {
-            mappedStatus = 'Waiting for Signature';
+            mappedStatus = 'Completed';
           }
         }
 
