@@ -992,15 +992,55 @@ async function runFullCompanyImport() {
           site_id: siteId,
           site_name: siteName,
           type: 'initial',
-          application_type: 'standard',
+          application_type: 'new',
           is_renewal: false,
           is_surveillance: false,
           scheme: scheme,
           category: scheme,
           company_name: companyName,
+          establishment_name: cleanStr(a.NameEstablishmen) || cleanStr(a.NameEstablishmen1) || companyName,
+          establishment_address: cleanStr(a.CoHOfficeAddress) || address,
+          site_address: cleanStr(a.SiteFactoryAddress) || cleanStr(a.SiteFactoryAddress1) || cleanStr(a.CoHOfficeAddress) || address,
+          reg_number: cleanStr(a.CRNumber) || cleanStr(a.CRNumber1) || cleanStr(a.RegistrationNo) || '',
+          company_reg_number: cleanStr(a.CRNumber) || cleanStr(a.CRNumber1) || cleanStr(a.RegistrationNo) || '',
+          vat_number: cleanStr(a.VATNumber) || cleanStr(a.VATNumber1) || '',
+          trading_name: cleanStr(a.TradingNam) || cleanStr(a.TradingNam1) || '',
+          brand_name: cleanStr(a.BrandName) || '',
+          website: cleanStr(a.WebsiteAddres) || cleanStr(a.WebsiteAddres1) || '',
+          company_email: cleanStr(a.EAddres) || cleanStr(a.EAddres1) || cleanStr(a.EmailAddress) || finalEmail,
+          employee_count: parseInt(a.NumberEmployees || a.NumberEmployees1, 10) || 0,
+          years_in_business: cleanStr(a.NumberOFBusinest) || cleanStr(a.NumberOFBusinest1) || '',
+          managing_director: cleanStr(a.Nameer) || cleanStr(a.PCPrimaryContactN) || contactPerson,
+          signatory_position: cleanStr(a.Positionn) || 'Managing Director',
+          signatory_date: safeDate(a.Datee || a.AppDate, realAppDate),
+          contact_person: cleanStr(a.PCPrimaryContactN) || cleanStr(a.ContactName) || contactPerson,
+          contact_email: cleanStr(a.PCEmailAddress) || cleanStr(a.EAddres) || cleanStr(a.ContactEmail) || finalEmail,
+          primary_contact_name: cleanStr(a.PCPrimaryContactN) || cleanStr(a.ContactName) || contactPerson,
+          primary_work_tel: cleanStr(a.PCWorkPho) || '',
+          primary_mobile: cleanStr(a.PCMobilePho) || '',
+          primary_email: cleanStr(a.PCEmailAddress) || cleanStr(a.EAddres) || cleanStr(a.ContactEmail) || finalEmail,
+          halal_coordinator: cleanStr(a.TechnicalName) || '',
+          tech_work_tel: cleanStr(a.TPWorktelephone) || '',
+          tech_mobile: cleanStr(a.TPMobilePhone) || '',
+          qa_contact: cleanStr(a.TPEmailAdd) || '',
+          scope: cleanStr(a.ProDescription) || scheme || 'Halal Certification',
+          products_on_site_count: parseInt(a.NumberProduct, 10) || 0,
+          products_halal_count: parseInt(a.NumberProducHalal, 10) || 0,
+          food_nature: cleanStr(a.NatureBusiness) || '',
+          nonfood_nature: cleanStr(a.NatureBusiness1) || '',
+          business_type: cleanStr(a.TypeOfBusiness1) || 'Manufacturer',
+          export_only: cleanStr(a.CertificationRequiredtPurposes).toLowerCase() === 'yes' ? 'yes' : 'no',
+          prev_gso_app: cleanStr(a.HaveGso).toLowerCase() === 'yes' ? 'yes' : 'no',
+          halal_schedule: cleanStr(a.ScheduleHalalProduction) || 'Regular/Routine halal product',
+          production_schedule: cleanStr(a.ScheduleHalalProduction) || 'Regular/Routine halal product',
+          has_porcine: cleanStr(a.IsPock).toLowerCase() === 'yes',
+          has_intoxicants: cleanStr(a.AreIntoxicants).toLowerCase() === 'yes',
+          use_hfa_logo: cleanStr(a.Areyoudepict).toLowerCase() === 'yes' ? 'yes' : 'no',
+          referral_source: cleanStr(a.HowHear) || '',
+          declared_true: true,
           status: appStatus,
-          contact_person: cleanStr(a.ContactName) || contactPerson,
-          contact_email: cleanStr(a.ContactEmail) || finalEmail,
+          nc_closed: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus),
+          nc_closed_at: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus) ? realAppDate : undefined,
           submission_date: realAppDate,
           created_at: realAppDate,
           createdAt: realAppDate,
@@ -1040,9 +1080,18 @@ async function runFullCompanyImport() {
           scheme: scheme,
           category: scheme,
           company_name: companyName,
-          status: appStatus,
+          establishment_name: companyName,
+          establishment_address: address,
           contact_person: cleanStr(r.ContactName) || contactPerson,
           contact_email: cleanStr(r.ContactEmail) || finalEmail,
+          primary_contact_name: cleanStr(r.ContactName) || contactPerson,
+          primary_email: cleanStr(r.ContactEmail) || finalEmail,
+          managing_director: cleanStr(r.Designation) || contactPerson,
+          scope: cleanStr(r.AppCategory) || 'Halal Renewal Certification',
+          declared_true: true,
+          status: appStatus,
+          nc_closed: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus),
+          nc_closed_at: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus) ? realRenDate : undefined,
           submission_date: realRenDate,
           created_at: realRenDate,
           createdAt: realRenDate,
@@ -1082,9 +1131,18 @@ async function runFullCompanyImport() {
           scheme: scheme,
           category: scheme,
           company_name: companyName,
-          status: appStatus,
+          establishment_name: companyName,
+          establishment_address: address,
           contact_person: cleanStr(s.ContactName) || contactPerson,
           contact_email: cleanStr(s.ContactEmail) || finalEmail,
+          primary_contact_name: cleanStr(s.ContactName) || contactPerson,
+          primary_email: cleanStr(s.ContactEmail) || finalEmail,
+          managing_director: cleanStr(s.Designation) || contactPerson,
+          scope: cleanStr(s.AppCategory) || 'Halal Surveillance Certification',
+          declared_true: true,
+          status: appStatus,
+          nc_closed: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus),
+          nc_closed_at: ['nc_closed', 'logsheet_created', 'logsheet_signed', 'application_successful', 'agreement_sent', 'agreement_signed', 'agreement_finalised', 'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate', 'certificate_issued'].includes(appStatus) ? realSurvDate : undefined,
           submission_date: realSurvDate,
           created_at: realSurvDate,
           createdAt: realSurvDate,
@@ -1194,15 +1252,46 @@ async function runFullCompanyImport() {
       for (const l of compLogsheets) {
         const logId = cleanStr(l.ider);
         const lSiteId = siteIdMap.get(cleanStr(l.SiteID)) || defaultSiteId;
-        const lAppId = appMapByAppNum.get(cleanStr(l.AppID)) || latestAppId;
+        const lRawAppId = cleanStr(l.AppID);
+        const matchedAppId = lRawAppId ? appMapByAppNum.get(lRawAppId) : null;
+        const isAddOnLogsheet = lRawAppId.startsWith('AO');
 
-        const isSigned = l.ceoby || l.MufityBy || l.Singnaturee || cleanStr(l.Statuss).toLowerCase().includes('sign');
+        const rawStatus = cleanStr(l.Statuss);
+        const lowerRaw = rawStatus.toLowerCase();
+
+        // Exclude discarded/bin logsheets
+        if (lowerRaw === 'bin') {
+          continue;
+        }
+
+        // The logsheet that has the status of 'waiting for signature' in the SQL database
+        // is the one that has the status of 'Waiting for Signature' in MongoDB.
+        let mappedStatus;
+        if (lowerRaw === 'waiting for signature') {
+          mappedStatus = 'Waiting for Signature';
+        } else if (rawStatus === 'Ready for Certificate.') {
+          mappedStatus = 'Completed';
+        } else if (lowerRaw === 'done') {
+          mappedStatus = 'Signed';
+        } else if (lowerRaw.includes('certificate sent') || lowerRaw === 'certficate sent') {
+          mappedStatus = 'Completed';
+        } else if (
+          lowerRaw.includes('ready for certificate') ||
+          lowerRaw.includes('account approval') ||
+          lowerRaw.includes('product')
+        ) {
+          mappedStatus = 'Waiting For Certificate';
+        } else {
+          // If not waiting for signature, map to Signed if signed, else Completed
+          const isSigned = l.ceoby || l.MufityBy || l.SchemBy || l.Singnaturee;
+          mappedStatus = isSigned ? 'Signed' : 'Completed';
+        }
 
         const logDoc = {
-          source_type: 'application',
-          logsheet_type: 'application',
+          source_type: isAddOnLogsheet ? 'addon_application' : 'application',
+          logsheet_type: isAddOnLogsheet ? 'addon' : 'application',
           is_seed: true,
-          application_id: undefined,
+          application_id: matchedAppId || undefined,
           client_id: userIdStr,
           site_id: lSiteId,
           site_name: cleanStr(l.SiteName) || companyName,
@@ -1233,7 +1322,7 @@ async function runFullCompanyImport() {
           agreement_signed: cleanStr(l.AgSig).toLowerCase().includes('y') ? 'Yes' : 'No',
           status_date: safeDate(l.daOAgree, null),
           comment: cleanStr(l.Commenter) || cleanStr(l.Commenter1) || '',
-          status: isSigned ? 'Completed' : 'Waiting for Signature',
+          status: mappedStatus,
           confirmed: true,
           // Signatures
           mufti_signature: l.Mufitysinf ? `data:image/png;base64,${l.Mufitysinf}` : (l.Singnaturee ? `data:image/png;base64,${l.Singnaturee}` : null),
@@ -1262,8 +1351,23 @@ async function runFullCompanyImport() {
           { upsert: true, new: true }
         );
 
-        if (lAppId) {
-          await Application.updateOne({ _id: lAppId }, { $set: { logsheet_id: logRes._id } });
+        if (matchedAppId) {
+          const isLogsheetFinalized = mappedStatus === 'Waiting For Certificate' || mappedStatus === 'Completed';
+          const isSignedAtAll = Boolean(l.ceoby || l.MufityBy || l.SchemBy || l.Singnaturee || l.cebsing || l.Mufitysinf || l.SchemSing);
+          const appTargetStatus = isLogsheetFinalized ? 'application_successful' : (isSignedAtAll ? 'logsheet_signed' : 'logsheet_created');
+          const targetApp = await Application.findById(matchedAppId).lean();
+          const canAdvance = targetApp && ['submitted', 'under_review', 'approved', 'dates_proposed', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_completed', 'audited', 'audit_report_submitted', 'nc_closed', 'logsheet_created'].includes(targetApp.status);
+
+          await Application.updateOne(
+            { _id: matchedAppId },
+            {
+              $set: {
+                logsheet_id: logRes._id,
+                nc_closed: true,
+                ...(canAdvance ? { status: appTargetStatus } : {})
+              }
+            }
+          );
         }
         trackerState.stats.logsheetsCreated++;
       }
@@ -1481,15 +1585,20 @@ async function runFullCompanyImport() {
           const auditType = cleanStr(aud.Statuss) || cleanStr(aud.AuditoType) || 'Annual';
           const auditorName = cleanStr(aud.AuditorName) || 'HFA Auditor';
 
+          const targetAppDoc = await Application.findById(aId).lean();
+          const appSiteId = targetAppDoc?.site_id || defaultSiteId;
+
           const auditDoc = {
             application_id: aId,
             client_id: userIdStr,
-            site_id: defaultSiteId,
+            site_id: appSiteId,
             audit_type: auditType,
             scheduled_date: auditDate,
             finalized_date: auditDate,
             completed_at: isDone ? auditDate : undefined,
             status: isDone ? 'audit_completed' : 'date_finalized',
+            nc_closed: isDone ? true : false,
+            nc_closed_at: isDone ? auditDate : undefined,
             auditors: [{ name: auditorName, role: 'Lead Auditor' }],
             notes: `Assigned by: ${cleanStr(aud.AssPerson, 'HFA Admin')}`,
             stage: auditType.toLowerCase().includes('stage 2') ? 2 : 1
@@ -1501,6 +1610,32 @@ async function runFullCompanyImport() {
             { upsert: true, new: true }
           );
           trackerState.stats.auditsCreated++;
+
+          if (isDone && targetAppDoc) {
+            const preAuditStatuses = ['submitted', 'under_review', 'approved', 'dates_proposed', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_completed', 'audited', 'audit_report_submitted'];
+            if (preAuditStatuses.includes(targetAppDoc.status)) {
+              await Application.updateOne(
+                { _id: aId },
+                {
+                  $set: {
+                    status: 'nc_closed',
+                    nc_closed: true,
+                    nc_closed_at: auditDate
+                  }
+                }
+              );
+            } else {
+              await Application.updateOne(
+                { _id: aId },
+                {
+                  $set: {
+                    nc_closed: true,
+                    nc_closed_at: auditDate
+                  }
+                }
+              );
+            }
+          }
         }
       }
 
