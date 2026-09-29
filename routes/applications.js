@@ -1386,21 +1386,6 @@ router.put('/:id/change-status', authenticateToken, requireAdmin, async (req, re
 
     await app.save();
 
-    if (app.client_id) {
-      try {
-        await createNotification(
-          app.client_id,
-          'Application',
-          'Application Status Updated',
-          `Your application (${app.application_number}) status has been updated to "${targetStatus}".`,
-          'info',
-          `/applications/${app._id}`
-        );
-      } catch (notifyErr) {
-        console.error('Notification error on change status:', notifyErr);
-      }
-    }
-
     if (typeof emitApplicationUpdate === 'function') {
       emitApplicationUpdate(app._id, app);
     }
