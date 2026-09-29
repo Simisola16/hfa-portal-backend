@@ -63,6 +63,12 @@ const extensionLogsheetSchema = new mongoose.Schema({
     default: 'Waiting for Signature'
   },
 
+  previous_status: { type: String, default: null },
+  marked_done_at: { type: Date, default: null },
+  marked_done_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+  restored_at: { type: Date, default: null },
+  restored_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+
   comments: { type: String, default: '' }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },

@@ -124,6 +124,13 @@ const applicationLogsheetSchema = new mongoose.Schema({
   mufti2_sign_name: String,
   mufti2_sign_date: Date,
 
+  // Status and done tracking
+  previous_status: { type: String, default: null },
+  marked_done_at: { type: Date, default: null },
+  marked_done_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+  restored_at: { type: Date, default: null },
+  restored_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+
   created_at: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
