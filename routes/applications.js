@@ -225,7 +225,7 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
         audits: audits || [],
         logsheet: mainLogsheet || null,
         initialProduct: initialProductItem || null,
-        certificate: certificate || null,
+        certificate: (certificate && certificate.status === 'active' && finalApp.status !== 'certificate_issued') ? null : (certificate || null),
         products: products || []
       }
     });
