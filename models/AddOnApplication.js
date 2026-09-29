@@ -61,6 +61,12 @@ const addOnApplicationSchema = new mongoose.Schema({
     default: 'submitted'
   },
 
+  previous_status: { type: String, default: null },
+  marked_done_at: { type: Date, default: null },
+  marked_done_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+  restored_at: { type: Date, default: null },
+  restored_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },

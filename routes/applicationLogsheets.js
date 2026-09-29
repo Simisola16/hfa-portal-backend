@@ -1554,6 +1554,9 @@ router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) =
     if (!logsheet) {
       const extLogsheet = await ExtensionLogsheet.findById(req.params.id);
       if (extLogsheet) {
+        if (!extLogsheet.previous_status || extLogsheet.previous_status === 'Done' || extLogsheet.previous_status === 'done') {
+          extLogsheet.previous_status = extLogsheet.status || 'Waiting for Signature';
+        }
         extLogsheet.status = 'Done';
         extLogsheet.marked_done_at = new Date();
         extLogsheet.marked_done_by = req.user._id;
@@ -1563,12 +1566,74 @@ router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) =
       return res.status(404).json({ error: 'Logsheet not found' });
     }
 
+    if (!logsheet.previous_status || logsheet.previous_status === 'Done' || logsheet.previous_status === 'done') {
+      logsheet.previous_status = logsheet.status || 'Waiting for Signature';
+    }
     logsheet.status = 'Done';
     logsheet.marked_done_at = new Date();
     logsheet.marked_done_by = req.user._id;
     await logsheet.save();
 
     res.json({ data: logsheet, message: 'Logsheet marked as Done successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id/restore — Restore a logsheet from Done status (requires Done privilege)
+router.put('/:id/restore', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to restore items.' });
+    }
+
+    const { targetStatus: customTargetStatus } = req.body || {};
+
+    let logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) {
+      const extLogsheet = await ExtensionLogsheet.findById(req.params.id);
+      if (extLogsheet) {
+        let targetStatus = customTargetStatus && customTargetStatus !== 'Done' && customTargetStatus !== 'done'
+          ? customTargetStatus
+          : extLogsheet.previous_status;
+
+        if (!targetStatus || targetStatus === 'Done' || targetStatus === 'done') {
+          const is30Days = extLogsheet.extension_duration_type === '30_days' || Number(extLogsheet.extension_days) <= 30;
+          const isSigned = is30Days
+            ? Boolean(extLogsheet.single_signature)
+            : Boolean(extLogsheet.mufti_signature && extLogsheet.ceo_signature && extLogsheet.manager_signature && extLogsheet.mufti2_signature);
+          targetStatus = isSigned ? 'Signed' : 'Waiting for Signature';
+        }
+        extLogsheet.status = targetStatus;
+        extLogsheet.restored_at = new Date();
+        extLogsheet.restored_by = req.user._id;
+        await extLogsheet.save();
+        return res.json({ data: extLogsheet, message: `Extension logsheet restored to "${targetStatus}" successfully` });
+      }
+      return res.status(404).json({ error: 'Logsheet not found' });
+    }
+
+    let targetStatus = customTargetStatus && customTargetStatus !== 'Done' && customTargetStatus !== 'done'
+      ? customTargetStatus
+      : logsheet.previous_status;
+
+    if (!targetStatus || targetStatus === 'Done' || targetStatus === 'done') {
+      const sigCount = countLogsheetSignatures(logsheet);
+      if (sigCount >= 3) {
+        targetStatus = 'Waiting For Certificate';
+      } else {
+        targetStatus = 'Waiting for Signature';
+      }
+    }
+
+    logsheet.status = targetStatus;
+    logsheet.restored_at = new Date();
+    logsheet.restored_by = req.user._id;
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: `Logsheet restored to "${targetStatus}" successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
