@@ -215,34 +215,128 @@ router.get('/verify/*', handlePublicCertificateAccess);
 router.get('/view/:certNumber', handlePublicCertificateAccess);
 router.get('/view/*', handlePublicCertificateAccess);
 
-// GET all certificates (admin: all, client: own) — paginated & filtered
-router.get('/', authenticateToken, async (req, res) => {
+// GET certificate stats / counts
+router.get('/stats', authenticateToken, async (req, res) => {
   try {
-    let query = {};
     const isAdminUser = req.userModelType === 'Admin' ||
       ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
       (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
 
+    const baseCountFilter = !isAdminUser
+      ? { client_id: req.user._id.toString(), status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      : {};
+
+    const now = new Date();
+    const ninetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    const [totalCount, reviewCount, activeCount, expiringCount, expiredCount] = await Promise.all([
+      Certificate.countDocuments(baseCountFilter),
+      Certificate.countDocuments({ ...baseCountFilter, status: { $in: ['under_review', 'draft'] } }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        status: 'active',
+        $or: [{ expiry_date: { $gte: now } }, { expiry_date: null }, { expiry_date: { $exists: false } }]
+      }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        status: 'active',
+        expiry_date: { $gte: now, $lte: ninetyDays }
+      }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        $or: [
+          { status: 'expired' },
+          { status: 'active', expiry_date: { $lt: now } }
+        ]
+      })
+    ]);
+
+    res.json({
+      total: totalCount,
+      under_review: reviewCount,
+      active: activeCount,
+      expiring: expiringCount,
+      expired: expiredCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all certificates (admin: all, client: own) — paginated & filtered
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const isAdminUser = req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
+
+    const now = new Date();
+    const ninetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    const andConditions = [];
+
     if (!isAdminUser) {
-      query.client_id = req.user._id.toString();
-      query.status = { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] };
+      andConditions.push({ client_id: req.user._id.toString() });
+      andConditions.push({ status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } });
     }
 
     // ── Server-side filtering ──────────────────────────────────────────────────
-    const { status, search, page: pageQ, limit: limitQ, all } = req.query;
+    const { status, search, site, company, page: pageQ, limit: limitQ, all } = req.query;
+
     if (status && status !== 'all') {
-      // Only override client status filter if admin
-      if (isAdminUser) query.status = status;
+      const s = status.toLowerCase().trim();
+      if (s === 'active') {
+        andConditions.push({
+          status: 'active',
+          $or: [{ expiry_date: { $gte: now } }, { expiry_date: null }, { expiry_date: { $exists: false } }]
+        });
+      } else if (s === 'expiring') {
+        andConditions.push({
+          status: 'active',
+          expiry_date: { $gte: now, $lte: ninetyDays }
+        });
+      } else if (s === 'expired') {
+        andConditions.push({
+          $or: [
+            { status: 'expired' },
+            { status: 'active', expiry_date: { $lt: now } }
+          ]
+        });
+      } else if (s === 'under_review' || s === 'review') {
+        andConditions.push({
+          status: { $in: ['under_review', 'draft'] }
+        });
+      } else {
+        andConditions.push({ status: s });
+      }
     }
+
     if (search && search.trim()) {
       const esc = search.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
       const rx = new RegExp(esc, 'i');
-      query.$or = [
-        { certificate_number: rx },
-        { company_name: rx },
-        { scope: rx },
-      ];
+      andConditions.push({
+        $or: [
+          { certificate_number: rx },
+          { company_name: rx },
+          { site_name: rx },
+          { scope: rx },
+        ]
+      });
     }
+
+    if (site && site.trim()) {
+      const escSite = site.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const rxSite = new RegExp(escSite, 'i');
+      andConditions.push({ site_name: rxSite });
+    }
+
+    if (company && company.trim()) {
+      const escComp = company.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const rxComp = new RegExp(`^${escComp}$`, 'i');
+      andConditions.push({ company_name: rxComp });
+    }
+
+    const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
     // If client only needs lightweight status/id mapping (e.g. logsheets checking certificate status)
     if (req.query.minimal === 'true') {
@@ -258,7 +352,12 @@ router.get('/', authenticateToken, async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(limitQ) || 50));
     const skip = (page - 1) * limit;
 
-    const [total, data] = await Promise.all([
+    // Base count filter (scoped to client if not admin)
+    const baseCountFilter = !isAdminUser
+      ? { client_id: req.user._id.toString(), status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      : {};
+
+    const [total, data, totalCount, reviewCount, activeCount, expiringCount, expiredCount] = await Promise.all([
       Certificate.countDocuments(query),
       Certificate.find(query)
         .select('-product_details -products_covered')
@@ -267,11 +366,37 @@ router.get('/', authenticateToken, async (req, res) => {
         .sort({ issue_date: -1, createdAt: -1 })
         .skip(fetchAll ? 0 : skip)
         .limit(fetchAll ? 0 : limit)
-        .lean()
+        .lean(),
+      Certificate.countDocuments(baseCountFilter),
+      Certificate.countDocuments({ ...baseCountFilter, status: { $in: ['under_review', 'draft'] } }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        status: 'active',
+        $or: [{ expiry_date: { $gte: now } }, { expiry_date: null }, { expiry_date: { $exists: false } }]
+      }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        status: 'active',
+        expiry_date: { $gte: now, $lte: ninetyDays }
+      }),
+      Certificate.countDocuments({
+        ...baseCountFilter,
+        $or: [
+          { status: 'expired' },
+          { status: 'active', expiry_date: { $lt: now } }
+        ]
+      })
     ]);
 
+    const counts = {
+      total: totalCount,
+      under_review: reviewCount,
+      active: activeCount,
+      expiring: expiringCount,
+      expired: expiredCount
+    };
+
     // Auto-expire: fire-and-forget background update
-    const now = new Date();
     const expiredIds = [];
     data.forEach(c => {
       if (c.status === 'active' && !c.is_renewed && c.expiry_date && new Date(c.expiry_date) < now) {
@@ -327,7 +452,8 @@ router.get('/', authenticateToken, async (req, res) => {
       total,
       page: fetchAll ? 1 : page,
       limit: fetchAll ? total : limit,
-      totalPages: fetchAll ? 1 : Math.ceil(total / limit)
+      totalPages: fetchAll ? 1 : Math.ceil(total / limit),
+      counts
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -350,6 +476,14 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
           .populate('site_id')
           .populate('created_by', 'full_name email role')
           .populate('reviewed_by', 'full_name email role');
+      }
+    }
+
+    // Do not return former active certificates if the application has not reached certificate_issued stage
+    if (data && data.status === 'active' && mongoose.isValidObjectId(req.params.appId)) {
+      const appDoc = await Application.findById(req.params.appId).select('status').lean();
+      if (appDoc && appDoc.status !== 'certificate_issued') {
+        data = null;
       }
     }
 
