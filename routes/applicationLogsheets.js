@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
+import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Application from '../models/Application.js';
 import Audit from '../models/Audit.js';
 import User from '../models/User.js';
@@ -18,7 +19,7 @@ import { getSuperadminEmails } from '../lib/mailer.js';
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /**
@@ -1535,6 +1536,39 @@ router.post('/:id/resend-emails', authenticateToken, requireAdmin, async (req, r
       failed: emailResult.failed,
       recipients: customEmails.length > 0 ? customEmails : undefined
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id/mark-done — Mark a logsheet as Done (requires Done privilege)
+router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to mark items as done.' });
+    }
+
+    let logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) {
+      const extLogsheet = await ExtensionLogsheet.findById(req.params.id);
+      if (extLogsheet) {
+        extLogsheet.status = 'Done';
+        extLogsheet.marked_done_at = new Date();
+        extLogsheet.marked_done_by = req.user._id;
+        await extLogsheet.save();
+        return res.json({ data: extLogsheet, message: 'Extension logsheet marked as Done successfully' });
+      }
+      return res.status(404).json({ error: 'Logsheet not found' });
+    }
+
+    logsheet.status = 'Done';
+    logsheet.marked_done_at = new Date();
+    logsheet.marked_done_by = req.user._id;
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Logsheet marked as Done successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

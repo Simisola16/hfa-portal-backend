@@ -1241,4 +1241,27 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
   }
 });
 
+// PUT /api/add-on-applications/:id/mark-done — Mark an add-on application as Done (requires Done privilege)
+router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to mark items as done.' });
+    }
+
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    app.status = 'done';
+    app.marked_done_at = new Date();
+    app.marked_done_by = req.user._id;
+    await app.save();
+
+    res.json({ data: app, message: 'Add-on application marked as Done successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

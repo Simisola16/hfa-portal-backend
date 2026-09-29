@@ -253,7 +253,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const {
     email, password, full_name, role, roles, username, company_name, phone,
     address, postcode, country,
-    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate
+    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done
   } = req.body;
 
   if (!email?.trim()) return res.status(400).json({ error: 'Email address is required.' });
@@ -300,6 +300,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       is_support_manager:           Boolean(is_support_manager || isSuperAdmin || isSupportManager),
       can_sign_logsheet:            Boolean(can_sign_logsheet  || isSuperAdmin),
       can_review_certificate:       Boolean(can_review_certificate || isSuperAdmin),
+      can_mark_done:                Boolean(can_mark_done || isSuperAdmin),
       is_active:   true,
     });
 
@@ -496,7 +497,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     const {
       full_name, email, username, password, phone,
       roles, role,
-      can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate,
+      can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
       company_name, address, postcode, country
     } = req.body;
 
@@ -566,11 +567,13 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
           admin.is_support_manager = true;
           admin.can_sign_logsheet = true;
           admin.can_review_certificate = true;
+          admin.can_mark_done = true;
         } else {
           if (can_issue_direct_certificate !== undefined) admin.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
           if (is_support_manager !== undefined) admin.is_support_manager = Boolean(is_support_manager);
           if (can_sign_logsheet !== undefined) admin.can_sign_logsheet = Boolean(can_sign_logsheet);
           if (can_review_certificate !== undefined) admin.can_review_certificate = Boolean(can_review_certificate);
+          if (can_mark_done !== undefined) admin.can_mark_done = Boolean(can_mark_done);
         }
       }
 
@@ -644,7 +647,7 @@ router.put('/:id/password', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate } = req.body;
+    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
@@ -663,12 +666,14 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       updateObj.is_support_manager           = true;
       updateObj.can_sign_logsheet            = true;
       updateObj.can_review_certificate       = true;
+      updateObj.can_mark_done                = true;
     } else {
       if (can_issue_direct_certificate !== undefined) updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
       if (is_support_manager !== undefined)            updateObj.is_support_manager           = Boolean(is_support_manager);
       else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) updateObj.is_support_manager = true;
       if (can_sign_logsheet    !== undefined) updateObj.can_sign_logsheet    = Boolean(can_sign_logsheet);
       if (can_review_certificate !== undefined) updateObj.can_review_certificate = Boolean(can_review_certificate);
+      if (can_mark_done !== undefined) updateObj.can_mark_done = Boolean(can_mark_done);
     }
 
     const data = await Admin.findByIdAndUpdate(req.params.id, updateObj, { new: true }).select('-password');
@@ -764,6 +769,36 @@ router.put('/:id/logsheet-sign-permission', authenticateToken, requireSuperAdmin
     const resData = admin.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Signature Privilege ${admin.can_sign_logsheet ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/mark-done-permission — Superadmin toggles Done Privilege (Admin)
+router.put('/:id/mark-done-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_mark_done } = req.body;
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
+
+    admin.can_mark_done = Boolean(can_mark_done);
+    await admin.save();
+
+    await createNotification(
+      admin._id,
+      admin.can_mark_done
+        ? 'Privilege Granted: Done Privilege ✅'
+        : 'Privilege Revoked: Done Privilege',
+      admin.can_mark_done
+        ? 'Superadmin has granted you the Done Privilege. You can now mark applications, logsheets, and add-on applications as Done.'
+        : 'Your Done Privilege has been revoked by Superadmin.',
+      admin.can_mark_done ? 'success' : 'warning',
+      admin.can_mark_done ? '/dashboard' : '/dashboard'
+    );
+
+    const resData = admin.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Done Privilege ${admin.can_mark_done ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -54,7 +54,9 @@ const addOnApplicationSchema = new mongoose.Schema({
       'waiting_sharia_signature',
       'product_form_approved',
       'ready_for_certificate',
-      'completed'
+      'completed',
+      'done',
+      'Done'
     ],
     default: 'submitted'
   },
