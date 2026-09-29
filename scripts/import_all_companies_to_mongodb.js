@@ -941,7 +941,7 @@ async function runFullCompanyImport() {
         if (!pName) continue;
         const pCode = cleanStr(p.ProCoder || p.procoder || p.ProID || p.proid);
         const assignedSiteId = siteIdMap.get(cleanStr(p.CiteID)) || defaultSiteId;
-        const pCategory = cleanStr(p.Status || p.category) || 'General';
+        const pCategory = cleanStr(p.Status || p.category || p.Category || p.PRODUCTCATEGORY, '');
 
         const prodDoc = {
           client_id: userIdStr,
@@ -950,7 +950,7 @@ async function runFullCompanyImport() {
           code: pCode,
           category: pCategory,
           status: 'approved',
-          product_type: 'General',
+          product_type: cleanStr(p.Typer || p.product_type, ''),
           ingredients: cleanStr(p.FileNamee) ? [cleanStr(p.FileNamee)] : [],
           barcode: pCode,
           halal_status: 'Halal Certified',
@@ -1213,7 +1213,7 @@ async function runFullCompanyImport() {
         const certDoc = {
           certificate_number: certNo,
           client_id: userIdStr,
-          application_id: latestAppId || undefined,
+          application_id: (cleanStr(c.AppID) && appMapByAppNum.has(cleanStr(c.AppID))) ? appMapByAppNum.get(cleanStr(c.AppID)) : undefined,
           site_id: siteId,
           site_name: explicitSiteName,
           certificate_type: certType,
