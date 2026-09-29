@@ -1319,12 +1319,57 @@ router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) =
     const app = await Application.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
+    if (!app.previous_status || app.previous_status === 'done' || app.previous_status === 'Done') {
+      app.previous_status = app.status;
+    }
     app.status = 'done';
     app.marked_done_at = new Date();
     app.marked_done_by = req.user._id;
     await app.save();
 
     res.json({ data: app, message: 'Application marked as Done successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/applications/:id/restore — Restore an application from Done status (requires Done privilege)
+router.put('/:id/restore', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to restore items.' });
+    }
+
+    const app = await Application.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    const { targetStatus: customTargetStatus } = req.body || {};
+    let targetStatus = customTargetStatus && customTargetStatus !== 'done' && customTargetStatus !== 'Done'
+      ? customTargetStatus
+      : app.previous_status;
+
+    if (!targetStatus || targetStatus === 'done' || targetStatus === 'Done') {
+      const validHistory = (app.statusHistory || []).slice().reverse().find(h => h.status && h.status !== 'done' && h.status !== 'Done');
+      targetStatus = validHistory ? validHistory.status : 'under_review';
+    }
+
+    app.status = targetStatus;
+    app.restored_at = new Date();
+    app.restored_by = req.user._id;
+    if (Array.isArray(app.statusHistory)) {
+      app.statusHistory.push({
+        status: targetStatus,
+        changedAt: new Date(),
+        changedBy: req.user._id,
+        note: `Application restored from Done back to ${targetStatus}`
+      });
+    }
+    await app.save();
+    emitApplicationUpdate(app, targetStatus);
+
+    res.json({ data: app, message: `Application restored to "${targetStatus}" successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
