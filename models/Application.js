@@ -68,7 +68,7 @@ const applicationSchema = new mongoose.Schema({
       'logsheet_created', 'logsheet_signed', 'application_successful',
       'agreement_sent', 'agreement_signed', 'agreement_finalised',
       'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate',
-      'certificate_issued',
+      'certificate_issued', 'done', 'Done',
     ],
     default: 'submitted',
   },

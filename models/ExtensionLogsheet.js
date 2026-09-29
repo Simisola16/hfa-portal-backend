@@ -59,7 +59,7 @@ const extensionLogsheetSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['Draft', 'Waiting for Signature', 'Signed', 'Approved'],
+    enum: ['Draft', 'Waiting for Signature', 'Signed', 'Approved', 'Done', 'done'],
     default: 'Waiting for Signature'
   },
 

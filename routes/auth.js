@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hfa_portal_secret_key_2024_@!';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /* ─── Email template ─────────────────────────────────────────────── */
@@ -354,6 +354,7 @@ router.post('/admin/login', async (req, res) => {
       can_issue_direct_certificate: Boolean(admin.can_issue_direct_certificate || admin.role === 'superadmin'),
       can_sign_logsheet: Boolean(admin.can_sign_logsheet || admin.role === 'superadmin'),
       can_review_certificate: Boolean(admin.can_review_certificate || admin.role === 'superadmin'),
+      can_mark_done: Boolean(admin.can_mark_done || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
       is_support_manager: Boolean(
         admin.is_support_manager ||
         admin.role === 'superadmin' ||

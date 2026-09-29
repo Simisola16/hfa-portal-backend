@@ -103,7 +103,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
 
   status: { 
     type: String, 
-    enum: ['Waiting for Signature', 'Signed', 'Completed', 'Waiting For Certificate'], 
+    enum: ['Waiting for Signature', 'Signed', 'Completed', 'Waiting For Certificate', 'Done', 'done'], 
     default: 'Waiting for Signature' 
   },
 
