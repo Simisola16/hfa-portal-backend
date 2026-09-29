@@ -10,3 +10,8 @@ scratch/
 test-cert-out.pdf
 *.pdf
 *.png
+
+# Migration & server sync scripts
+scripts/*ubuntu*
+scripts/cleanup_products_and_cards.mjs
+scripts/update_macphie_cert.mjs
