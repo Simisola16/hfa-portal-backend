@@ -11,26 +11,79 @@ function cleanStr(val) {
   return s === 'NULL' || s === 'null' || s === 'undefined' ? '' : s;
 }
 
-// Robust date parsing for certificate and legacy records
+const MONTH_MAP = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11
+};
+
+// Robust date parsing for certificate and legacy records (enforces 12:00:00 UTC to prevent 1-day timezone backward shift)
 function parseCertDate(val) {
   if (!val) return null;
   const s = String(val).trim();
-  if (!s || s === 'null' || s === 'undefined' || s === '-' || s === 'not set' || s === 'used to be HFA') return null;
-  if (s.includes('0001')) return null;
-
-  // Handle DD/MM/YYYY slash format
-  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (slashMatch) {
-    const day = parseInt(slashMatch[1], 10);
-    const month = parseInt(slashMatch[2], 10) - 1;
-    const year = parseInt(slashMatch[3], 10);
-    const d = new Date(Date.UTC(year, month, day));
-    return isNaN(d.getTime()) ? null : d;
+  if (
+    !s ||
+    s === '_' ||
+    s === '-' ||
+    s === 'null' ||
+    s === 'undefined' ||
+    s.toLowerCase() === 'not set' ||
+    s.toLowerCase().includes('used to be') ||
+    s.includes('0001')
+  ) {
+    return null;
   }
 
+  // 1. Format: DD-Mon-YYYY or DD Mon YYYY or DD-Month-YYYY (e.g. 04-May-2023, 08-Jun-2023)
+  const mAlpha = s.match(/^(\d{1,2})[\s\-]+([A-Za-z]+)[\s\-]+(\d{4})/);
+  if (mAlpha) {
+    const day = parseInt(mAlpha[1], 10);
+    const monKey = mAlpha[2].toLowerCase();
+    const year = parseInt(mAlpha[3], 10);
+    const month = MONTH_MAP[monKey] !== undefined ? MONTH_MAP[monKey] : MONTH_MAP[monKey.slice(0, 3)];
+    if (month !== undefined && year >= 1990) {
+      return new Date(Date.UTC(year, month, day, 12, 0, 0));
+    }
+  }
+
+  // 2. Format: YYYY-MM-DD or YYYY/MM/DD (ISO style)
+  const mIso = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (mIso) {
+    const year = parseInt(mIso[1], 10);
+    const month = parseInt(mIso[2], 10) - 1;
+    const day = parseInt(mIso[3], 10);
+    if (year >= 1990) {
+      return new Date(Date.UTC(year, month, day, 12, 0, 0));
+    }
+  }
+
+  // 3. Format: DD/MM/YYYY or DD-MM-YYYY (UK / European style)
+  const mUk = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (mUk) {
+    const day = parseInt(mUk[1], 10);
+    const month = parseInt(mUk[2], 10) - 1;
+    const year = parseInt(mUk[3], 10);
+    if (year >= 1990) {
+      return new Date(Date.UTC(year, month, day, 12, 0, 0));
+    }
+  }
+
+  // Fallback: standard date parse but enforce 12:00:00 UTC
   const d = new Date(s);
-  if (isNaN(d.getTime()) || d.getFullYear() < 1990) return null;
-  return d;
+  if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0));
+  }
+
+  return null;
 }
 
 // Extract date from QR code format in certificate number (e.g. "LE-BU/QR230504014749" -> 2023-05-04)
@@ -41,8 +94,7 @@ function extractDateFromCertNo(certNo) {
     const year = 2000 + parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
     const day = parseInt(match[3], 10);
-    const d = new Date(Date.UTC(year, month, day));
-    return isNaN(d.getTime()) ? null : d;
+    return new Date(Date.UTC(year, month, day, 12, 0, 0));
   }
   return null;
 }
@@ -150,7 +202,7 @@ async function main() {
 
       let parsedExp = parseCertDate(sqlRow.ExpiryDate);
       if (!parsedExp && parsedIssue) {
-        parsedExp = new Date(parsedIssue.getTime() + 365 * 24 * 60 * 60 * 1000);
+        parsedExp = new Date(Date.UTC(parsedIssue.getUTCFullYear() + 1, parsedIssue.getUTCMonth(), parsedIssue.getUTCDate(), 12, 0, 0));
       }
 
       const parsedCur = parseCertDate(sqlRow.CurrentCyStartDate) || parsedIssue;
@@ -161,15 +213,19 @@ async function main() {
       newCur = parsedCur || cert.current_cycle_start_date;
       newOrig = parsedOrig; // strictly null if not provided in SQL!
 
-      // Correct status if expired
-      const isExpired = newExp ? newExp < new Date() : false;
-      const rawStatus = cleanStr(sqlRow.Statuss).toLowerCase();
-      if (rawStatus === 'submitted') {
-        newStatus = 'under_review';
-      } else if (isExpired) {
-        newStatus = 'expired';
+      // Correct status if expired, preserving administrative statuses
+      if (['revoked', 'renewed', 'outdated', 'superseded'].includes(cert.status)) {
+        newStatus = cert.status;
       } else {
-        newStatus = 'active';
+        const isExpired = newExp ? newExp < new Date() : false;
+        const rawStatus = cleanStr(sqlRow.Statuss).toLowerCase();
+        if (rawStatus === 'submitted') {
+          newStatus = 'under_review';
+        } else if (isExpired) {
+          newStatus = 'expired';
+        } else {
+          newStatus = 'active';
+        }
       }
     }
 
