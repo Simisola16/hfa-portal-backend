@@ -120,6 +120,17 @@ export const requireReviewCertificatePrivilege = (req, res, next) => {
   next();
 };
 
+export const requireChangeStatusPrivilege = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+  if (!isSuperAdmin && !req.user.can_change_application_status) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the Change Status Privilege. Please contact a Superadmin to grant you this privilege.',
+    });
+  }
+  next();
+};
+
 export const requireAdmin = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   if (!userHasRole(req.user, 'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager')) {

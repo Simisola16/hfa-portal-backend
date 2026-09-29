@@ -1330,5 +1330,91 @@ router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) =
   }
 });
 
+// PUT /api/applications/:id/change-status — Change application status (requires Change Status privilege)
+router.put('/:id/change-status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasChangeStatusPrivilege = isSuperAdmin || Boolean(req.user.can_change_application_status);
+    if (!hasChangeStatusPrivilege) {
+      return res.status(403).json({ error: 'Access denied. You do not have the Change Status Privilege. Please contact a Superadmin to grant you this privilege.' });
+    }
+
+    const { status, note } = req.body;
+    if (!status || typeof status !== 'string') {
+      return res.status(400).json({ error: 'A valid status is required.' });
+    }
+
+    const targetStatus = status.trim().toLowerCase();
+
+    const allowedStatuses = [
+      'submitted', 'under_review', 'rejected', 'approved',
+      'proposal_sent', 'proposal_rejected', 'proposal_approved',
+      'invoice_sent', 'payment_received', 'initial_product', 'initial_product_approved', 'dates_proposed',
+      'dates_rejected', 'dates_accepted', 'date_finalized', 'audit_assigned', 'audit_report_submitted',
+      'on_hold', 'audit_successful', 'audit_completed', 'nc_flagged', 'nc_closed',
+      'logsheet_created', 'logsheet_signed', 'application_successful',
+      'agreement_sent', 'agreement_signed', 'agreement_finalised',
+      'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate',
+      'certificate_issued', 'done'
+    ];
+
+    if (!allowedStatuses.includes(targetStatus)) {
+      return res.status(400).json({ error: `Invalid status "${status}". Must be a valid application status.` });
+    }
+
+    const app = await Application.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
+
+    const previousStatus = app.status;
+    app.status = targetStatus;
+
+    if (targetStatus === 'done') {
+      app.marked_done_at = new Date();
+      app.marked_done_by = req.user._id;
+    }
+
+    if (!Array.isArray(app.statusHistory)) {
+      app.statusHistory = [];
+    }
+
+    app.statusHistory.push({
+      status: targetStatus,
+      changedAt: new Date(),
+      changedBy: req.user._id,
+      note: note?.trim() || `Status manually changed from "${previousStatus}" to "${targetStatus}" via Super Grant Change Status Privilege`,
+    });
+
+    await app.save();
+
+    if (app.client_id) {
+      try {
+        await createNotification(
+          app.client_id,
+          'Application',
+          'Application Status Updated',
+          `Your application (${app.application_number}) status has been updated to "${targetStatus}".`,
+          'info',
+          `/applications/${app._id}`
+        );
+      } catch (notifyErr) {
+        console.error('Notification error on change status:', notifyErr);
+      }
+    }
+
+    if (typeof emitApplicationUpdate === 'function') {
+      emitApplicationUpdate(app._id, app);
+    }
+
+    res.json({
+      success: true,
+      data: app,
+      message: `Application status changed from "${previousStatus}" to "${targetStatus}" successfully.`
+    });
+  } catch (err) {
+    console.error('Error changing application status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
 

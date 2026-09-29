@@ -253,7 +253,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const {
     email, password, full_name, role, roles, username, company_name, phone,
     address, postcode, country,
-    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done
+    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
+    can_change_application_status
   } = req.body;
 
   if (!email?.trim()) return res.status(400).json({ error: 'Email address is required.' });
@@ -301,6 +302,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       can_sign_logsheet:            Boolean(can_sign_logsheet  || isSuperAdmin),
       can_review_certificate:       Boolean(can_review_certificate || isSuperAdmin),
       can_mark_done:                Boolean(can_mark_done || isSuperAdmin),
+      can_change_application_status: Boolean(can_change_application_status || isSuperAdmin),
       is_active:   true,
     });
 
@@ -498,6 +500,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       full_name, email, username, password, phone,
       roles, role,
       can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
+      can_change_application_status,
       company_name, address, postcode, country
     } = req.body;
 
@@ -568,12 +571,14 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
           admin.can_sign_logsheet = true;
           admin.can_review_certificate = true;
           admin.can_mark_done = true;
+          admin.can_change_application_status = true;
         } else {
           if (can_issue_direct_certificate !== undefined) admin.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
           if (is_support_manager !== undefined) admin.is_support_manager = Boolean(is_support_manager);
           if (can_sign_logsheet !== undefined) admin.can_sign_logsheet = Boolean(can_sign_logsheet);
           if (can_review_certificate !== undefined) admin.can_review_certificate = Boolean(can_review_certificate);
           if (can_mark_done !== undefined) admin.can_mark_done = Boolean(can_mark_done);
+          if (can_change_application_status !== undefined) admin.can_change_application_status = Boolean(can_change_application_status);
         }
       }
 
@@ -647,7 +652,7 @@ router.put('/:id/password', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done } = req.body;
+    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done, can_change_application_status } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
@@ -667,6 +672,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       updateObj.can_sign_logsheet            = true;
       updateObj.can_review_certificate       = true;
       updateObj.can_mark_done                = true;
+      updateObj.can_change_application_status = true;
     } else {
       if (can_issue_direct_certificate !== undefined) updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
       if (is_support_manager !== undefined)            updateObj.is_support_manager           = Boolean(is_support_manager);
@@ -674,6 +680,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       if (can_sign_logsheet    !== undefined) updateObj.can_sign_logsheet    = Boolean(can_sign_logsheet);
       if (can_review_certificate !== undefined) updateObj.can_review_certificate = Boolean(can_review_certificate);
       if (can_mark_done !== undefined) updateObj.can_mark_done = Boolean(can_mark_done);
+      if (can_change_application_status !== undefined) updateObj.can_change_application_status = Boolean(can_change_application_status);
     }
 
     const data = await Admin.findByIdAndUpdate(req.params.id, updateObj, { new: true }).select('-password');
@@ -799,6 +806,36 @@ router.put('/:id/mark-done-permission', authenticateToken, requireSuperAdmin, as
     const resData = admin.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Done Privilege ${admin.can_mark_done ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/change-status-permission — Superadmin toggles Change Application Status Privilege (Admin)
+router.put('/:id/change-status-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_change_application_status } = req.body;
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
+
+    admin.can_change_application_status = Boolean(can_change_application_status);
+    await admin.save();
+
+    await createNotification(
+      admin._id,
+      admin.can_change_application_status
+        ? 'Super Grant: Change Status Privilege 🔄'
+        : 'Privilege Revoked: Change Status Privilege',
+      admin.can_change_application_status
+        ? 'Superadmin has granted you the Change Status Privilege. You can now manually change and override application statuses.'
+        : 'Your Change Status Privilege has been revoked by Superadmin.',
+      admin.can_change_application_status ? 'success' : 'warning',
+      admin.can_change_application_status ? '/applications' : '/applications'
+    );
+
+    const resData = admin.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Change Status Privilege ${admin.can_change_application_status ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
