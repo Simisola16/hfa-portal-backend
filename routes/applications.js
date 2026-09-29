@@ -180,6 +180,7 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
         $or: [
           { application_id: targetAppId },
           { application_id: String(targetAppId) },
+          ...(appDoc.application_number ? [{ AppID: appDoc.application_number }] : []),
           ...(appDoc.logsheet_id ? [{ _id: appDoc.logsheet_id }] : [])
         ]
       }).sort({ created_at: -1, createdAt: -1 }).lean().catch(() => []),
@@ -204,6 +205,7 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
       if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
       if (l.initial_product_application_id || l.addon_application_id) return false;
       if (l.audit_type === 'Initial Product Evaluation') return false;
+      if (l.application_id && String(l.application_id) !== String(targetAppId)) return false;
       return true;
     }) || null;
 
@@ -385,11 +387,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
             ]
           }).sort({ finalized_date: -1, scheduled_date: -1, created_at: -1, createdAt: -1 });
 
-          let properStatus = 'audit_completed';
+          let properStatus = 'nc_closed';
           if (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) {
             properStatus = 'nc_closed';
           } else if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
-            properStatus = 'audit_completed';
+            properStatus = 'nc_closed';
           } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'audit_assigned' || h.status === 'auditor_assigned')) {
             properStatus = 'audit_assigned';
           } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'date_finalized')) {
