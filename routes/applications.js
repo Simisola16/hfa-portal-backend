@@ -303,6 +303,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     // Auto-normalize New application status to initial_product if stuck on payment_received
     const isRenewalApp = (data.application_type || '').toLowerCase() === 'renewal' || (data.application_type || '').toLowerCase() === 'surveillance';
+    const isRenewalOrSurveillance = isRenewalApp;
     if (!isRenewalApp && data.status === 'payment_received') {
       data.status = 'initial_product';
       finalData.status = 'initial_product';
@@ -377,46 +378,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
           }
         }
       } else {
-        // If no main logsheet exists, ensure the application was not mistakenly pushed to application_successful or ready_for_certificate
-        if (['application_successful', 'ready_for_certificate'].includes(data.status)) {
-          const Audit = mongoose.model('Audit');
-          const audit = await Audit.findOne({
-            $or: [
-              { application_id: data._id },
-              ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(data._id) }] : [])
-            ]
-          }).sort({ finalized_date: -1, scheduled_date: -1, created_at: -1, createdAt: -1 });
-
-          let properStatus = 'nc_closed';
-          if (data.statusHistory && data.statusHistory.some(h => h.status === 'nc_closed')) {
-            properStatus = 'nc_closed';
-          } else if (audit && (audit.status === 'audit_completed' || audit.status === 'audit_successful' || audit.completed_at)) {
-            properStatus = 'nc_closed';
-          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'audit_assigned' || h.status === 'auditor_assigned')) {
-            properStatus = 'audit_assigned';
-          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'date_finalized')) {
-            properStatus = 'date_finalized';
-          } else if (data.statusHistory && data.statusHistory.some(h => h.status === 'payment_received')) {
-            properStatus = 'payment_received';
-          }
-
-          data.status = properStatus;
-          finalData.status = properStatus;
-          const cleanedHistory = (data.statusHistory || []).filter(h => !['application_successful', 'ready_for_certificate'].includes(h.status));
-          finalData.statusHistory = cleanedHistory;
-          await Application.findByIdAndUpdate(data._id, {
-            status: properStatus,
-            statusHistory: cleanedHistory
-          });
-        }
-
         // Reconcile dual-stage application if prematurely set to nc_closed, audit_completed, or logsheet_created without Stage 2 completion
         const catLower = String(data.category || '').toLowerCase();
         const typeLower = String(data.application_type || '').toLowerCase();
         const schemeLower = String(data.scheme || '').toLowerCase();
         const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+        const isSeededApp = Boolean(data.notes && /imported|legacy/i.test(data.notes));
 
-        if (isDualStage) {
+        if (isDualStage && !isSeededApp) {
           const Audit = mongoose.model('Audit');
           const allAudits = await Audit.find({
             $or: [
