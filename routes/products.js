@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import AddOnApplication from '../models/AddOnApplication.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -82,7 +83,30 @@ router.get('/', authenticateToken, async (req, res) => {
       };
     });
 
-    res.json({ data });
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10);
+    const isPaginated = !isNaN(page) && !isNaN(limit) && limit > 0;
+
+    let responseData = data;
+    let pagination = null;
+
+    if (isPaginated) {
+      const total = data.length;
+      const totalPages = Math.ceil(total / limit) || 1;
+      const validPage = Math.max(1, Math.min(page, totalPages));
+      const skip = (validPage - 1) * limit;
+      responseData = data.slice(skip, skip + limit);
+      pagination = {
+        page: validPage,
+        limit,
+        total,
+        totalPages,
+        hasPrevPage: validPage > 1,
+        hasNextPage: validPage < totalPages
+      };
+    }
+
+    res.json({ data: responseData, pagination });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -240,7 +264,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const savedAddOn = await addOnApp.save();
     emitAddOnUpdate(savedAddOn, 'created');
 
-    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(
         a._id,

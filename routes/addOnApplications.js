@@ -4,6 +4,7 @@ import multer from 'multer';
 import AddOnApplication from '../models/AddOnApplication.js';
 import Certificate from '../models/Certificate.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
@@ -76,7 +77,7 @@ async function pushHistory(app, status, note, changedBy) {
 
 async function notifyAdmins(title, body) {
   try {
-    const admins = await User.find({ role: { $in: ['admin', 'food_tech_manager'] } }).lean();
+    const admins = await Admin.find({}).lean();
     for (const a of admins) {
       await createNotification(a._id, title, body, 'info', '/addon-applications');
     }
@@ -149,7 +150,6 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Validate required fields
-    if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact Person Name is required.' });
     if (!contact_email?.trim()) return res.status(400).json({ error: 'Contact Person Email is required.' });
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product entry is required.' });
@@ -159,12 +159,14 @@ router.post('/', authenticateToken, async (req, res) => {
       if (!p.type) return res.status(400).json({ error: 'Each product must have a type selected.' });
     }
 
+    const resolvedContactName = contact_name?.trim() || req.user?.full_name || req.user?.company_name || '';
+
     const newApp = new AddOnApplication({
       client_id: req.user._id,
       certificate_id: targetCertId || undefined,
       application_id: application_id || undefined,
       site_id: site_id || undefined,
-      contact_name,
+      contact_name: resolvedContactName,
       contact_email,
       contact_phone,
       message,
@@ -190,7 +192,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Email Contact Person
     await sendContactEmail({
       contactEmail: contact_email,
-      contactName: contact_name,
+      contactName: resolvedContactName || 'Client',
       subject: '✅ HFA Add-on Application Submitted',
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
@@ -230,7 +232,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
-      .sort({ createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 });
 
     res.json({ data });
   } catch (err) {
@@ -354,7 +356,7 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
     // Validate selected system IDs are food_tech users if any provided
     let ftUsers = [];
     if (ftIds.length > 0) {
-      ftUsers = await User.find({ _id: { $in: ftIds } });
+      ftUsers = await Admin.find({ _id: { $in: ftIds } });
     }
 
     const app = await AddOnApplication.findById(req.params.id);
@@ -1101,7 +1103,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       cert = await Certificate.findOne({ client_id: app.client_id, status: 'active' });
     }
     if (!cert && app.client_id) {
-      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ createdAt: -1 });
+      cert = await Certificate.findOne({ client_id: app.client_id }).sort({ issue_date: -1, created_at: -1, createdAt: -1 });
     }
 
     if (!cert) {
@@ -1234,6 +1236,29 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     });
 
     res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/add-on-applications/:id/mark-done — Mark an add-on application as Done (requires Done privilege)
+router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to mark items as done.' });
+    }
+
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    app.status = 'done';
+    app.marked_done_at = new Date();
+    app.marked_done_by = req.user._id;
+    await app.save();
+
+    res.json({ data: app, message: 'Add-on application marked as Done successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

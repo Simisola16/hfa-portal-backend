@@ -14,7 +14,7 @@ const invoiceSchema = new mongoose.Schema({
   due_date: Date,
   paid_at: Date,
   payment_date: Date,
-  confirmed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  confirmed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   confirmed_at: Date,
   invoice_url: String,
   payment_proof_url: String,
@@ -31,5 +31,14 @@ invoiceSchema.virtual('profiles', {
   foreignField: '_id',
   justOne: true
 });
+
+invoiceSchema.index({ client_id: 1 });
+invoiceSchema.index({ status: 1 });
+invoiceSchema.index({ invoice_type: 1 });
+invoiceSchema.index({ application_id: 1 });
+invoiceSchema.index({ client_id: 1, status: 1 });
+invoiceSchema.index({ created_at: -1 });
+invoiceSchema.index({ createdAt: -1 });
+invoiceSchema.index({ status: 1, created_at: -1 });
 
 export default mongoose.model('Invoice', invoiceSchema);

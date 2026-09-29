@@ -30,7 +30,7 @@ const addOnApplicationSchema = new mongoose.Schema({
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
 
   // Contact Person (receives email at every stage — may differ from the client account email)
-  contact_name: { type: String, required: true },
+  contact_name: { type: String, required: false, default: '' },
   contact_email: { type: String, required: true },
   contact_phone: { type: String },
 
@@ -54,7 +54,9 @@ const addOnApplicationSchema = new mongoose.Schema({
       'waiting_sharia_signature',
       'product_form_approved',
       'ready_for_certificate',
-      'completed'
+      'completed',
+      'done',
+      'Done'
     ],
     default: 'submitted'
   },
@@ -62,7 +64,7 @@ const addOnApplicationSchema = new mongoose.Schema({
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     note: String
   }],
 
@@ -71,8 +73,8 @@ const addOnApplicationSchema = new mongoose.Schema({
   notes: String, // internal admin notes
 
   // FT assignment — array supports multiple assigned FT staff or manual details
-  assigned_food_tech: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // legacy (kept for populate compat)
-  assigned_food_techs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  assigned_food_tech:  { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }, // legacy (kept for populate compat)
+  assigned_food_techs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }],
   assigned_ft_details: String,
   assigned_ft_custom: {
     name: String,
@@ -120,5 +122,16 @@ addOnApplicationSchema.pre('save', function(next) {
   }
   next();
 });
+
+addOnApplicationSchema.index({ client_id: 1 });
+addOnApplicationSchema.index({ status: 1 });
+addOnApplicationSchema.index({ application_number: 1 });
+addOnApplicationSchema.index({ site_id: 1 });
+addOnApplicationSchema.index({ certificate_id: 1 });
+addOnApplicationSchema.index({ logsheet_id: 1 });
+addOnApplicationSchema.index({ client_id: 1, status: 1 });
+addOnApplicationSchema.index({ created_at: -1 });
+addOnApplicationSchema.index({ createdAt: -1 });
+addOnApplicationSchema.index({ status: 1, created_at: -1 });
 
 export default mongoose.model('AddOnApplication', addOnApplicationSchema);

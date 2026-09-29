@@ -1,9 +1,11 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
+import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import Application from '../models/Application.js';
 import Audit from '../models/Audit.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { Resend } from 'resend';
@@ -17,7 +19,7 @@ import { getSuperadminEmails } from '../lib/mailer.js';
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /**
@@ -143,10 +145,12 @@ router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) 
       filter.logsheet_type = req.query.type;
     }
     const logsheets = await ApplicationLogsheet.find(filter)
+      .select('-products_list -document_urls -audit_reports -nc_reports_files')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username')
-      .sort({ created_at: -1, createdAt: -1 });
+      .sort({ created_at: -1, createdAt: -1 })
+      .lean();
     res.json({ data: logsheets });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -468,7 +472,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     })
       .populate('client_id', 'full_name company_name email')
       .populate('site_id', 'name address')
-      .sort({ createdAt: -1, created_at: -1 });
+      .sort({ created_at: -1, createdAt: -1 })
+      .lean();
 
     const mainLogsheet = logsheets.find(l => {
       if (l.source_type === 'initial_product_application' || l.source_type === 'addon_application') return false;
@@ -651,7 +656,9 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 // GET /api/application-logsheets (Admin only)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const filter = {};
+    const filter = {
+      status: { $nin: ['Bin', 'bin', 'BIN'] }
+    };
     if (req.query.initial_product_application_id) {
       filter.initial_product_application_id = req.query.initial_product_application_id;
     }
@@ -664,9 +671,20 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     if (req.query.source_type) {
       filter.source_type = req.query.source_type;
     }
+    if (req.query.client_id) {
+      filter.client_id = req.query.client_id;
+    }
+    if (req.query.status) {
+      if (req.query.status.includes(',')) {
+        filter.status = { $in: req.query.status.split(',').map(s => s.trim()) };
+      } else {
+        filter.status = req.query.status;
+      }
+    }
 
-    const logsheets = await ApplicationLogsheet.find(filter)
-      .populate('application_id', 'application_number application_type status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name')
+    let queryExec = ApplicationLogsheet.find(filter)
+      .select('-products_list -document_urls -audit_reports -nc_reports_files')
+      .populate('application_id', 'application_number application_type type is_renewal is_surveillance status category suggested_certificate_type certificate_type certificate_standard site_name company_name establishment_name notes')
       .populate('addon_application_id', 'status')
       .populate('initial_product_application_id', 'status')
       .populate('client_id', 'full_name company_name email phone address')
@@ -674,16 +692,25 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       .populate('created_by', 'full_name email role username')
       .sort({ created_at: -1, createdAt: -1 });
 
-    // Auto-sync logsheets where certificate has already been issued
-    const certIssuedLogs = logsheets.filter(l => l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
+    if (req.query.limit) {
+      const lim = parseInt(req.query.limit, 10);
+      if (!isNaN(lim) && lim > 0) {
+        queryExec = queryExec.limit(lim);
+      }
+    }
+
+    const logsheets = await queryExec.lean();
+
+    // Auto-sync logsheets where certificate has already been issued (exclude historical seed logsheets)
+    const certIssuedLogs = logsheets.filter(l => !l.is_seed && l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
     if (certIssuedLogs.length > 0) {
       const idsToComplete = certIssuedLogs.map(l => l._id);
       ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
       certIssuedLogs.forEach(l => { l.status = 'Completed'; });
     }
 
-    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate
-    const ipLogsToComplete = logsheets.filter(l => (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
+    // Auto-sync initial product logsheets that mistakenly had Waiting For Certificate (exclude seed logsheets)
+    const ipLogsToComplete = logsheets.filter(l => !l.is_seed && (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
     if (ipLogsToComplete.length > 0) {
       const ipIdsToComplete = ipLogsToComplete.map(l => l._id);
       ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
@@ -1112,7 +1139,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
                   // Email notification to Audit Managers
                   try {
-                    const recipients = await User.find({
+                    const recipients = await Admin.find({
                       $or: [
                         { role: { $in: ['audit_manager', 'superadmin'] } },
                         { roles: { $in: ['audit_manager', 'superadmin'] } }
@@ -1509,6 +1536,39 @@ router.post('/:id/resend-emails', authenticateToken, requireAdmin, async (req, r
       failed: emailResult.failed,
       recipients: customEmails.length > 0 ? customEmails : undefined
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/application-logsheets/:id/mark-done — Mark a logsheet as Done (requires Done privilege)
+router.put('/:id/mark-done', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    const hasDonePrivilege = isSuperAdmin || Boolean(req.user.can_mark_done);
+    if (!hasDonePrivilege) {
+      return res.status(403).json({ error: 'You do not have the Done Privilege required to mark items as done.' });
+    }
+
+    let logsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!logsheet) {
+      const extLogsheet = await ExtensionLogsheet.findById(req.params.id);
+      if (extLogsheet) {
+        extLogsheet.status = 'Done';
+        extLogsheet.marked_done_at = new Date();
+        extLogsheet.marked_done_by = req.user._id;
+        await extLogsheet.save();
+        return res.json({ data: extLogsheet, message: 'Extension logsheet marked as Done successfully' });
+      }
+      return res.status(404).json({ error: 'Logsheet not found' });
+    }
+
+    logsheet.status = 'Done';
+    logsheet.marked_done_at = new Date();
+    logsheet.marked_done_by = req.user._id;
+    await logsheet.save();
+
+    res.json({ data: logsheet, message: 'Logsheet marked as Done successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

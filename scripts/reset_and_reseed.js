@@ -26,6 +26,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 // ─── All collections to drop ──────────────────────────────────────────────────
 const COLLECTIONS_TO_DROP = [
   'users',
+  'admins',
   'sites',
   'applications',
   'applicationlogsheets',
@@ -84,8 +85,8 @@ async function resetDatabase() {
   // ── Step 2: Re-create admin user ───────────────────────────────────────────
   console.log('🔐 Step 2: Creating admin user...');
 
-  // Import the User model fresh after dropping
-  const { default: User } = await import('../models/User.js');
+  // Import the Admin model fresh after dropping
+  const { default: Admin } = await import('../models/Admin.js');
 
   const adminEmail    = process.env.ADMIN_EMAIL    || 'admin@hfa.com';
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
@@ -93,7 +94,7 @@ async function resetDatabase() {
 
   const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
-  const adminUser = await User.create({
+  const adminUser = await Admin.create({
     email:          adminEmail,
     username:       adminUsername,
     password:       hashedPassword,

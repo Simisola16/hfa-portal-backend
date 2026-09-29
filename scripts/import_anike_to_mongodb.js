@@ -1074,7 +1074,7 @@ async function seedAnike() {
           { name: 'RICE', code: '898754545', category: 'K' }
         ],
         site_id: site ? site._id : null,
-        notes: `Imported from legacy HFA database (CID: 133, Site: ${c.site_name})`
+        notes: ''
       };
 
       const savedCert = await Certificate.findOneAndUpdate(

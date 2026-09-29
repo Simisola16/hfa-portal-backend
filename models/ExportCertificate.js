@@ -39,4 +39,12 @@ const exportCertificateSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+exportCertificateSchema.index({ client_id: 1 });
+exportCertificateSchema.index({ status: 1 });
+exportCertificateSchema.index({ reference_number: 1 });
+exportCertificateSchema.index({ created_at: -1 });
+exportCertificateSchema.index({ createdAt: -1 });
+exportCertificateSchema.index({ status: 1, created_at: -1 });
+exportCertificateSchema.index({ client_id: 1, created_at: -1 });
+
 export default mongoose.model('ExportCertificate', exportCertificateSchema);

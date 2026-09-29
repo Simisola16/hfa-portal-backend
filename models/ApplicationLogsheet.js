@@ -10,6 +10,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
     default: 'application' 
   },
   direct_ref: String, // e.g. DL-2026-XXXX for direct logsheets
+  legacy_id: { type: String, index: true },
   certificate_standard: String, // GSO MEAT, GSO NON MEAT, SMIIC, HFA SCHEME, COSMETICS
   certificate_type: String,
   suggested_certificate_type: String,
@@ -51,7 +52,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   initial_product_application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'InitialProductApplication' },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
-  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   
   // Tab 1: Company Details
   site_name: String,
@@ -98,10 +99,11 @@ const applicationLogsheetSchema = new mongoose.Schema({
   comment: String,
   
   confirmed: { type: Boolean, default: false },
+  is_seed: { type: Boolean, default: false },
 
   status: { 
     type: String, 
-    enum: ['Waiting for Signature', 'Signed', 'Completed', 'Waiting For Certificate'], 
+    enum: ['Waiting for Signature', 'Signed', 'Completed', 'Waiting For Certificate', 'Done', 'done'], 
     default: 'Waiting for Signature' 
   },
 
@@ -123,6 +125,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   mufti2_sign_date: Date,
 
   created_at: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
 });
 
@@ -130,5 +133,22 @@ applicationLogsheetSchema.pre('save', function(next) {
   this.updated_at = Date.now();
   next();
 });
+
+// Performance Indexes for fast listing, filtering, and sorting
+applicationLogsheetSchema.index({ status: 1 });
+applicationLogsheetSchema.index({ created_at: -1 });
+applicationLogsheetSchema.index({ createdAt: -1 });
+applicationLogsheetSchema.index({ status: 1, created_at: -1 });
+applicationLogsheetSchema.index({ status: 1, createdAt: -1 });
+applicationLogsheetSchema.index({ application_id: 1 });
+applicationLogsheetSchema.index({ addon_application_id: 1 });
+applicationLogsheetSchema.index({ initial_product_application_id: 1 });
+applicationLogsheetSchema.index({ client_id: 1 });
+applicationLogsheetSchema.index({ client_id: 1, created_at: -1 });
+applicationLogsheetSchema.index({ site_id: 1 });
+applicationLogsheetSchema.index({ source_type: 1 });
+applicationLogsheetSchema.index({ source_type: 1, logsheet_type: 1 });
+applicationLogsheetSchema.index({ source_type: 1, created_at: -1 });
+applicationLogsheetSchema.index({ direct_ref: 1 });
 
 export default mongoose.model('ApplicationLogsheet', applicationLogsheetSchema);

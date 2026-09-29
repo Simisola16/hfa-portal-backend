@@ -4,6 +4,9 @@ const applicationSchema = new mongoose.Schema({
   application_number: { type: String, required: true, unique: true },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   application_type: String,
+  type: { type: String, default: 'initial' },
+  is_renewal: { type: Boolean, default: false },
+  is_surveillance: { type: Boolean, default: false },
   category: String,
   site_id: String,
   site_name: String,
@@ -65,14 +68,14 @@ const applicationSchema = new mongoose.Schema({
       'logsheet_created', 'logsheet_signed', 'application_successful',
       'agreement_sent', 'agreement_signed', 'agreement_finalised',
       'final_invoice_sent', 'final_invoice_paid', 'ready_for_certificate',
-      'certificate_issued',
+      'certificate_issued', 'done', 'Done',
     ],
     default: 'submitted',
   },
   statusHistory: [{
     status: { type: String },
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
     note: { type: String, default: '' },
   }],
   certificate_url: String,
@@ -105,7 +108,7 @@ const applicationSchema = new mongoose.Schema({
     name: String,
     url: String,
     uploaded_at: { type: Date, default: Date.now },
-    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
   }],
   nc_reports: [{
     text: String,
@@ -115,7 +118,7 @@ const applicationSchema = new mongoose.Schema({
     client_responded_at: Date,
     admin_reply: String,
     admin_reply_at: Date,
-    admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     status: { type: String, enum: ['flagged', 'client_responded', 'admin_replied', 'closed'], default: 'flagged' },
     flagged_at: { type: Date, default: Date.now }
   }],
@@ -144,5 +147,18 @@ applicationSchema.virtual('inspectors', {
 applicationSchema.index({ client_id: 1 });
 applicationSchema.index({ status: 1 });
 applicationSchema.index({ site_id: 1 });
+applicationSchema.index({ application_type: 1 });
+applicationSchema.index({ renewed_certificate_id: 1 });
+applicationSchema.index({ client_id: 1, application_type: 1 });
+applicationSchema.index({ client_id: 1, status: 1 });
+applicationSchema.index({ client_id: 1, application_type: 1, status: 1 });
+applicationSchema.index({ created_at: -1 });
+applicationSchema.index({ createdAt: -1 });
+applicationSchema.index({ status: 1, created_at: -1 });
+applicationSchema.index({ logsheet_id: 1 });
+applicationSchema.index({ updated_at: -1 });
+applicationSchema.index({ updatedAt: -1 });
+applicationSchema.index({ company_name: 1 });
+applicationSchema.index({ status: 1, updated_at: -1 });
 
 export default mongoose.model('Application', applicationSchema);

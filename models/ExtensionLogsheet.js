@@ -59,7 +59,7 @@ const extensionLogsheetSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['Draft', 'Waiting for Signature', 'Signed', 'Approved'],
+    enum: ['Draft', 'Waiting for Signature', 'Signed', 'Approved', 'Done', 'done'],
     default: 'Waiting for Signature'
   },
 
@@ -69,5 +69,11 @@ const extensionLogsheetSchema = new mongoose.Schema({
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
+
+extensionLogsheetSchema.index({ status: 1 });
+extensionLogsheetSchema.index({ created_at: -1 });
+extensionLogsheetSchema.index({ client_id: 1 });
+extensionLogsheetSchema.index({ application_id: 1 });
+extensionLogsheetSchema.index({ status: 1, created_at: -1 });
 
 export default mongoose.model('ExtensionLogsheet', extensionLogsheetSchema);

@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { uploadToS3 } from '../lib/s3.js';
 import multer from 'multer';
@@ -9,7 +10,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
-import { getClientUrl } from '../lib/urls.js';
+import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 
 dotenv.config();
 
@@ -17,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hfa_portal_secret_key_2024_@!';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
 const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /* ─── Email template ─────────────────────────────────────────────── */
@@ -250,7 +251,7 @@ router.post('/resend-verification', async (req, res) => {
 });
 
 
-// POST /api/auth/login  (client portal — client accounts only)
+// POST /api/auth/login  (client portal — User collection only)
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -258,7 +259,22 @@ router.post('/login', async (req, res) => {
     if (!searchEmail) {
       return res.status(401).json({ error: 'Email is required' });
     }
-    const escapedEmail = searchEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedEmail = searchEmail.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+    // Check Admin collection first — if this email belongs to a staff account,
+    // block them with a clear redirect message.
+    const adminCheck = await Admin.findOne({
+      $or: [
+        { email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') } },
+        { username: { $regex: new RegExp(`^${escapedEmail}$`, 'i') } },
+      ]
+    });
+    if (adminCheck) {
+      return res.status(403).json({
+        error: 'Staff and administrator accounts cannot log in here. Please use the HFA Admin Portal.',
+      });
+    }
+
     const user = await User.findOne({
       email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') }
     });
@@ -266,28 +282,15 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const staffRoles = [
-      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
-      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 
-      'inspector', 'staff', 'support_manager'
-    ];
-
-    const userRole = user.role || 'client';
-    const isStaff = userRole !== 'client' ||
-      staffRoles.includes(userRole) ||
-      (Array.isArray(user.roles) && user.roles.some(r => staffRoles.includes(r)));
-
-    if (isStaff) {
-      return res.status(403).json({ 
-        error: 'Staff and administrator accounts cannot log in here. Please use the HFA Admin Portal.' 
-      });
-    }
-
     if (!user.is_verified) {
       return res.status(403).json({ error: 'Please verify your email address before logging in.' });
     }
 
-    const token = jwt.sign({ id: user._id, role: userRole }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: user._id, role: 'client', modelType: 'User' },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     const clientData = {
       id: user._id,
@@ -295,24 +298,20 @@ router.post('/login', async (req, res) => {
       email: user.email,
       full_name: user.full_name,
       company_name: user.company_name,
-      role: userRole,
+      role: 'client',
       client_role: user.client_role,
       parent_client_id: user.parent_client_id,
       is_active: user.is_active,
-      is_verified: user.is_verified
+      is_verified: user.is_verified,
     };
 
-    res.json({
-      token,
-      user: clientData,
-      profile: clientData
-    });
+    res.json({ token, user: clientData, profile: clientData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/auth/admin/login  (admin portal only — username + password, role must be 'admin')
+// POST /api/auth/admin/login  (admin portal only — Admin collection, username or email)
 router.post('/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -320,57 +319,51 @@ router.post('/admin/login', async (req, res) => {
     if (!searchVal || !password) {
       return res.status(401).json({ error: 'Username or email and password are required' });
     }
-    const escapedVal = searchVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const user = await User.findOne({
+    const escapedVal = searchVal.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+    // Look ONLY in the Admin collection
+    const admin = await Admin.findOne({
       $or: [
         { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
-        { email: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
+        { email:    { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
       ]
     });
 
-    const staffRoles = [
-      'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 
-      'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 
-      'inspector', 'staff', 'support_manager'
-    ];
-
-    const isStaff = user && (
-      staffRoles.includes(user.role) ||
-      (Array.isArray(user.roles) && user.roles.some(r => staffRoles.includes(r)))
-    );
-
-    if (!user || !isStaff) {
+    if (!admin) {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await admin.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid staff credentials' });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: admin._id, role: admin.role, modelType: 'Admin' },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        full_name: user.full_name,
-        role: user.role,
-        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin'),
-        is_support_manager: Boolean(user.is_support_manager || user.role === 'superadmin' || user.role === 'support_manager' || (Array.isArray(user.roles) && user.roles.includes('support_manager')))
-      },
-      profile: {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        full_name: user.full_name,
-        role: user.role,
-        can_issue_direct_certificate: Boolean(user.can_issue_direct_certificate || user.role === 'superadmin'),
-        is_support_manager: Boolean(user.is_support_manager || user.role === 'superadmin' || user.role === 'support_manager' || (Array.isArray(user.roles) && user.roles.includes('support_manager')))
-      }
-    });
+    const adminData = {
+      id: admin._id,
+      email: admin.email,
+      username: admin.username,
+      full_name: admin.full_name,
+      role: admin.role,
+      roles: admin.roles,
+      can_issue_direct_certificate: Boolean(admin.can_issue_direct_certificate || admin.role === 'superadmin'),
+      can_sign_logsheet: Boolean(admin.can_sign_logsheet || admin.role === 'superadmin'),
+      can_review_certificate: Boolean(admin.can_review_certificate || admin.role === 'superadmin'),
+      can_mark_done: Boolean(admin.can_mark_done || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
+      is_support_manager: Boolean(
+        admin.is_support_manager ||
+        admin.role === 'superadmin' ||
+        admin.role === 'support_manager' ||
+        (Array.isArray(admin.roles) && admin.roles.includes('support_manager'))
+      ),
+    };
+
+    res.json({ token, user: adminData, profile: adminData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -390,7 +383,6 @@ router.get('/profile', authenticateToken, async (req, res) => {
 // PUT /api/auth/profile
 router.put('/profile', authenticateToken, async (req, res) => {
   if (req.user.is_impersonation || req.is_impersonation) {
-    // Check if security sensitive fields are being updated
     if (req.body.phone || req.body.email || req.body.password) {
       return res.status(403).json({ error: 'Action forbidden. Impersonated sessions cannot change security-sensitive settings.' });
     }
@@ -398,7 +390,8 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
   try {
     const { full_name, company_name, phone, address, postcode, country } = req.body;
-    const user = await User.findByIdAndUpdate(
+    const Model = req.userModelType === 'Admin' ? Admin : User;
+    const user = await Model.findByIdAndUpdate(
       req.user._id,
       { full_name, company_name, phone, address, postcode, country, updated_at: new Date() },
       { new: true }
@@ -418,9 +411,9 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
 
   try {
-    // Upload to AWS S3
     const avatarUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'avatars');
-    const user = await User.findByIdAndUpdate(
+    const Model = req.userModelType === 'Admin' ? Admin : User;
+    const user = await Model.findByIdAndUpdate(
       req.user._id,
       { avatar_url: avatarUrl },
       { new: true }
@@ -433,34 +426,77 @@ router.put('/profile/avatar', authenticateToken, upload.single('avatar'), async 
 
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
+  const { email, username, portal } = req.body;
   try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const rawVal = (email || username || '').trim();
+    if (!rawVal) {
+      return res.status(400).json({ error: 'Please enter your registered email address or username.' });
+    }
+    const escapedVal = rawVal.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+    let user;
+    let isAdmin = false;
+
+    // If requested from admin portal, check Admin collection first
+    if (portal === 'admin') {
+      user = await Admin.findOne({
+        $or: [
+          { email:    { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
+        ]
+      });
+      if (user) isAdmin = true;
+    }
+
+    if (!user) {
+      user = await Admin.findOne({
+        $or: [
+          { email:    { $regex: new RegExp(`^${escapedVal}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${escapedVal}$`, 'i') } }
+        ]
+      });
+      if (user) isAdmin = true;
+    }
+
+    if (!user) {
+      user = await User.findOne({ email: { $regex: new RegExp(`^${escapedVal}$`, 'i') } });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'No account was found with those credentials.' });
+    }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    user.reset_password_token = resetToken;
+    user.reset_password_token  = resetToken;
     user.reset_password_expiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    const resetUrl = `${getClientUrl()}/reset-password?token=${resetToken}`;
+    const baseUrl = (isAdmin || portal === 'admin') ? getAdminUrl() : getClientUrl();
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    const portalName = isAdmin ? 'HFA Staff Admin Portal' : 'HFA Certification Portal';
+    const recipientEmail = user.email;
+
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      console.log(`\n🔑 [PASSWORD RESET LINK GENERATED for ${recipientEmail}]:\n${resetUrl}\n`);
+    }
 
     try {
       await resend.emails.send({
         from: emailFrom,
-        to: email,
-        subject: 'Reset Your Password - HFA Portal',
+        to: recipientEmail,
+        subject: `Reset Your Password - ${portalName}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9fafb;padding:32px">
             <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
               <h1 style="color:white;margin:0;font-size:28px">Halal Food Authority</h1>
-              <p style="color:#bbf7d0;margin-top:8px">Password Reset Request</p>
+              <p style="color:#bbf7d0;margin-top:8px">${portalName} Password Reset</p>
             </div>
             <div style="background:white;border-radius:12px;padding:32px">
-              <h2 style="color:#166534">Hello, ${user.full_name}!</h2>
-              <p style="color:#4b5563">We received a request to reset your password. If you didn't make this request, you can safely ignore this email.</p>
+              <h2 style="color:#166534">Hello, ${user.full_name || user.username || 'User'}!</h2>
+              <p style="color:#4b5563">We received a request to reset your password for the ${portalName}. If you didn't make this request, you can safely ignore this email.</p>
               <div style="text-align:center;margin:32px 0">
-                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">Reset Password</a>
+                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">Reset Password</a>
               </div>
               <p style="color:#94a3b8;font-size:12px;text-align:center">This link will expire in 1 hour.<br>If the button doesn't work, copy and paste this link:<br>${resetUrl}</p>
             </div>
@@ -471,25 +507,33 @@ router.post('/forgot-password', async (req, res) => {
       console.error('Resend Reset Email Error:', emailErr);
     }
 
-    res.json({ message: 'Password reset link sent to your email.' });
+    res.json({ message: `A password reset link has been sent to ${recipientEmail}.`, resetUrl: process.env.NODE_ENV === 'development' ? resetUrl : undefined });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+
 // POST /api/auth/reset-password
 router.post('/reset-password', async (req, res) => {
   const { token, password } = req.body;
   try {
-    const user = await User.findOne({
-      reset_password_token: token,
+    // Check Admin collection first, then User (client)
+    let user = await Admin.findOne({
+      reset_password_token:  token,
       reset_password_expiry: { $gt: Date.now() }
     });
+    if (!user) {
+      user = await User.findOne({
+        reset_password_token:  token,
+        reset_password_expiry: { $gt: Date.now() }
+      });
+    }
 
     if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
 
     user.password = password;
-    user.reset_password_token = undefined;
+    user.reset_password_token  = undefined;
     user.reset_password_expiry = undefined;
     await user.save();
 
@@ -566,8 +610,8 @@ router.post('/impersonate/end', authenticateToken, async (req, res) => {
 router.get('/impersonate/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const logs = await ImpersonationLog.find()
-      .populate('admin_id', 'full_name email')
-      .populate('client_id', 'company_name full_name email')
+      .populate({ path: 'admin_id',  model: 'Admin', select: 'full_name email' })
+      .populate({ path: 'client_id', model: 'User',  select: 'company_name full_name email' })
       .sort({ started_at: -1 });
     res.json(logs);
   } catch (err) {
@@ -585,22 +629,21 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
   }
 
   try {
+    // Target must be in the User (client) collection
     const targetClient = await User.findById(clientId);
     if (!targetClient) {
       return res.status(404).json({ error: 'Target client user not found.' });
     }
-    if (targetClient.role !== 'client') {
-      return res.status(400).json({ error: 'Impersonation is restricted to client accounts only.' });
-    }
 
-    // Generate short-lived impersonation JWT (1 hour)
+    // Generate short-lived impersonation JWT (1 hour) with modelType: 'User'
     const token = jwt.sign(
-      { 
-        id: targetClient._id, 
-        role: 'client', 
-        is_impersonation: true, 
+      {
+        id: targetClient._id,
+        role: 'client',
+        modelType: 'User',
+        is_impersonation: true,
         impersonated_by: req.user._id,
-        admin_name: req.user.full_name 
+        admin_name: req.user.full_name,
       },
       JWT_SECRET,
       { expiresIn: '1h' }
@@ -614,14 +657,14 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
       code,
       token,
       admin_id: req.user._id,
-      client_id: targetClient._id
+      client_id: targetClient._id,
     }).save();
 
     // Log the start of impersonation
     await new ImpersonationLog({
       admin_id: req.user._id,
       client_id: targetClient._id,
-      started_at: new Date()
+      started_at: new Date(),
     }).save();
 
     res.status(201).json({ code });

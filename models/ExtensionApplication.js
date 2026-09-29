@@ -36,7 +36,7 @@ const extensionApplicationSchema = new mongoose.Schema({
   statusHistory: [{
     status: String,
     changedAt: { type: Date, default: Date.now },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     note: String
   }],
 
@@ -68,5 +68,15 @@ extensionApplicationSchema.pre('save', async function(next) {
   }
   next();
 });
+
+extensionApplicationSchema.index({ status: 1 });
+extensionApplicationSchema.index({ client_id: 1 });
+extensionApplicationSchema.index({ site_id: 1 });
+extensionApplicationSchema.index({ logsheet_id: 1 });
+extensionApplicationSchema.index({ certificate_id: 1 });
+extensionApplicationSchema.index({ application_number: 1 });
+extensionApplicationSchema.index({ created_at: -1 });
+extensionApplicationSchema.index({ status: 1, created_at: -1 });
+extensionApplicationSchema.index({ client_id: 1, created_at: -1 });
 
 export default mongoose.model('ExtensionApplication', extensionApplicationSchema);

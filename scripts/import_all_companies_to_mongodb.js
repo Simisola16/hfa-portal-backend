@@ -80,6 +80,42 @@ function safeDate(val, defaultDate = new Date()) {
   return isNaN(d.getTime()) ? defaultDate : d;
 }
 
+// Helper: Robust certificate date parsing
+function parseCertDate(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s || s === 'null' || s === 'undefined' || s === '-' || s === 'not set' || s === 'used to be HFA') return null;
+  if (s.includes('0001')) return null;
+
+  // Handle DD/MM/YYYY slash format
+  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const day = parseInt(slashMatch[1], 10);
+    const month = parseInt(slashMatch[2], 10) - 1;
+    const year = parseInt(slashMatch[3], 10);
+    const d = new Date(Date.UTC(year, month, day));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(s);
+  if (isNaN(d.getTime()) || d.getFullYear() < 1990) return null;
+  return d;
+}
+
+// Helper: Extract date from QR code format in certificate number (e.g. "LE-BU/QR230504014749" -> 2023-05-04)
+function extractDateFromCertNo(certNo) {
+  if (!certNo) return null;
+  const match = String(certNo).match(/QR(\d{2})(\d{2})(\d{2})/);
+  if (match) {
+    const year = 2000 + parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const d = new Date(Date.UTC(year, month, day));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 // Helper: Clean string
 function cleanStr(val, defaultVal = '') {
   if (val === null || val === undefined) return defaultVal;
@@ -120,9 +156,11 @@ async function loadAllCompanies() {
   if (fs.existsSync(CACHE_FILE)) {
     try {
       const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      if (Array.isArray(cached) && cached.length >= 1300 && cached[0].category) {
-        console.log(`   ✓ Loaded ${cached.length} categorized companies from offline cache (${CACHE_FILE})`);
-        return cached;
+      // Filter out non-API fallback companies to strictly preserve the clean 4-APIs company list
+      const apiCompanies = cached.filter(c => c.source !== 'sql_table_fallback');
+      if (Array.isArray(apiCompanies) && apiCompanies.length >= 1000 && apiCompanies[0].category) {
+        console.log(`   ✓ Loaded ${apiCompanies.length} official API categorized companies from cache (${CACHE_FILE})`);
+        return apiCompanies;
       }
     } catch (_) {}
   }
@@ -162,52 +200,6 @@ async function loadAllCompanies() {
   }
 
   console.log(`   ✓ Active companies from APIs: ${cidMap.size}`);
-
-  // Scan remaining companies from SQL Server tables outside the APIs
-  console.log('   🔍 Scanning SQL Server tables for remaining companies not in APIs...');
-  const compRegis1 = readSqlTable('HalalyMain/tables/dbo.CompRegis.json');
-  const compRegis2 = readSqlTable('HalalyMains/tables/dbo.CompRegis.json');
-  const certRows = readSqlTable('HalalCert/tables/dbo.tlbcertMas.json');
-  const certCids = new Set(certRows.map(c => cleanStr(c.CName)).filter(Boolean));
-  const appRows = readSqlTable('HalalApp/tables/dbo.AppleReg.json');
-  const appCids = new Set(appRows.map(a => cleanStr(a.CID)).filter(Boolean));
-
-  let addedFromSql = 0;
-  function addRemainingSqlCompany(r, defaultCat = 'signup') {
-    const cid = cleanStr(r.CID || r.cid || r.KingID || r.CName);
-    if (!cid || ignoredNrlCids.has(cid) || cidMap.has(cid)) return;
-
-    let cat = defaultCat;
-    const isNew = cleanStr(r.IsNew);
-    if (isNew === 'Cert' || certCids.has(cid)) cat = 'certified';
-    else if (isNew === 'Processing' || appCids.has(cid)) cat = 'processing';
-    else if (isNew === 'Yes') cat = 'signup';
-
-    cidMap.set(cid, {
-      cid,
-      cCompanyName: cleanStr(r.CCompanyName || r.CompanyName || r.CompName || r.COMPANYNAME),
-      ceaKingp: cleanStr(r.CeaKingp || r.Email || r.email),
-      pcnKinga: cleanStr(r.PcnKinga || r.Phone || r.phone),
-      address1: cleanStr(r.Address1 || r.address1 || r.COMPANYADDRESS),
-      address2: cleanStr(r.Address2 || r.address2),
-      city: cleanStr(r.City || r.city),
-      state: cleanStr(r.State || r.state),
-      postCode: cleanStr(r.PostCode || r.postCode),
-      country: cleanStr(r.Country || r.country || 'United Kingdom'),
-      firstName: cleanStr(r.FirstName || r.firstName),
-      lastName: cleanStr(r.LastName || r.lastName),
-      category: cat,
-      source: 'sql_table_fallback'
-    });
-    addedFromSql++;
-  }
-
-  compRegis2.forEach(r => addRemainingSqlCompany(r));
-  compRegis1.forEach(r => addRemainingSqlCompany(r));
-  certRows.forEach(r => addRemainingSqlCompany({ CID: r.CName, CCompanyName: r.COMPANYNAME, Address1: r.COMPANYADDRESS }, 'certified'));
-  appRows.forEach(r => addRemainingSqlCompany({ CID: r.CID, CCompanyName: r.CompanyName || r.CompName, Email: r.Email }, 'processing'));
-
-  console.log(`   ✓ Added ${addedFromSql} remaining companies from SQL Server tables`);
 
   const companies = Array.from(cidMap.values());
   const counts = { certified: 0, processing: 0, signup: 0 };
@@ -849,6 +841,7 @@ async function runFullCompanyImport() {
         trackerState.stats.usersCreated++;
         existingEmailSet.add(finalEmail);
       } else {
+        delete userFields.password; // Preserve existing user password
         await User.updateOne({ _id: user._id }, { $set: userFields });
         trackerState.stats.usersUpdated++;
       }
@@ -958,14 +951,14 @@ async function runFullCompanyImport() {
           category: pCategory,
           status: 'approved',
           product_type: 'General',
-          ingredients: cleanStr(p.FileNamee) || '',
+          ingredients: cleanStr(p.FileNamee) ? [cleanStr(p.FileNamee)] : [],
           barcode: pCode,
           halal_status: 'Halal Certified',
           notes: `Imported from legacy HFA database (ProID: ${cleanStr(p.ProID)})`
         };
 
         await Product.findOneAndUpdate(
-          { client_id: userIdStr, name: pName },
+          { client_id: userIdStr, site_id: assignedSiteId, name: pName },
           { $set: prodDoc },
           { upsert: true, new: true }
         );
@@ -1124,13 +1117,23 @@ async function runFullCompanyImport() {
         const productDetails = subItems.map(s => ({
           name: cleanStr(s.DESCRIPTION),
           code: cleanStr(s.CODE),
-          category: cleanStr(c.PRODUCTCATEGORY) || 'General',
+          category: cleanStr(c.PRODUCTCATEGORY) || '',
           description: cleanStr(s.SIZE) || ''
         })).filter(p => p.name);
 
+        const issueDate = parseCertDate(c.IssueDate) || 
+                          parseCertDate(c.Dateer) || 
+                          parseCertDate(c.AproDate) || 
+                          extractDateFromCertNo(certNo) || 
+                          null;
+
+        let expDate = parseCertDate(c.ExpiryDate);
+        if (!expDate && issueDate) {
+          expDate = new Date(issueDate.getTime() + 365 * 24 * 60 * 60 * 1000);
+        }
+
+        const isExpired = expDate ? expDate < new Date() : false;
         const rawCertStatus = cleanStr(c.Statuss).toLowerCase();
-        const expDate = safeDate(c.ExpiryDate, new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
-        const isExpired = expDate < new Date();
 
         let certStatus = 'active';
         if (rawCertStatus === 'submitted') {
@@ -1141,27 +1144,37 @@ async function runFullCompanyImport() {
           certStatus = 'active';
         }
 
+        const explicitSiteName = cleanStr(c.SiteName) || siteNameMap.get(cleanStr(c.SiteID)) || siteNameMap.get(String(siteId));
+
+        const certCategory = cleanStr(c.PRODUCTCATEGORY) || '';
+        const certType = cleanStr(c.GFP) || cleanStr(c.CateficateType) || 'Halal Certification';
+
+        const curCycleDate = parseCertDate(c.CurrentCyStartDate) || issueDate;
+        const origCycleDate = parseCertDate(c.OriginalCyStartDate) || null;
+
         const certDoc = {
           certificate_number: certNo,
           client_id: userIdStr,
           application_id: latestAppId || undefined,
           site_id: siteId,
-          certificate_type: cleanStr(c.CateficateType) || 'Halal Certification',
+          site_name: explicitSiteName,
+          certificate_type: certType,
           company_name: companyName,
-          company_address: cleanStr(c.COMPANYADDRESS) || address,
-          manufacturing_address: cleanStr(c.MANUFATURINGFACILITY) || address,
-          product_category: cleanStr(c.PRODUCTCATEGORY) || 'Food & Beverage',
-          scope: `Halal certification of ${cleanStr(c.PRODUCTCATEGORY) || 'compliant products'}`,
+          company_address: cleanStr(c.COMPANYADDRESS) || '',
+          manufacturing_address: cleanStr(c.MANUFATURINGFACILITY) || '',
+          product_category: certCategory,
+          scope: certCategory,
           products_covered: productsCovered,
           product_details: productDetails,
           product_table_columns: 2,
-          issue_date: safeDate(c.IssueDate, safeDate(c.Dateer)),
+          issue_date: issueDate,
           expiry_date: expDate,
-          certification_start_date: safeDate(c.CurrentCyStartDate, safeDate(c.IssueDate)),
-          original_cycle_start_date: safeDate(c.OriginalCyStartDate, safeDate(c.IssueDate)),
+          certification_start_date: curCycleDate,
+          current_cycle_start_date: curCycleDate,
+          original_cycle_start_date: origCycleDate,
           status: certStatus,
           is_direct_issuance: false,
-          notes: `Imported from legacy HFA database (Ref: ${cleanStr(c.Qcoder) || certNo}, Status: ${cleanStr(c.Statuss)})`
+          notes: ''
         };
 
         await Certificate.findOneAndUpdate(
@@ -1188,7 +1201,8 @@ async function runFullCompanyImport() {
         const logDoc = {
           source_type: 'application',
           logsheet_type: 'application',
-          application_id: lAppId || undefined,
+          is_seed: true,
+          application_id: undefined,
           client_id: userIdStr,
           site_id: lSiteId,
           site_name: cleanStr(l.SiteName) || companyName,
@@ -1236,8 +1250,14 @@ async function runFullCompanyImport() {
           mufti2_sign_date: safeDate(l.Mufitydate1, null)
         };
 
+        const logQuery = logDoc.audit_date
+          ? { client_id: userIdStr, company_name: companyName, audit_date: logDoc.audit_date }
+          : (logDoc.issue_date
+            ? { client_id: userIdStr, company_name: companyName, issue_date: logDoc.issue_date }
+            : { client_id: userIdStr, company_name: companyName, reviewer_name: logDoc.reviewer_name });
+
         const logRes = await ApplicationLogsheet.findOneAndUpdate(
-          { client_id: userIdStr, company_name: companyName, audit_date: logDoc.audit_date },
+          logQuery,
           { $set: logDoc },
           { upsert: true, new: true }
         );
@@ -1306,7 +1326,7 @@ async function runFullCompanyImport() {
         const expDoc = {
           client_id: userIdStr,
           reference_number: refNo,
-          destination_country: cleanStr(exp.PortofEntry) || 'United Arab Emirates',
+          destination_country: cleanStr(exp.PortofEntry) || '',
           shipment_date: safeDate(exp.Dateee || exp.ExportDate),
           consignee_name: cleanStr(exp.ConsigneeNameAddress) || 'Consignee on file',
           consignee_address: cleanStr(exp.DistributorsNameAddress) || 'Address on file',

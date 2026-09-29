@@ -18,7 +18,7 @@ const ncReportSchema = new mongoose.Schema({
   correction_document_url: String,
   admin_reply: String,
   admin_reply_at: Date,
-  admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  admin_reply_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   admin_reply_document_url: String,
   status: { type: String, enum: ['flagged', 'corrected', 'client_responded', 'admin_replied', 'closed'], default: 'flagged' },
   flagged_at: { type: Date, default: Date.now },
@@ -80,5 +80,15 @@ const auditSchema = new mongoose.Schema({
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
+
+auditSchema.index({ client_id: 1 });
+auditSchema.index({ application_id: 1 });
+auditSchema.index({ status: 1 });
+auditSchema.index({ inspector_id: 1 });
+auditSchema.index({ site_id: 1 });
+auditSchema.index({ scheduled_date: 1 });
+auditSchema.index({ client_id: 1, status: 1 });
+auditSchema.index({ createdAt: -1 });
+auditSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model('Audit', auditSchema);

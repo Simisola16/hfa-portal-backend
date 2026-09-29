@@ -3,6 +3,7 @@ import Audit from '../models/Audit.js';
 import Application from '../models/Application.js';
 import InitialProductApplication from '../models/InitialProductApplication.js';
 import User from '../models/User.js';
+import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
@@ -64,7 +65,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const audits = await Audit.find(query)
       .populate('application_id', 'application_number status nc_reports site_name establishment_name site_id category application_type scope')
       .populate('inspector_id', 'full_name email phone')
-      .sort({ createdAt: -1 });
+      .sort({ finalized_date: -1, scheduled_date: -1, createdAt: -1 });
 
     // Fetch clients and staff users safely
     const clientIds = audits
@@ -73,7 +74,7 @@ router.get('/', authenticateToken, async (req, res) => {
       
     const [clients, allStaffUsers] = await Promise.all([
       User.find({ _id: { $in: clientIds } }, 'company_name full_name'),
-      User.find({ role: { $in: ['auditor', 'inspector', 'admin', 'superadmin', 'food_tech'] } }, 'full_name username email phone')
+      Admin.find({}, 'full_name username email phone')
     ]);
     const clientMap = clients.reduce((acc, c) => ({ ...acc, [c._id.toString()]: c }), {});
 
@@ -171,6 +172,12 @@ router.get('/', authenticateToken, async (req, res) => {
         createdAt: a.createdAt,
         updatedAt: a.updatedAt,
       };
+    });
+
+    formatted.sort((a, b) => {
+      const dateA = new Date(a.finalized_date || a.scheduled_date || (a.proposed_dates && a.proposed_dates[0]) || a.createdAt || 0).getTime();
+      const dateB = new Date(b.finalized_date || b.scheduled_date || (b.proposed_dates && b.proposed_dates[0]) || b.createdAt || 0).getTime();
+      return dateB - dateA;
     });
 
     res.json({ data: formatted });
@@ -467,7 +474,7 @@ const handleClientAuditDateResponse = async (req, res) => {
       }, { new: true });
       if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_rejected');
       
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -501,7 +508,7 @@ const handleClientAuditDateResponse = async (req, res) => {
         }, { new: true });
         if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
 
-      const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+      const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
@@ -987,7 +994,7 @@ router.post('/resolve-nc', authenticateToken, upload.single('correction_document
       }
     }
 
-    const admins = await User.find({ role: { $in: ['admin', 'superadmin', 'staff', 'food_tech_manager', 'food_tech'] } });
+    const admins = await Admin.find({});
     for (const admin of admins) {
       await createNotification(
         admin._id,
