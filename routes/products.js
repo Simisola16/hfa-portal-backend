@@ -73,8 +73,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // 1. Role-based client restrictions
     if (!isAdmin) {
-      const clientIdStr = req.user._id.toString();
-      query.client_id = { $in: [req.user._id, clientIdStr] };
+      const cIdStr = req.user?._id?.toString?.() || String(req.user?._id || '');
+      const cIdObj = mongoose.isValidObjectId(cIdStr) ? new mongoose.Types.ObjectId(cIdStr) : null;
+      query.client_id = { $in: [cIdObj, cIdStr].filter(Boolean) };
     } else {
       if (req.query.client_id) {
         query.client_id = mongoose.isValidObjectId(req.query.client_id)
@@ -100,7 +101,9 @@ router.get('/', authenticateToken, async (req, res) => {
       query.status = statusParam;
     } else if (!statusParam) {
       // Non-admins or unpaginated calls without all=true filter to active/approved certified products
-      if (!isAdmin || (!isPaginated && req.query.all !== 'true')) {
+      if (!isAdmin) {
+        query.status = { $nin: ['inactive', 'rejected', 'Inactive', 'Rejected'] };
+      } else if (!isPaginated && req.query.all !== 'true') {
         query.status = { $in: ['active', 'approved'] };
       }
       // If admin and paginated with empty status or 'all', allow all statuses
@@ -200,7 +203,10 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     const responseData = await enrichProductsWithClients(uniqueProducts);
-    return res.json(responseData);
+    return res.json({
+      data: responseData,
+      pagination: null
+    });
   } catch (err) {
     console.error('Error in GET /api/products:', err);
     res.status(500).json({ error: err.message });
