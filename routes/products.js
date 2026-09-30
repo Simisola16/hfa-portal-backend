@@ -74,7 +74,9 @@ router.get('/', authenticateToken, async (req, res) => {
           : req.query.client_id;
       }
       if (req.query.site_id) {
-        query.site_id = req.query.site_id;
+        query.site_id = mongoose.isValidObjectId(req.query.site_id)
+          ? { $in: [new mongoose.Types.ObjectId(req.query.site_id), req.query.site_id] }
+          : req.query.site_id;
       }
     }
 
@@ -90,18 +92,33 @@ router.get('/', authenticateToken, async (req, res) => {
       // If admin and paginated with empty status or 'all', allow all statuses
     }
 
-    // 3. Search query across name, code, barcode, category, description
+    // 3. Search query across name, code, barcode, category, description, and company name
     const searchTerm = (req.query.search || req.query.q || '').trim();
     if (searchTerm) {
       const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchRegex = new RegExp(escaped, 'i');
-      query.$or = [
+
+      const orConditions = [
         { name: searchRegex },
         { code: searchRegex },
         { barcode: searchRegex },
         { category: searchRegex },
         { description: searchRegex }
       ];
+
+      try {
+        const matchingUsers = await User.find(
+          { $or: [{ company_name: searchRegex }, { full_name: searchRegex }, { email: searchRegex }] },
+          '_id'
+        ).limit(100).lean();
+        if (matchingUsers.length > 0) {
+          const uIds = matchingUsers.map(u => u._id);
+          const uIdStrs = matchingUsers.map(u => u._id.toString());
+          orConditions.push({ client_id: { $in: [...uIds, ...uIdStrs] } });
+        }
+      } catch (_) {}
+
+      query.$or = orConditions;
     }
 
     // 4. Category filter
