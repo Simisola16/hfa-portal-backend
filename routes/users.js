@@ -180,6 +180,35 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 
 // ─── GENERAL / ADMIN ENDPOINTS ─────────────────────────────────────────────────
 
+// GET /api/users/search-clients — fast type-ahead search for client companies
+router.get('/search-clients', authenticateToken, async (req, res) => {
+  try {
+    const search = (req.query.search || req.query.q || '').trim();
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+
+    const query = { role: 'client' };
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      query.$or = [
+        { company_name: regex },
+        { full_name: regex },
+        { email: regex }
+      ];
+    }
+
+    const clients = await User.find(query)
+      .select('_id company_name full_name email phone address role')
+      .sort({ company_name: 1, full_name: 1 })
+      .limit(limit)
+      .lean();
+
+    res.json({ data: clients });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/users/companies-directory
 router.get('/companies-directory', authenticateToken, async (req, res) => {
   try {
