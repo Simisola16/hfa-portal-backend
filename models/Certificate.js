@@ -31,7 +31,7 @@ const certificateSchema = new mongoose.Schema({
   certificate_url: String,
   status: { 
     type: String, 
-    enum: ['under_review', 'draft', 'active', 'expired', 'revoked', 'renewed', 'outdated', 'superseded'], 
+    enum: ['under_review', 'draft', 'active', 'expired', 'revoked', 'renewed', 'outdated', 'superseded', 'inactive', 'approved'], 
     default: 'under_review' 
   },
   is_renewed: { type: Boolean, default: false },
