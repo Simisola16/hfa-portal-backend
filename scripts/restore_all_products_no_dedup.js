@@ -125,7 +125,7 @@ async function runRestore(dryRun = true) {
       const pName = cleanStr(p.ProName || p.pro_name || p.proname);
       if (!pName) continue;
 
-      const pCode = cleanStr(p.ProCoder || p.procoder || p.ProID || p.proid);
+      const pCode = cleanStr(p.ProCoder || p.procoder || '');
       const proId = cleanStr(p.ProID);
       const citeId = cleanStr(p.CiteID);
       const siteName = cleanStr(p.SiteName).toLowerCase().trim();
