@@ -188,6 +188,35 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 
 // ─── GENERAL / ADMIN ENDPOINTS ─────────────────────────────────────────────────
 
+// GET /api/users/search-clients — fast type-ahead search for client companies
+router.get('/search-clients', authenticateToken, async (req, res) => {
+  try {
+    const search = (req.query.search || req.query.q || '').trim();
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+
+    const query = { role: 'client' };
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      query.$or = [
+        { company_name: regex },
+        { full_name: regex },
+        { email: regex }
+      ];
+    }
+
+    const clients = await User.find(query)
+      .select('_id company_name full_name email phone address role')
+      .sort({ company_name: 1, full_name: 1 })
+      .limit(limit)
+      .lean();
+
+    res.json({ data: clients });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/users/companies-directory
 router.get('/companies-directory', authenticateToken, async (req, res) => {
   try {
@@ -201,26 +230,24 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
     ]);
 
     const companyMap = new Map();
+    const idMap = new Map();
     clients.forEach(c => {
       const name = (c.company_name || c.full_name || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
-      if (!companyMap.has(key)) {
-        companyMap.set(key, { id: String(c._id), name, sites: [] });
+      let entry = companyMap.get(key);
+      if (!entry) {
+        entry = { id: String(c._id), name, sites: [] };
+        companyMap.set(key, entry);
       }
+      idMap.set(String(c._id), entry);
     });
 
     sites.forEach(s => {
       const siteName = (s.name || s.est_name || s.trading_name || s.address_1 || '').trim();
       if (!siteName) return;
 
-      let compEntry = null;
-      if (s.client_id) {
-        const cidStr = String(s.client_id);
-        for (const entry of companyMap.values()) {
-          if (entry.id === cidStr) { compEntry = entry; break; }
-        }
-      }
+      let compEntry = s.client_id ? idMap.get(String(s.client_id)) : null;
       if (!compEntry && s.est_name) compEntry = companyMap.get(s.est_name.trim().toLowerCase());
 
       if (compEntry) {
@@ -230,11 +257,13 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
       } else if (s.est_name?.trim()) {
         const estKey = s.est_name.trim().toLowerCase();
         if (!companyMap.has(estKey)) {
-          companyMap.set(estKey, {
+          const newEntry = {
             id: String(s.client_id || s._id),
             name: s.est_name.trim(),
             sites: [{ id: String(s._id), name: siteName }]
-          });
+          };
+          companyMap.set(estKey, newEntry);
+          if (s.client_id) idMap.set(String(s.client_id), newEntry);
         }
       }
     });
@@ -446,6 +475,34 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
       client_role: { $ne: 'member' }
     };
+
+    // Fast path for unpaginated selector/dropdown callers
+    if (isUnpaginated) {
+      const [total, users, staffCount] = await Promise.all([
+        User.countDocuments(matchQuery),
+        userQuery.lean(),
+        Admin.countDocuments({})
+      ]);
+
+      let resultUsers = users.map(u => ({
+        ...u,
+        roles: (u.roles && u.roles.length > 0) ? u.roles : (u.role ? [u.role] : [])
+      }));
+
+      if (!hasCategory) {
+        const staff = await Admin.find({ is_active: { $ne: false } }).select('-password').sort({ full_name: 1 }).lean();
+        const mappedStaff = staff.map(s => ({
+          ...s,
+          roles: (s.roles && s.roles.length > 0) ? s.roles : (s.role ? [s.role] : [])
+        }));
+        resultUsers = [...mappedStaff, ...resultUsers];
+      }
+
+      return res.json({
+        data: resultUsers,
+        pagination: { page: 1, limit: resultUsers.length, total: resultUsers.length, totalPages: 1, hasPrevPage: false, hasNextPage: false }
+      });
+    }
 
     const [total, users, [stats], staffCount] = await Promise.all([
       User.countDocuments(matchQuery),
