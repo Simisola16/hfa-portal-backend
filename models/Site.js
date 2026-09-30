@@ -42,5 +42,6 @@ const siteSchema = new mongoose.Schema({
 
 siteSchema.index({ client_id: 1 });
 siteSchema.index({ client_code: 1 });
+siteSchema.index({ created_at: -1 });
 
 export default mongoose.model('Site', siteSchema);

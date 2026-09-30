@@ -99,9 +99,9 @@ router.get('/', authenticateToken, async (req, res) => {
     } else if (statusParam && statusParam !== 'all') {
       query.status = statusParam;
     } else if (!statusParam) {
-      // Non-admins or unpaginated calls without all=true filter out pending products
+      // Non-admins or unpaginated calls without all=true filter to active/approved certified products
       if (!isAdmin || (!isPaginated && req.query.all !== 'true')) {
-        query.status = { $ne: 'pending' };
+        query.status = { $in: ['active', 'approved'] };
       }
       // If admin and paginated with empty status or 'all', allow all statuses
     }
@@ -176,9 +176,9 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('site_id', 'name est_name trading_name address_1')
       .sort({ created_at: -1 });
 
-    // Safety guard: if caller did not filter by client or site or pass all=true, cap at 500 to prevent event-loop freeze
+    // Safety guard: if caller did not filter by client or site or pass all=true, cap at 100 to prevent event-loop freeze
     if (!query.client_id && !query.site_id && req.query.all !== 'true') {
-      productQuery = productQuery.limit(500);
+      productQuery = productQuery.limit(100);
     }
 
     const products = await productQuery.lean();

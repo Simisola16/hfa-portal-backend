@@ -20,35 +20,39 @@ router.get('/', authenticateToken, async (req, res) => {
       ];
     }
     const sites = await Site.find(query)
-      .populate('client_id', 'company_name full_name email phone address')
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1 })
+      .lean();
 
-    // Fallback: If any site's client_id wasn't populated (e.g. because client_id was stored as string or mismatch), fetch the User
-    const unpopulatedClientIds = sites
-      .map(s => (s.client_id && typeof s.client_id === 'object' && s.client_id.company_name) ? null : s.client_id)
-      .filter(cid => cid && typeof cid === 'string' && mongoose.Types.ObjectId.isValid(cid));
+    const clientIds = [...new Set(
+      sites
+        .map(s => {
+          if (!s.client_id) return null;
+          if (typeof s.client_id === 'object' && s.client_id._id) return s.client_id._id.toString();
+          return String(s.client_id);
+        })
+        .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+    )];
 
-    let userMap = {};
-    if (unpopulatedClientIds.length > 0) {
-      const users = await User.find({ _id: { $in: unpopulatedClientIds } }, 'company_name full_name email phone address');
-      users.forEach(u => {
-        userMap[u._id.toString()] = u;
-      });
-    }
+    const users = clientIds.length > 0
+      ? await User.find({ _id: { $in: clientIds } }, 'company_name full_name email phone address').lean()
+      : [];
+
+    const userMap = new Map();
+    users.forEach(u => userMap.set(String(u._id), u));
 
     const data = sites.map(s => {
-      const obj = s.toObject ? s.toObject() : { ...s };
-      const rawCid = obj.client_id;
-      const client = (rawCid && typeof rawCid === 'object' && rawCid.company_name)
-        ? rawCid
-        : (userMap[String(rawCid)] || (req.user?._id?.toString() === String(rawCid) ? req.user : null));
+      const rawCid = s.client_id ? (s.client_id._id ? String(s.client_id._id) : String(s.client_id)) : null;
+      const client = rawCid ? (userMap.get(rawCid) || (req.user?._id?.toString() === rawCid ? req.user : null)) : null;
 
-      obj.profiles = {
-        company_name: client?.company_name || obj.est_name || obj.trading_name || client?.full_name || '—',
-        full_name: client?.full_name || '',
-        email: client?.email || ''
+      return {
+        ...s,
+        client_id: client || s.client_id,
+        profiles: {
+          company_name: client?.company_name || s.est_name || s.trading_name || client?.full_name || '—',
+          full_name: client?.full_name || '',
+          email: client?.email || ''
+        }
       };
-      return obj;
     });
 
     res.json({ data });
