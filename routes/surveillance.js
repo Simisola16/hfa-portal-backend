@@ -26,7 +26,8 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Ensure the certificate belongs to this client
-    if (req.user.role !== 'admin' && cert.client_id?.toString() !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (req.user.role !== 'admin' && !allowedClientIds.includes(cert.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied.' });
     }
 
@@ -38,8 +39,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Clients can submit a surveillance request at any time without timing lock
 
+    const companyClientId = (req.user.parent_client_id || req.user._id).toString();
     const request = new SurveillanceRequest({
-      client_id: req.user._id.toString(),
+      client_id: companyClientId,
       certificate_id,
     });
     await request.save();
@@ -66,7 +68,8 @@ router.post('/', authenticateToken, async (req, res) => {
 // GET /api/surveillance/my — client gets their own surveillance requests
 router.get('/my', authenticateToken, async (req, res) => {
   try {
-    const requests = await SurveillanceRequest.find({ client_id: req.user._id.toString() })
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    const requests = await SurveillanceRequest.find({ client_id: { $in: allowedClientIds } })
       .populate('certificate_id')
       .sort({ requested_at: -1 });
     res.json({ data: requests });

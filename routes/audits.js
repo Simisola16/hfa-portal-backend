@@ -44,11 +44,15 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
-      const userApps = await Application.find({ client_id: req.user._id }, '_id');
+      const allowedClientIds = [req.user._id];
+      if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id);
+      const strIds = allowedClientIds.map(id => id.toString());
+
+      const userApps = await Application.find({ client_id: { $in: allowedClientIds } }, '_id');
       const appIds = userApps.map(a => a._id);
       query.$or = [
-        { client_id: req.user._id.toString() },
-        { client_id: req.user._id },
+        { client_id: { $in: strIds } },
+        { client_id: { $in: allowedClientIds } },
         { application_id: { $in: appIds } }
       ];
     } else if (req.user.role === 'auditor' || req.user.role === 'inspector') {
@@ -288,7 +292,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     }
 
     // Check permission
-    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id && audits[0].client_id !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id && !allowedClientIds.includes(audits[0].client_id.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json({ data: audits });
@@ -445,7 +450,8 @@ const handleClientAuditDateResponse = async (req, res) => {
     const audit = await Audit.findById(auditId);
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
-    if (audit.client_id !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!allowedClientIds.includes(audit.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

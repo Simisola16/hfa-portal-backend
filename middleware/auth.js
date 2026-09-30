@@ -1,9 +1,34 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+/**
+ * Returns all valid representations of client IDs for a user and their parent company.
+ */
+export const getAllowedClientIds = (user) => {
+  if (!user) return [];
+  const ids = [user._id || user.id].filter(Boolean);
+  if (user.parent_client_id) {
+    ids.push(user.parent_client_id);
+  }
+  const strIds = ids.map(id => id.toString());
+  const objIds = ids
+    .filter(id => mongoose.isValidObjectId(id))
+    .map(id => new mongoose.Types.ObjectId(id.toString()));
+  return [...new Set([...strIds, ...objIds])];
+};
+
+/**
+ * Returns the effective company ID for a user.
+ */
+export const getEffectiveClientId = (user) => {
+  if (!user) return null;
+  return user.parent_client_id || user._id || user.id;
+};
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hfa_portal_secret_key_2024_@!';
 
@@ -56,6 +81,8 @@ export const authenticateToken = async (req, res, next) => {
     req.user = user;
     // Expose a flag so downstream middleware knows which model was resolved
     req.userModelType = isAdminAccount ? 'Admin' : 'User';
+    req.effectiveClientId = user.parent_client_id || user._id;
+    req.isTeamMember = Boolean(user.parent_client_id);
 
     if (decoded.is_impersonation) {
       req.user.is_impersonation  = true;

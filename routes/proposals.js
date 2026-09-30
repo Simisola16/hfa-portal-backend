@@ -18,7 +18,13 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = req.user._id.toString();
+      const allowedClientIds = [
+        req.user._id,
+        req.user._id.toString(),
+        req.user.parent_client_id,
+        req.user.parent_client_id?.toString()
+      ].filter(Boolean);
+      query.client_id = { $in: allowedClientIds };
     }
     const data = await Proposal.find(query)
       .populate('application_id')
@@ -381,7 +387,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
 
     // If not admin, check if it's the right client
-    if (!['admin', 'superadmin'].includes(req.user.role) && proposal.client_id !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!['admin', 'superadmin'].includes(req.user.role) && !allowedClientIds.includes(proposal.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

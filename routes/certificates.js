@@ -227,8 +227,15 @@ router.get('/stats', authenticateToken, async (req, res) => {
       ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(req.user?.role) ||
       (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager'].includes(r)));
 
+    const allowedClientIds = [
+      req.user._id,
+      req.user._id?.toString(),
+      req.user.parent_client_id,
+      req.user.parent_client_id?.toString()
+    ].filter(Boolean);
+
     const baseCountFilter = !isAdminUser
-      ? { client_id: req.user._id.toString(), status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
       : {};
 
     const now = new Date();
@@ -278,10 +285,17 @@ router.get('/', authenticateToken, async (req, res) => {
     const now = new Date();
     const ninetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
+    const allowedClientIds = [
+      req.user._id,
+      req.user._id?.toString(),
+      req.user.parent_client_id,
+      req.user.parent_client_id?.toString()
+    ].filter(Boolean);
+
     const andConditions = [];
 
     if (!isAdminUser) {
-      andConditions.push({ client_id: req.user._id.toString() });
+      andConditions.push({ client_id: { $in: allowedClientIds } });
       andConditions.push({ status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } });
     }
 
@@ -359,7 +373,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Base count filter (scoped to client if not admin)
     const baseCountFilter = !isAdminUser
-      ? { client_id: req.user._id.toString(), status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
       : {};
 
     const [total, data, totalCount, reviewCount, activeCount, expiringCount, expiredCount] = await Promise.all([
@@ -1019,7 +1033,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     // Client authorization check (all admin roles are permitted)
     if (!isAdminUser(req.user, req)) {
-      if (data.client_id !== req.user._id.toString() || data.status === 'under_review' || data.status === 'draft') {
+      const allowedClientIds = [req.user._id.toString()];
+      if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id.toString());
+      if (!allowedClientIds.includes(data.client_id) || data.status === 'under_review' || data.status === 'draft') {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -2259,7 +2275,8 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
 
     // Client can only download their own certificate; all admin tokens are authorized
-    if (!isAdminUser(req.user, req) && certificate.client_id?.toString() !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id?.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!isAdminUser(req.user, req) && !allowedClientIds.includes(certificate.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -137,8 +137,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     let targetCertId = certificate_id;
     if (certificate_id) {
+      const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
       const activeCerts = await Certificate.find({
-        client_id: req.user._id.toString(),
+        client_id: { $in: allowedClientIds },
         status: 'active',
         expiry_date: { $gte: new Date() }
       });
@@ -162,7 +163,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const resolvedContactName = contact_name?.trim() || req.user?.full_name || req.user?.company_name || '';
 
     const newApp = new AddOnApplication({
-      client_id: req.user._id,
+      client_id: req.user.parent_client_id || req.user._id,
       certificate_id: targetCertId || undefined,
       application_id: application_id || undefined,
       site_id: site_id || undefined,
@@ -216,7 +217,9 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
-      query.client_id = req.user._id;
+      const allowed = [req.user._id];
+      if (req.user.parent_client_id) allowed.push(req.user.parent_client_id);
+      query.client_id = { $in: allowed };
     } else if (req.user.role === 'food_tech') {
       query.$or = [
         { assigned_food_techs: req.user._id },
@@ -258,8 +261,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    if (req.user.role === 'client' && app.client_id._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      const appCid = (app.client_id?._id || app.client_id)?.toString();
+      if (!allowed.includes(appCid)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
     if (req.user.role === 'food_tech' && !app.assigned_food_techs?.some(ft => ft._id.toString() === req.user._id.toString())) {
       return res.status(403).json({ error: 'Access denied. You are not assigned to this application.' });
@@ -528,8 +535,11 @@ router.put('/:id/save-product-response/:productIdx', authenticateToken, upload.s
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied.' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
     if (app.status !== 'product_approval_form_enabled') {
       return res.status(400).json({ error: 'The Product Approval Form is not currently editable.' });
@@ -694,8 +704,11 @@ const handleReplyMoreInfoRoute = async (req, res) => {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied.' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
 
     const reply_text = req.body?.reply_text || req.body?.message || '';
@@ -820,8 +833,11 @@ router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied.' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
     if (app.status !== 'product_approval_form_enabled') {
       return res.status(400).json({ error: 'The Product Approval Form is not currently awaiting submission.' });

@@ -22,8 +22,8 @@ const userSchema = new mongoose.Schema({
   parent_client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   client_role: {
     type:    String,
-    enum:    ['admin', 'editor', 'viewer', 'owner'],
-    default: 'viewer',
+    enum:    ['admin', 'editor', 'viewer', 'owner', 'member'],
+    default: 'member',
   },
   // Lifecycle
   company_category: {

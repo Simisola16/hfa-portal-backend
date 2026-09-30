@@ -7,10 +7,11 @@ const router = express.Router();
 // GET /api/notifications
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const notifications = await Notification.find({ recipient_id: req.user._id })
+    const recipientIds = [req.user._id, req.user.parent_client_id].filter(Boolean);
+    const notifications = await Notification.find({ recipient_id: { $in: recipientIds } })
       .sort({ created_at: -1 })
       .limit(50);
-    const unreadCount = await Notification.countDocuments({ recipient_id: req.user._id, is_read: false });
+    const unreadCount = await Notification.countDocuments({ recipient_id: { $in: recipientIds }, is_read: false });
     res.json({ data: notifications, unreadCount });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -20,8 +21,9 @@ router.get('/', authenticateToken, async (req, res) => {
 // PUT /api/notifications/:id/read
 router.put('/:id/read', authenticateToken, async (req, res) => {
   try {
+    const recipientIds = [req.user._id, req.user.parent_client_id].filter(Boolean);
     await Notification.findOneAndUpdate(
-      { _id: req.params.id, recipient_id: req.user._id },
+      { _id: req.params.id, recipient_id: { $in: recipientIds } },
       { is_read: true }
     );
     res.json({ message: 'Marked as read' });
@@ -33,8 +35,9 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
 // PUT /api/notifications/read-all
 router.put('/read-all', authenticateToken, async (req, res) => {
   try {
+    const recipientIds = [req.user._id, req.user.parent_client_id].filter(Boolean);
     await Notification.updateMany(
-      { recipient_id: req.user._id, is_read: false },
+      { recipient_id: { $in: recipientIds }, is_read: false },
       { is_read: true }
     );
     res.json({ message: 'All marked as read' });

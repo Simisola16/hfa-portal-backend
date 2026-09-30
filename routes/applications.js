@@ -38,7 +38,9 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
-      query.client_id = req.user._id;
+      const allowedClientIds = [req.user._id];
+      if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id);
+      query.client_id = { $in: allowedClientIds };
     }
     if (req.query.status) query.status = req.query.status;
     if (req.query.type) query.application_type = req.query.type;
@@ -471,9 +473,12 @@ router.post('/', authenticateToken, upload.fields([
         }
       }
 
+      const allowedClientIds = [req.user._id];
+      if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id);
+
       const ongoingApp = await Application.findOne({
         site_id,
-        client_id: req.user._id,
+        client_id: { $in: allowedClientIds },
         status: { $nin: ['rejected', 'certificate_issued'] }
       });
       if (ongoingApp) {
@@ -519,9 +524,12 @@ router.post('/', authenticateToken, upload.fields([
     // If Renewal or Surveillance, inherit details and documents from the prior application for this site
     let priorApp = null;
     if (site_id && (application_type === 'renewal' || application_type === 'surveillance')) {
+      const allowedClientIds = [req.user._id];
+      if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id);
+
       priorApp = await Application.findOne({
         site_id: String(site_id),
-        client_id: req.user._id
+        client_id: { $in: allowedClientIds }
       }).sort({ created_at: -1, createdAt: -1 });
 
       if (priorApp) {
@@ -544,6 +552,7 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
 
+    const effectiveCompanyId = req.user.parent_client_id || req.user._id;
     const companyForId = req.body.establishment_name || req.body.site_name || req.user.company_name || req.user.full_name || 'HFA';
     const appTypeCode = application_type === 'surveillance' ? 'SU' : (application_type === 'renewal' ? 'RE' : 'NE');
     const appNumber = generateHfaId(companyForId, appTypeCode);
@@ -563,7 +572,7 @@ router.post('/', authenticateToken, upload.fields([
     const applicationData = {
       ...req.body,
       application_number: appNumber,
-      client_id: req.user._id,
+      client_id: effectiveCompanyId,
       products,
       documents,
       status: 'submitted',
@@ -1127,8 +1136,9 @@ router.post('/renew', authenticateToken, upload.fields([
     const cert = await Certificate.findById(certificate_id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
 
-    // Only the certificate owner may renew
-    if (cert.client_id?.toString() !== req.user._id?.toString()) {
+    // Only the certificate owner or authorized team member may renew
+    const allowedClientIds = [req.user._id?.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!allowedClientIds.includes(cert.client_id?.toString())) {
       return res.status(403).json({ error: 'You can only renew your own certificates.' });
     }
 
@@ -1136,11 +1146,13 @@ router.post('/renew', authenticateToken, upload.fields([
       return res.status(400).json({ error: 'This certificate has already been renewed.' });
     }
 
+    const effectiveCompanyId = req.user.parent_client_id || req.user._id;
+
     // Gate: no ongoing renewal application for this site
     if (cert.site_id) {
       const ongoingQuery = {
         site_id: cert.site_id,
-        client_id: req.user._id,
+        client_id: { $in: [req.user._id, req.user.parent_client_id].filter(Boolean) },
         application_type: 'renewal',
         status: { $nin: ['rejected', 'certificate_issued'] }
       };
@@ -1161,7 +1173,7 @@ router.post('/renew', authenticateToken, upload.fields([
       originalApp = await Application.findById(cert.application_id);
     }
     if (!originalApp && cert.site_id) {
-      originalApp = await Application.findOne({ site_id: cert.site_id, client_id: req.user._id }).sort({ created_at: -1 });
+      originalApp = await Application.findOne({ site_id: cert.site_id, client_id: { $in: [req.user._id, req.user.parent_client_id].filter(Boolean) } }).sort({ created_at: -1 });
     }
 
     // Upload supporting documents
@@ -1189,7 +1201,7 @@ router.post('/renew', authenticateToken, upload.fields([
 
     const application = new Application({
       application_number: appNumber,
-      client_id: req.user._id,
+      client_id: effectiveCompanyId,
       application_type: 'renewal',
       renewed_certificate_id: cert._id,
       category: originalApp?.category || cert.certificate_type || 'Annual Certification – Food and General processing',

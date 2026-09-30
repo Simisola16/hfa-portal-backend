@@ -9,15 +9,14 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (!['admin', 'superadmin'].includes(req.user.role)) {
-      const userObjId = req.user._id && mongoose.Types.ObjectId.isValid(req.user._id)
-        ? new mongoose.Types.ObjectId(req.user._id)
-        : req.user._id;
-      const userStr = req.user._id ? req.user._id.toString() : '';
+      const ids = [req.user._id];
+      if (req.user.parent_client_id) ids.push(req.user.parent_client_id);
+      const strIds = ids.map(id => id.toString());
+      const objIds = ids
+        .filter(id => mongoose.isValidObjectId(id))
+        .map(id => new mongoose.Types.ObjectId(id.toString()));
 
-      query.$or = [
-        { client_id: userObjId },
-        { client_id: userStr }
-      ];
+      query.client_id = { $in: [...new Set([...ids, ...strIds, ...objIds])] };
     }
     const sites = await Site.find(query)
       .populate('client_id', 'company_name full_name email phone address')
@@ -65,7 +64,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       const siteClientId = site.client_id?._id?.toString() || site.client_id?.toString();
-      if (siteClientId !== req.user._id.toString()) {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(siteClientId)) {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -112,7 +112,7 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const site = new Site({
       ...req.body,
-      client_id: req.user._id
+      client_id: req.user.parent_client_id || req.user._id
     });
     const data = await site.save();
     res.status(201).json({ data });
@@ -144,7 +144,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const updateData = { ...req.body };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       const existingClientId = existing.client_id?._id?.toString() || existing.client_id?.toString();
-      if (existingClientId !== req.user._id.toString()) {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(existingClientId)) {
         return res.status(403).json({ error: 'Access denied' });
       }
       delete updateData.name; // Keep existing site name locked for clients

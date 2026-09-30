@@ -15,8 +15,11 @@ router.get('/', authenticateToken, async (req, res) => {
     let query = { status: { $ne: 'pending' } };
     if (!['admin', 'superadmin'].includes(req.user.role)) {
       // client_id may be stored as ObjectId or string due to Mixed type — query both forms
-      const clientIdStr = req.user._id.toString();
-      query.client_id = { $in: [req.user._id, clientIdStr] };
+      const clientIds = [req.user._id, req.user._id.toString()];
+      if (req.user.parent_client_id) {
+        clientIds.push(req.user.parent_client_id, req.user.parent_client_id.toString());
+      }
+      query.client_id = { $in: clientIds };
     } else {
       if (req.query.client_id) {
         // Admin filtering: also match both ObjectId and string forms
@@ -242,7 +245,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // All add-on product requests from clients MUST go to the Add-on Request page ONLY
     const addOnApp = new AddOnApplication({
-      client_id: req.user._id,
+      client_id: req.user.parent_client_id || req.user._id,
       site_id: site_id || undefined,
       contact_name: contact_name || req.user.full_name || req.user.company_name || 'Client Contact',
       contact_email: contact_email || req.user.email || 'client@example.com',

@@ -254,18 +254,27 @@ const getReportStats = async (req, res) => {
     ]);
 
     // 6. Clients & Users Statistics
-    const totalClients = await User.countDocuments({ role: 'client' });
-    const activeClients = await User.countDocuments({ role: 'client', is_active: true });
+    const baseClientFilter = {
+      role: 'client',
+      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
+      client_role: { $ne: 'member' }
+    };
+    const totalClients = await User.countDocuments(baseClientFilter);
+    const activeClients = await User.countDocuments({ ...baseClientFilter, is_active: true });
     
     // Clients registered in current month
     const startOfCurrentMonth = new Date();
     startOfCurrentMonth.setDate(1);
     startOfCurrentMonth.setHours(0, 0, 0, 0);
     const newClientsThisMonth = await User.countDocuments({
-      role: 'client',
-      $or: [
-        { created_at: { $gte: startOfCurrentMonth } },
-        { createdAt: { $gte: startOfCurrentMonth } }
+      ...baseClientFilter,
+      $and: [
+        {
+          $or: [
+            { created_at: { $gte: startOfCurrentMonth } },
+            { createdAt: { $gte: startOfCurrentMonth } }
+          ]
+        }
       ]
     });
 
@@ -273,10 +282,14 @@ const getReportStats = async (req, res) => {
     const startOfPrevMonth = new Date(startOfCurrentMonth);
     startOfPrevMonth.setMonth(startOfPrevMonth.getMonth() - 1);
     const newClientsPrevMonth = await User.countDocuments({
-      role: 'client',
-      $or: [
-        { created_at: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } },
-        { createdAt: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } }
+      ...baseClientFilter,
+      $and: [
+        {
+          $or: [
+            { created_at: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } },
+            { createdAt: { $gte: startOfPrevMonth, $lt: startOfCurrentMonth } }
+          ]
+        }
       ]
     });
 

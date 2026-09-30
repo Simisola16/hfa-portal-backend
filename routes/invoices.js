@@ -173,12 +173,11 @@ router.get('/', authenticateToken, async (req, res) => {
     ].includes(r)));
 
     if (!isStaffOrAdmin && req.user?._id) {
-      const userObjId = req.user._id;
-      const userStr = req.user._id.toString();
-      query.$or = [
-        { client_id: userObjId },
-        { client_id: userStr }
-      ];
+      const allowed = [req.user._id, req.user._id.toString()];
+      if (req.user.parent_client_id) {
+        allowed.push(req.user.parent_client_id, req.user.parent_client_id.toString());
+      }
+      query.client_id = { $in: allowed };
     }
 
     let invoices = await Invoice.find(query)
@@ -516,7 +515,8 @@ router.put('/:id/pay', authenticateToken, upload.single('payment_proof'), async 
       'accountant', 'audit_manager', 'food_tech_manager', 'food_tech', 'inspector', 'staff', 'support_manager'
     ].includes(r)));
 
-    if (!isStaffOrAdmin && invoice.client_id?.toString() !== req.user._id?.toString()) {
+    const allowedClientIds = [req.user._id?.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!isStaffOrAdmin && !allowedClientIds.includes(invoice.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

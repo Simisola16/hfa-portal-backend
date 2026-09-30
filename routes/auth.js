@@ -292,12 +292,18 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    let compName = user.company_name;
+    if (user.parent_client_id && !compName) {
+      const parentUser = await User.findById(user.parent_client_id).select('company_name full_name');
+      if (parentUser) compName = parentUser.company_name || parentUser.full_name;
+    }
+
     const clientData = {
       id: user._id,
       _id: user._id,
       email: user.email,
       full_name: user.full_name,
-      company_name: user.company_name,
+      company_name: compName,
       role: 'client',
       client_role: user.client_role,
       parent_client_id: user.parent_client_id,
@@ -377,6 +383,10 @@ router.get('/profile', authenticateToken, async (req, res) => {
   if (req.user.is_impersonation) {
     userJson.is_impersonation = true;
     userJson.admin_name = req.user.admin_name;
+  }
+  if (req.user.parent_client_id && !userJson.company_name) {
+    const parentUser = await User.findById(req.user.parent_client_id).select('company_name full_name');
+    if (parentUser) userJson.company_name = parentUser.company_name || parentUser.full_name;
   }
   res.json({ user: userJson, profile: userJson });
 });

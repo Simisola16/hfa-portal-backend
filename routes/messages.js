@@ -143,10 +143,11 @@ router.get('/inbox', authenticateToken, async (req, res) => {
         ]
       };
     } else {
-      // Clients see messages addressed directly to them or broadcast announcements
+      // Clients see messages addressed directly to them or their company or broadcast announcements
+      const allowedRecipients = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
       queryFilter = {
         $or: [
-          { recipient_id: userId },
+          { recipient_id: { $in: allowedRecipients } },
           { recipient_id: 'all_clients' },
           { recipient_id: 'all' },
           { is_broadcast: true }
@@ -168,7 +169,8 @@ router.get('/inbox', authenticateToken, async (req, res) => {
 router.get('/outbox', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id.toString();
-    const raw = await Message.find({ sender_id: userId }).sort({ created_at: -1 }).lean();
+    const allowedSenders = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
+    const raw = await Message.find({ sender_id: { $in: allowedSenders } }).sort({ created_at: -1 }).lean();
     const data = await populateMessagesSafely(raw);
     res.json({ data: data || [] });
   } catch (err) {
@@ -204,11 +206,12 @@ router.get('/conversation/:targetId', authenticateToken, async (req, res) => {
       }
     } else {
       // If client is looking at conversation
+      const allowed = [currentUserId, req.user.parent_client_id?.toString()].filter(Boolean);
       if (targetId === 'admin' || targetId === 'support') {
         filter = {
           $or: [
-            { sender_id: currentUserId },
-            { recipient_id: currentUserId },
+            { sender_id: { $in: allowed } },
+            { recipient_id: { $in: allowed } },
             { recipient_id: 'all_clients' },
             { recipient_id: 'all' },
             { is_broadcast: true }
@@ -225,8 +228,8 @@ router.get('/conversation/:targetId', authenticateToken, async (req, res) => {
       } else {
         filter = {
           $or: [
-            { sender_id: currentUserId, recipient_id: targetId },
-            { sender_id: targetId, recipient_id: currentUserId }
+            { sender_id: { $in: allowed }, recipient_id: targetId },
+            { sender_id: targetId, recipient_id: { $in: allowed } }
           ]
         };
       }
@@ -546,9 +549,10 @@ router.put('/conversation/:targetId/read', authenticateToken, async (req, res) =
         is_read: false
       };
     } else {
+      const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
       filter = {
-        sender_id: targetId === 'admin' ? { $ne: userId } : targetId,
-        recipient_id: userId,
+        sender_id: targetId === 'admin' ? { $nin: allowed } : targetId,
+        recipient_id: { $in: allowed },
         is_read: false
       };
     }
@@ -597,7 +601,8 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
         is_read: false
       };
     } else {
-      queryFilter = { recipient_id: userId, is_read: false };
+      const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
+      queryFilter = { recipient_id: { $in: allowed }, is_read: false };
     }
 
     const count = await Message.countDocuments(queryFilter);

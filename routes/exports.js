@@ -11,7 +11,11 @@ router.get('/', authenticateToken, async (req, res) => {
     const isAdmin = ['admin', 'superadmin'].includes(req.user.role) ||
                     (Array.isArray(req.user.roles) && req.user.roles.some(r => ['admin', 'superadmin'].includes(r)));
 
-    const query = isAdmin ? {} : { client_id: (req.user._id || req.user.id).toString() };
+    const allowed = [
+      (req.user._id || req.user.id).toString(),
+      req.user.parent_client_id?.toString()
+    ].filter(Boolean);
+    const query = isAdmin ? {} : { client_id: { $in: allowed } };
     const data = await ExportCertificate.find(query).sort({ created_at: -1 });
 
     const clientIds = [...new Set(data.map(d => d.client_id).filter(Boolean))];
@@ -51,8 +55,9 @@ router.post('/', authenticateToken, async (req, res) => {
     const count = await ExportCertificate.countDocuments();
     const reference_number = `EXP-${String(count + 1).padStart(4, '0')}`;
 
+    const companyClientId = (req.user.parent_client_id || req.user._id || req.user.id).toString();
     const exportCert = new ExportCertificate({
-      client_id: (req.user._id || req.user.id).toString(),
+      client_id: companyClientId,
       reference_number,
       destination_country,
       shipment_date: shipment_date ? new Date(shipment_date) : undefined,

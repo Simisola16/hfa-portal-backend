@@ -197,11 +197,13 @@ router.post('/', authenticateToken, async (req, res) => {
     const user = await User.findById(req.user.id);
     const companyName = user?.company_name || user?.business_name || user?.full_name || 'Client Company';
 
+    const companyId = req.user.parent_client_id || req.user.id || req.user._id;
+
     // Auto-resolve facility address from site / user
-    const facilityAddress = await resolveFacilityAddress(site_id, site_name, req.user.id);
+    const facilityAddress = await resolveFacilityAddress(site_id, site_name, companyId);
 
     const newApp = new ExtensionApplication({
-      client_id: req.user.id,
+      client_id: companyId,
       site_id: site_id || undefined,
       site_name: site_name.trim(),
       company_name: companyName,
@@ -223,7 +225,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Auto-create initial draft ExtensionLogsheet with populated facility address
     const initialLogsheet = new ExtensionLogsheet({
       extension_application_id: newApp._id,
-      client_id: req.user.id,
+      client_id: companyId,
       site_id: site_id || undefined,
       company_name: companyName,
       facility_address: facilityAddress,
@@ -279,8 +281,9 @@ router.get('/', authenticateToken, async (req, res) => {
     let query = {};
 
     if (!isStaff) {
-      // Client only sees their own applications
-      query.client_id = req.user.id;
+      // Client only sees their own company applications
+      const allowed = [req.user.id, req.user._id, req.user.parent_client_id].filter(Boolean);
+      query.client_id = { $in: allowed };
     }
 
     if (req.query.status && req.query.status !== 'all') {
@@ -329,7 +332,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Extension application not found.' });
     }
 
-    if (!isStaff && String(app.client_id?._id || app.client_id) !== String(req.user.id)) {
+    const allowed = [String(req.user.id), String(req.user._id), String(req.user.parent_client_id || '')].filter(Boolean);
+    if (!isStaff && !allowed.includes(String(app.client_id?._id || app.client_id))) {
       return res.status(403).json({ error: 'Unauthorized access to this application.' });
     }
 

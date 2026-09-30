@@ -131,8 +131,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
     let filter;
     if (!isStaff) {
-      // Client: only their own tickets
-      filter = { user_id: userId };
+      // Client: tickets belonging to user or company parent
+      const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
+      filter = { user_id: { $in: allowed } };
     } else if (isManager) {
       // Support manager / superadmin: see all tickets
       filter = {};
@@ -160,8 +161,9 @@ router.get('/active-chat', authenticateToken, async (req, res) => {
       return res.json({ data: null });
     }
 
+    const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
     const raw = await Ticket.findOne({
-      user_id: userId,
+      user_id: { $in: allowed },
       status: { $in: ['open', 'in_progress'] }
     }).sort({ updated_at: -1, created_at: -1 }).lean();
 
@@ -191,8 +193,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const isManager = isSupportManagerUser(req.user);
     const userId = req.user.id || req.user._id.toString();
 
-    // Clients can only view their own tickets
-    if (!isStaff && raw.user_id?.toString() !== userId) {
+    // Clients can only view their company tickets
+    const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!isStaff && !allowed.includes(raw.user_id?.toString())) {
       return res.status(403).json({ error: 'Unauthorized to view this ticket' });
     }
 
@@ -328,13 +331,15 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(200).json({ data: populated });
     }
 
+    const companyUserId = req.user.parent_client_id ? req.user.parent_client_id.toString() : userId;
     const ticketCount = await Ticket.countDocuments();
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const ticket_number = `TKT-${String(ticketCount + 1).padStart(4, '0')}${randomSuffix}`;
 
     const ticket = new Ticket({
       ticket_number,
-      user_id: userId,
+      user_id: companyUserId,
+      created_by_user_id: userId,
       subject: subject?.trim(),
       message: message?.trim(),
       department: department || 'General',
@@ -385,6 +390,12 @@ router.post('/:id/reply', authenticateToken, async (req, res) => {
     const isStaff = isStaffUser(req.user);
     const isManager = isSupportManagerUser(req.user);
     const userId = req.user.id || req.user._id.toString();
+
+    // Client access control: client can only reply to their company's tickets
+    const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
+    if (!isStaff && !allowed.includes(ticket.user_id?.toString())) {
+      return res.status(403).json({ error: 'Unauthorized to reply to this ticket' });
+    }
 
     // Staff access control: only the assigned agent or a support manager can reply
     if (isStaff && !isManager) {
@@ -633,8 +644,9 @@ router.post('/:id/view', authenticateToken, async (req, res) => {
 router.get('/active-chat', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id.toString();
+    const allowed = [userId, req.user.parent_client_id?.toString()].filter(Boolean);
     const ticket = await Ticket.findOne({
-      user_id: userId,
+      user_id: { $in: allowed },
       status: { $in: ['open', 'in_progress'] }
     }).sort({ updated_at: -1, created_at: -1 }).lean();
 

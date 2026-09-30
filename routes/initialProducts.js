@@ -124,7 +124,8 @@ router.post('/', authenticateToken, async (req, res) => {
     if (!app) {
       return res.status(404).json({ error: 'Certification application not found.' });
     }
-    if (req.user.role === 'client' && app.client_id?.toString() !== req.user._id.toString()) {
+    const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+    if (req.user.role === 'client' && !allowedClientIds.includes(app.client_id?.toString())) {
       return res.status(403).json({ error: 'Access denied to this application.' });
     }
 
@@ -222,7 +223,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const resolvedSiteId = site_id || (typeof app.site_id === 'object' ? app.site_id?._id : app.site_id);
 
     const newInitialProduct = new InitialProductApplication({
-      client_id: req.user._id,
+      client_id: req.user.parent_client_id || req.user._id,
       application_id: app._id,
       site_id: resolvedSiteId,
       contact_name: contact_name.trim(),
@@ -459,7 +460,9 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'client') {
-      query.client_id = req.user._id;
+      const allowed = [req.user._id];
+      if (req.user.parent_client_id) allowed.push(req.user.parent_client_id);
+      query.client_id = { $in: allowed };
     } else if (req.user.role === 'food_tech') {
       query.$or = [
         { assigned_food_techs: req.user._id },
@@ -497,14 +500,18 @@ router.get('/', authenticateToken, async (req, res) => {
 // Get client's certification applications that are eligible to add an Initial Product
 router.get('/eligible-applications', authenticateToken, async (req, res) => {
   try {
-    const clientId = req.user.role === 'client' ? req.user._id : req.query.client_id;
-    if (!clientId) {
+    const isClient = req.user.role === 'client';
+    const targetIds = isClient
+      ? [req.user._id, req.user.parent_client_id].filter(Boolean)
+      : (req.query.client_id ? [req.query.client_id] : []);
+
+    if (targetIds.length === 0) {
       return res.status(400).json({ error: 'Client ID required' });
     }
 
-    const clientQuery = mongoose.Types.ObjectId.isValid(clientId)
-      ? { $in: [new mongoose.Types.ObjectId(clientId), String(clientId)] }
-      : String(clientId);
+    const objIds = targetIds.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id.toString()));
+    const strIds = targetIds.map(id => id.toString());
+    const clientQuery = { $in: [...new Set([...objIds, ...strIds])] };
 
     const UNCONFIRMED_STATUSES = [
       'created', 'draft', 'submitted', 'under_review', 'approved',
@@ -584,8 +591,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     if (!item) return res.status(404).json({ error: 'Initial product application not found' });
 
-    if (req.user.role === 'client' && item.client_id._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      const itemCid = (item.client_id?._id || item.client_id)?.toString();
+      if (!allowed.includes(itemCid)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
     if (req.user.role === 'food_tech' && !item.assigned_food_techs?.some(ft => ft._id.toString() === req.user._id.toString())) {
       return res.status(403).json({ error: 'Access denied. You are not assigned to this application.' });
@@ -766,8 +777,11 @@ router.put('/:id/save-response', authenticateToken, upload.any(), async (req, re
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
-    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied.' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
 
     const { response_text, form_data } = req.body;
@@ -811,8 +825,11 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
 
-    if (req.user.role === 'client' && app.client_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Access denied.' });
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
 
     const hasResponse = Boolean(app.product_approval_form?.product_response?.is_saved) ||

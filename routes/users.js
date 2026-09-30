@@ -34,7 +34,6 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
         ...pObj,
         id: pObj._id.toString(),
         is_owner: true,
-        role: pObj.client_role || 'owner',
         display_role: 'Account Owner'
       });
     }
@@ -44,10 +43,7 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
         ...uObj,
         id: uObj._id.toString(),
         is_owner: false,
-        role: uObj.client_role || 'viewer',
-        display_role: uObj.client_role
-          ? uObj.client_role.charAt(0).toUpperCase() + uObj.client_role.slice(1)
-          : 'Viewer'
+        display_role: 'Team Member'
       });
     });
 
@@ -60,11 +56,16 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
 // POST /api/users/company/subusers
 router.post('/company/subusers', authenticateToken, async (req, res) => {
   try {
-    const { full_name, email, role, password } = req.body;
+    // Added team members cannot add members — only primary account owner can
+    if (req.user.parent_client_id) {
+      return res.status(403).json({ error: 'Added team members are not permitted to add other members.' });
+    }
+
+    const { full_name, email, password } = req.body;
     if (!full_name?.trim()) return res.status(400).json({ error: 'Full name is required' });
     if (!email?.trim()) return res.status(400).json({ error: 'Email is required' });
 
-    const parentId = req.user.parent_client_id || req.user._id;
+    const parentId = req.user._id;
     const parent = await User.findById(parentId);
     if (!parent) return res.status(404).json({ error: 'Primary client account not found' });
 
@@ -78,7 +79,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
       email: email.trim().toLowerCase(),
       password: subUserPassword,
       role: 'client',
-      client_role: ['admin', 'editor', 'viewer'].includes(role) ? role : 'viewer',
+      client_role: 'member',
       parent_client_id: parentId,
       company_name: parent.company_name || parent.full_name,
       phone: parent.phone,
@@ -95,7 +96,6 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 
     try {
       const clientPortalUrl = getClientUrl();
-      const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Viewer';
       await resend.emails.send({
         from: emailFrom,
         to: subUser.email,
@@ -109,7 +109,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
             <div style="padding: 28px 32px; background: white;">
               <p style="font-size: 15px; color: #1e293b; margin-top: 0;">Hello <strong>${subUser.full_name}</strong>,</p>
               <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-                You have been added as a team member (<strong>${roleLabel}</strong>) for <strong>${parent.company_name || parent.full_name}</strong> on the HFA Certification Portal.
+                You have been added as a team member for <strong>${parent.company_name || parent.full_name}</strong> on the HFA Certification Portal.
               </p>
               <div style="background: #f1f5f9; border-radius: 8px; padding: 18px 20px; margin: 20px 0;">
                 <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 8px;">Your Login Credentials</div>
@@ -145,13 +145,17 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 // PUT /api/users/company/subusers/:id
 router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
-    const parentId = req.user.parent_client_id || req.user._id;
+    if (req.user.parent_client_id) {
+      return res.status(403).json({ error: 'Only the primary account owner can update team members.' });
+    }
+
+    const parentId = req.user._id;
     const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
     if (!subUser) return res.status(404).json({ error: 'Team member not found or access denied' });
 
-    const { full_name, role, password } = req.body;
+    const { full_name, is_active, password } = req.body;
     if (full_name?.trim()) subUser.full_name = full_name.trim();
-    if (role && ['admin', 'editor', 'viewer'].includes(role)) subUser.client_role = role;
+    if (typeof is_active === 'boolean') subUser.is_active = is_active;
     if (password?.trim()) subUser.password = password.trim();
 
     await subUser.save();
@@ -167,7 +171,11 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
 // DELETE /api/users/company/subusers/:id
 router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
-    const parentId = req.user.parent_client_id || req.user._id;
+    if (req.user.parent_client_id) {
+      return res.status(403).json({ error: 'Only the primary account owner can remove team members.' });
+    }
+
+    const parentId = req.user._id;
     const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
     if (!subUser) return res.status(404).json({ error: 'Team member not found or cannot be removed' });
 
@@ -184,7 +192,11 @@ router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
 router.get('/companies-directory', authenticateToken, async (req, res) => {
   try {
     const [clients, sites] = await Promise.all([
-      User.find({ role: 'client' }).select('_id company_name full_name').lean(),
+      User.find({
+        role: 'client',
+        $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
+        client_role: { $ne: 'member' }
+      }).select('_id company_name full_name').lean(),
       Site.find({}).select('_id client_id name est_name trading_name address_1').lean()
     ]);
 
@@ -361,8 +373,13 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
       // Fetch client counts for the sidebar stats too
       const clientActiveCount = await User.countDocuments({
-        role: 'client', is_active: { $ne: false },
-        $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }]
+        role: 'client',
+        is_active: { $ne: false },
+        $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
+        client_role: { $ne: 'member' },
+        $and: [
+          { $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }
+        ]
       });
 
       const totalPages = isUnpaginated ? 1 : (Math.ceil(total / limit) || 1);
@@ -374,26 +391,35 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     // ── Client categories: query User collection ────────────────────────────────
-    const matchQuery = {};
+    const matchQuery = {
+      $and: [
+        { $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }] },
+        { client_role: { $ne: 'member' } }
+      ]
+    };
 
     if (category === 'company') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'certified';
-      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
+      matchQuery.is_active = { $ne: false };
+      matchQuery.$and.push({ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'processing') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'processing';
-      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
+      matchQuery.is_active = { $ne: false };
+      matchQuery.$and.push({ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'signups') {
       matchQuery.role = 'client';
       matchQuery.company_category = 'signup';
-      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
+      matchQuery.is_active = { $ne: false };
+      matchQuery.$and.push({ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (category === 'bin') {
       matchQuery.role = 'client';
-      matchQuery.$or = [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }];
+      matchQuery.$and.push({ $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }] });
     } else if (category === 'all' || !category) {
       matchQuery.role = 'client';
-      Object.assign(matchQuery, { is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
+      matchQuery.is_active = { $ne: false };
+      matchQuery.$and.push({ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] });
     } else if (req.query.role) {
       matchQuery.role = req.query.role;
     }
@@ -405,12 +431,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         { company_name: searchRegex }, { full_name: searchRegex }, { email: searchRegex },
         { phone: searchRegex }, { address: searchRegex }, { postcode: searchRegex }
       ];
-      if (matchQuery.$or) {
-        matchQuery.$and = [{ $or: matchQuery.$or }, { $or: searchConditions }];
-        delete matchQuery.$or;
-      } else {
-        matchQuery.$or = searchConditions;
-      }
+      matchQuery.$and.push({ $or: searchConditions });
     }
 
     const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -420,16 +441,22 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     const userQuery = User.find(matchQuery).sort({ created_at: -1, createdAt: -1 });
     if (!isUnpaginated) userQuery.skip(skip).limit(limit);
 
+    const basePrimaryFilter = {
+      role: 'client',
+      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
+      client_role: { $ne: 'member' }
+    };
+
     const [total, users, [stats], staffCount] = await Promise.all([
       User.countDocuments(matchQuery),
       userQuery.lean(),
       User.aggregate([{
         $facet: {
-          all:        [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] } }, { $count: 'c' }],
-          bin:        [{ $match: { role: 'client', $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }] } }, { $count: 'c' }],
-          company:    [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'certified' } }, { $count: 'c' }],
-          processing: [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'processing' } }, { $count: 'c' }],
-          signups:    [{ $match: { role: 'client', is_active: { $ne: false }, $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }], company_category: 'signup' } }, { $count: 'c' }],
+          all:        [{ $match: { ...basePrimaryFilter, is_active: { $ne: false }, $and: [{ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }] } }, { $count: 'c' }],
+          bin:        [{ $match: { ...basePrimaryFilter, $and: [{ $or: [{ is_active: false }, { suspension_reason: { $exists: true, $nin: [null, ''] } }] }] } }, { $count: 'c' }],
+          company:    [{ $match: { ...basePrimaryFilter, is_active: { $ne: false }, company_category: 'certified', $and: [{ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }] } }, { $count: 'c' }],
+          processing: [{ $match: { ...basePrimaryFilter, is_active: { $ne: false }, company_category: 'processing', $and: [{ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }] } }, { $count: 'c' }],
+          signups:    [{ $match: { ...basePrimaryFilter, is_active: { $ne: false }, company_category: 'signup', $and: [{ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }] } }, { $count: 'c' }],
         }
       }]),
       Admin.countDocuments({}),
