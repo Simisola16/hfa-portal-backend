@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin } from '../middleware/auth.js';
@@ -142,19 +143,28 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
     const parentId = req.user.parent_client_id || req.user._id;
-    const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
-    if (!subUser) return res.status(404).json({ error: 'Team member not found or access denied' });
+    const targetId = req.params.id;
+    const isTargetPrimary = targetId.toString() === parentId.toString();
+
+    let targetUser;
+    if (isTargetPrimary) {
+      targetUser = await User.findById(parentId);
+    } else {
+      targetUser = await User.findOne({ _id: targetId, parent_client_id: parentId });
+    }
+
+    if (!targetUser) return res.status(404).json({ error: 'User not found or access denied' });
 
     const { full_name, is_active, password } = req.body;
-    if (full_name?.trim()) subUser.full_name = full_name.trim();
-    if (typeof is_active === 'boolean') subUser.is_active = is_active;
-    if (password?.trim()) subUser.password = password.trim();
+    if (full_name?.trim()) targetUser.full_name = full_name.trim();
+    if (typeof is_active === 'boolean') targetUser.is_active = is_active;
+    if (password?.trim()) targetUser.password = password.trim();
 
-    await subUser.save();
-    const resData = subUser.toJSON();
+    await targetUser.save();
+    const resData = targetUser.toJSON();
     delete resData.password;
 
-    res.json({ data: resData, message: 'Team member updated successfully' });
+    res.json({ data: resData, message: 'User updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -164,10 +174,72 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
 router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
     const parentId = req.user.parent_client_id || req.user._id;
-    const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
-    if (!subUser) return res.status(404).json({ error: 'Team member not found or cannot be removed' });
+    const targetId = req.params.id;
+    const isTargetPrimary = targetId.toString() === parentId.toString();
 
-    await User.findByIdAndDelete(req.params.id);
+    let targetUser;
+    if (isTargetPrimary) {
+      targetUser = await User.findById(parentId);
+    } else {
+      targetUser = await User.findOne({ _id: targetId, parent_client_id: parentId });
+    }
+
+    if (!targetUser) return res.status(404).json({ error: 'User not found or cannot be removed' });
+
+    if (isTargetPrimary) {
+      // Find the next available team member to inherit primary account ownership
+      const nextMember = await User.findOne({ parent_client_id: parentId }).sort({ created_at: 1 });
+
+      if (nextMember) {
+        // Promote nextMember to be the new Primary Account Owner
+        nextMember.parent_client_id = null;
+        nextMember.client_role = 'owner';
+        if (!nextMember.company_name) {
+          nextMember.company_name = targetUser.company_name || targetUser.full_name;
+        }
+        await nextMember.save();
+
+        const newParentId = nextMember._id;
+
+        // Update all other remaining subusers to point to the new primary owner
+        await User.updateMany(
+          { parent_client_id: parentId, _id: { $ne: newParentId } },
+          { $set: { parent_client_id: newParentId } }
+        );
+
+        // Safely re-point company documents to the new primary owner
+        const modelNames = ['Application', 'Site', 'Product', 'Certificate', 'Invoice', 'Agreement', 'Ticket', 'Proposal'];
+        await Promise.allSettled(
+          modelNames.map(mName => {
+            try {
+              const model = mongoose.models[mName] || mongoose.model(mName);
+              if (mName === 'Certificate') {
+                return model.updateMany(
+                  { client_id: { $in: [parentId, parentId.toString()] } },
+                  { $set: { client_id: newParentId.toString() } }
+                );
+              }
+              return model.updateMany(
+                { client_id: { $in: [parentId, parentId.toString()] } },
+                { $set: { client_id: newParentId } }
+              );
+            } catch (_) {
+              return Promise.resolve();
+            }
+          })
+        );
+      }
+
+      await User.findByIdAndDelete(parentId);
+      return res.json({ 
+        message: nextMember 
+          ? `Primary account holder removed. Ownership transferred to ${nextMember.full_name}.` 
+          : 'Primary account holder removed successfully.' 
+      });
+    }
+
+    // Standard subuser deletion
+    await User.findByIdAndDelete(targetId);
     res.json({ message: 'Team member removed successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
