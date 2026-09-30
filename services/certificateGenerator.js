@@ -1223,18 +1223,16 @@ export async function generateCertificate(certData) {
       borderWidth: 0.85
     });
 
-    // Centered Asterisks directly below table on final page
-    if (isLastPage) {
-      const asterisks = '********************';
-      const astW = fontBold.widthOfTextAtSize(asterisks, 9.0);
-      page.drawText(asterisks, {
-        x: (PAGE_WIDTH - astW) / 2,
-        y: curRowY - 10.0,
-        size: 9.0,
-        font: fontBold,
-        color: cDark
-      });
-    }
+    // Centered Asterisks directly below table on every page
+    const asterisks = '********************';
+    const astW = fontBold.widthOfTextAtSize(asterisks, 9.0);
+    page.drawText(asterisks, {
+      x: (PAGE_WIDTH - astW) / 2,
+      y: curRowY - 10.0,
+      size: 9.0,
+      font: fontBold,
+      color: cDark
+    });
 
     // 5. Dynamic QR Code (Bottom Left)
     const qrSize = 52;
