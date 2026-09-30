@@ -10,26 +10,143 @@ import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 const router = express.Router();
 
+// Helper to enrich product records with client user information efficiently
+async function enrichProductsWithClients(products) {
+  if (!products || products.length === 0) return [];
+
+  const userIds = [...new Set(products.map(p => {
+    if (!p.client_id) return null;
+    if (typeof p.client_id === 'object' && p.client_id._id) return p.client_id._id.toString();
+    return p.client_id.toString();
+  }).filter(Boolean))];
+
+  const users = userIds.length > 0 
+    ? await User.find({ _id: { $in: userIds } }, 'company_name full_name email phone').lean()
+    : [];
+  const userMap = {};
+  users.forEach(u => { userMap[u._id.toString()] = u; });
+
+  return products.map(p => {
+    const clientIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : null;
+    const clientObj = (p.client_id && typeof p.client_id === 'object' && p.client_id.company_name) 
+      ? p.client_id 
+      : (clientIdStr ? userMap[clientIdStr] : null);
+
+    return {
+      ...p,
+      id: p._id.toString(),
+      barcode: p.barcode || p.code || '',
+      source: p.source || (p.notes?.toLowerCase().includes('administrator') || p.notes?.toLowerCase().includes('direct') ? 'admin' : 'client'),
+      application_type: p.application_type || (p.notes?.toLowerCase().includes('direct') ? 'Direct' : (p.notes?.toLowerCase().includes('renewal') ? 'Renewal' : (p.notes?.toLowerCase().includes('add-on') || p.notes?.toLowerCase().includes('addon') ? 'Extension' : 'New'))),
+      created_by: p.created_by,
+      created_by_name: p.created_by_name || (p.source === 'admin' ? (p.notes?.replace(/.*by\s+/i, '') || 'Admin') : ''),
+      last_modified_by: p.last_modified_by,
+      last_modified_by_name: p.last_modified_by_name || '',
+      last_modified_at: p.last_modified_at || null,
+      client_id: clientObj || p.client_id,
+      profiles: clientObj ? {
+        company_name: clientObj.company_name,
+        full_name: clientObj.full_name,
+        email: clientObj.email,
+        phone: clientObj.phone
+      } : null
+    };
+  });
+}
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    let query = { status: { $ne: 'pending' } };
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
-      // client_id may be stored as ObjectId or string due to Mixed type — query both forms
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10);
+    const isPaginated = (!isNaN(page) && page > 0) || (!isNaN(limit) && limit > 0) || req.query.paginated === 'true';
+
+    const query = {};
+
+    // 1. Role-based client restrictions
+    if (!isAdmin) {
       const clientIdStr = req.user._id.toString();
       query.client_id = { $in: [req.user._id, clientIdStr] };
     } else {
       if (req.query.client_id) {
-        // Admin filtering: also match both ObjectId and string forms
         query.client_id = mongoose.isValidObjectId(req.query.client_id)
           ? { $in: [new mongoose.Types.ObjectId(req.query.client_id), req.query.client_id] }
           : req.query.client_id;
       }
-      if (req.query.site_id) query.site_id = req.query.site_id;
+      if (req.query.site_id) {
+        query.site_id = req.query.site_id;
+      }
     }
-    const products = await Product.find(query).populate('site_id', 'name est_name trading_name address_1').sort({ created_at: -1 }).lean();
 
-    // Deduplicate products only per site (client_id + site_id + name + code)
-    // Products across different manufacturing sites are distinct physical site authorizations and must NOT be deduplicated
+    // 2. Status filtering
+    const statusParam = req.query.status ? String(req.query.status).trim().toLowerCase() : '';
+    if (statusParam && statusParam !== 'all') {
+      query.status = statusParam;
+    } else if (!statusParam) {
+      // Legacy unpaginated callers (or clients) don't expect pending products
+      if (!isAdmin || (!isPaginated && req.query.all !== 'true')) {
+        query.status = { $ne: 'pending' };
+      }
+      // If admin and paginated with empty status or 'all', allow all statuses
+    }
+
+    // 3. Search query across name, code, barcode, category, description
+    const searchTerm = (req.query.search || req.query.q || '').trim();
+    if (searchTerm) {
+      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
+      query.$or = [
+        { name: searchRegex },
+        { code: searchRegex },
+        { barcode: searchRegex },
+        { category: searchRegex },
+        { description: searchRegex }
+      ];
+    }
+
+    // 4. Category filter
+    if (req.query.category && req.query.category.trim()) {
+      query.category = req.query.category.trim();
+    }
+
+    // Branch A: Direct MongoDB Paginated Query (Fast DB-level pagination & count)
+    if (isPaginated) {
+      const currentPage = Math.max(1, !isNaN(page) && page > 0 ? page : 1);
+      const pageSize = Math.max(1, Math.min(!isNaN(limit) && limit > 0 ? limit : 25, 200));
+
+      const [total, rawProducts] = await Promise.all([
+        Product.countDocuments(query),
+        Product.find(query)
+          .populate('site_id', 'name est_name trading_name address_1')
+          .sort({ created_at: -1, _id: -1 })
+          .skip((currentPage - 1) * pageSize)
+          .limit(pageSize)
+          .lean()
+      ]);
+
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const responseData = await enrichProductsWithClients(rawProducts);
+
+      return res.json({
+        data: responseData,
+        pagination: {
+          page: currentPage,
+          limit: pageSize,
+          total,
+          totalPages,
+          hasPrevPage: currentPage > 1,
+          hasNextPage: currentPage < totalPages
+        }
+      });
+    }
+
+    // Branch B: Unpaginated Query (Preserves legacy deduplication for certificate dropdowns & generators)
+    const products = await Product.find(query)
+      .populate('site_id', 'name est_name trading_name address_1')
+      .sort({ created_at: -1, _id: -1 })
+      .lean();
+
+    // Deduplicate products per site (client_id + site_id + name + code)
     const uniqueProducts = [];
     const seenProductKeys = new Set();
     for (const p of products) {
@@ -45,69 +162,10 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
-    // Enrich with client user information
-    const userIds = [...new Set(uniqueProducts.map(p => {
-      if (!p.client_id) return null;
-      if (typeof p.client_id === 'object' && p.client_id._id) return p.client_id._id.toString();
-      return p.client_id.toString();
-    }).filter(Boolean))];
-
-    const users = await User.find({ _id: { $in: userIds } }, 'company_name full_name email phone').lean();
-    const userMap = {};
-    users.forEach(u => { userMap[u._id.toString()] = u; });
-
-    const data = uniqueProducts.map(p => {
-      const clientIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : null;
-      const clientObj = (p.client_id && typeof p.client_id === 'object' && p.client_id.company_name) 
-        ? p.client_id 
-        : (clientIdStr ? userMap[clientIdStr] : null);
-
-      return {
-        ...p,
-        id: p._id.toString(),
-        barcode: p.barcode || p.code || '',
-        source: p.source || (p.notes?.toLowerCase().includes('administrator') || p.notes?.toLowerCase().includes('direct') ? 'admin' : 'client'),
-        application_type: p.application_type || (p.notes?.toLowerCase().includes('direct') ? 'Direct' : (p.notes?.toLowerCase().includes('renewal') ? 'Renewal' : (p.notes?.toLowerCase().includes('add-on') || p.notes?.toLowerCase().includes('addon') ? 'Extension' : 'New'))),
-        created_by: p.created_by,
-        created_by_name: p.created_by_name || (p.source === 'admin' ? (p.notes?.replace(/.*by\s+/i, '') || 'Admin') : ''),
-        last_modified_by: p.last_modified_by,
-        last_modified_by_name: p.last_modified_by_name || '',
-        last_modified_at: p.last_modified_at || null,
-        client_id: clientObj || p.client_id,
-        profiles: clientObj ? {
-          company_name: clientObj.company_name,
-          full_name: clientObj.full_name,
-          email: clientObj.email,
-          phone: clientObj.phone
-        } : null
-      };
-    });
-
-    const page = parseInt(req.query.page, 10);
-    const limit = parseInt(req.query.limit, 10);
-    const isPaginated = !isNaN(page) && !isNaN(limit) && limit > 0;
-
-    let responseData = data;
-    let pagination = null;
-
-    if (isPaginated) {
-      const total = data.length;
-      const totalPages = Math.ceil(total / limit) || 1;
-      const validPage = Math.max(1, Math.min(page, totalPages));
-      const skip = (validPage - 1) * limit;
-      responseData = data.slice(skip, skip + limit);
-      pagination = {
-        page: validPage,
-        limit,
-        total,
-        totalPages,
-        hasPrevPage: validPage > 1,
-        hasNextPage: validPage < totalPages
-      };
-    }
-
-    res.json({ data: responseData, pagination });
+    const responseData = await enrichProductsWithClients(uniqueProducts);
+    return res.json(responseData);
   } catch (err) {
+    console.error('Error in GET /api/products:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -230,7 +288,7 @@ router.post('/', authenticateToken, async (req, res) => {
         site_id: site_id || undefined,
         ingredients,
         barcode: barcode || '',
-        status: 'active',
+        status: req.body.status || 'active',
         source: 'admin',
         application_type: req.body.application_type || 'Direct',
         created_by: req.user._id,

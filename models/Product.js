@@ -34,6 +34,9 @@ productSchema.index({ status: 1 });
 productSchema.index({ client_id: 1, site_id: 1 });
 productSchema.index({ certificate_id: 1 });
 productSchema.index({ client_id: 1, certificate_id: 1 });
+productSchema.index({ created_at: -1 });
+productSchema.index({ status: 1, created_at: -1 });
+productSchema.index({ name: 1 });
 
 export default mongoose.model('Product', productSchema);
 
