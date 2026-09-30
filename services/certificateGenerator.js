@@ -474,7 +474,13 @@ CERTIFICATE_SCHEMES['UAE/GSO Halal Surveillance Letter'] = CERTIFICATE_SCHEMES['
  * @param {string} context  - Optional extra context: cert.scope, product_category, etc.
  */
 export function normalizeCertificateType(rawType, context = '') {
-  if (!rawType) return 'GSO MEAT';
+  if (!rawType) {
+    const ctx = String(context || '').toLowerCase();
+    const isMeat = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(ctx);
+    const isGso = /\b(gso|uae|dual)\b/i.test(ctx);
+    if (isGso) return isMeat ? 'GSO MEAT' : 'GSO NON MEAT';
+    return isMeat ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
+  }
   const str = String(rawType).trim().toUpperCase();
 
   // ── 1. Exact / alias lookup first (covers all DB values directly) ─────────
@@ -541,8 +547,13 @@ export function normalizeCertificateType(rawType, context = '') {
     return isMeat ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
   }
 
-  // ── 7. Fallback: check aliases table, then default to GSO MEAT ────────────
-  return CERTIFICATE_SCHEMES[str] ? str : 'GSO MEAT';
+  // ── 7. Fallback: check aliases table, then check context
+  if (CERTIFICATE_SCHEMES[str]) return str;
+  const ctxFallback = String(context || '').toLowerCase();
+  const isMeatFallback = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(ctxFallback);
+  const isGsoFallback = /\b(gso|uae|dual)\b/i.test(ctxFallback);
+  if (isGsoFallback) return isMeatFallback ? 'GSO MEAT' : 'GSO NON MEAT';
+  return isMeatFallback ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT';
 }
 
 /**
@@ -560,7 +571,7 @@ export function normalizeCertificateType(rawType, context = '') {
  */
 export async function generateCertificate(certData) {
   const {
-    certificateType = 'GSO MEAT',
+    certificateType = 'HFA SCHEME MEAT',
     certificateNumber = '',
     businessName = '',
     companyName,
