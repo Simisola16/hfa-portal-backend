@@ -56,16 +56,12 @@ router.get('/company/subusers', authenticateToken, async (req, res) => {
 // POST /api/users/company/subusers
 router.post('/company/subusers', authenticateToken, async (req, res) => {
   try {
-    // Added team members cannot add members — only primary account owner can
-    if (req.user.parent_client_id) {
-      return res.status(403).json({ error: 'Added team members are not permitted to add other members.' });
-    }
-
     const { full_name, email, password } = req.body;
     if (!full_name?.trim()) return res.status(400).json({ error: 'Full name is required' });
     if (!email?.trim()) return res.status(400).json({ error: 'Email is required' });
 
-    const parentId = req.user._id;
+    // Resolve company primary account (works for both owner and existing team members)
+    const parentId = req.user.parent_client_id || req.user._id;
     const parent = await User.findById(parentId);
     if (!parent) return res.status(404).json({ error: 'Primary client account not found' });
 
@@ -145,11 +141,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 // PUT /api/users/company/subusers/:id
 router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.parent_client_id) {
-      return res.status(403).json({ error: 'Only the primary account owner can update team members.' });
-    }
-
-    const parentId = req.user._id;
+    const parentId = req.user.parent_client_id || req.user._id;
     const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
     if (!subUser) return res.status(404).json({ error: 'Team member not found or access denied' });
 
@@ -171,11 +163,7 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
 // DELETE /api/users/company/subusers/:id
 router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.parent_client_id) {
-      return res.status(403).json({ error: 'Only the primary account owner can remove team members.' });
-    }
-
-    const parentId = req.user._id;
+    const parentId = req.user.parent_client_id || req.user._id;
     const subUser = await User.findOne({ _id: req.params.id, parent_client_id: parentId });
     if (!subUser) return res.status(404).json({ error: 'Team member not found or cannot be removed' });
 
