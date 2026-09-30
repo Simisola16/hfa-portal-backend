@@ -235,7 +235,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     ].filter(Boolean);
 
     const baseCountFilter = !isAdminUser
-      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'approved', 'expired', 'renewed', 'outdated', 'superseded', 'inactive'] } }
       : {};
 
     const now = new Date();
@@ -296,7 +296,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     if (!isAdminUser) {
       andConditions.push({ client_id: { $in: allowedClientIds } });
-      andConditions.push({ status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } });
+      andConditions.push({ status: { $in: ['active', 'approved', 'expired', 'renewed', 'outdated', 'superseded', 'inactive'] } });
     }
 
     // ── Server-side filtering ──────────────────────────────────────────────────
@@ -373,7 +373,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Base count filter (scoped to client if not admin)
     const baseCountFilter = !isAdminUser
-      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'expired', 'renewed', 'outdated', 'superseded'] } }
+      ? { client_id: { $in: allowedClientIds }, status: { $in: ['active', 'approved', 'expired', 'renewed', 'outdated', 'superseded', 'inactive'] } }
       : {};
 
     const [total, data, totalCount, reviewCount, activeCount, expiringCount, expiredCount] = await Promise.all([
