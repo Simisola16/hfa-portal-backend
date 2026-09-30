@@ -46,7 +46,11 @@ const isAdminUser = (user, req) => {
 async function requireFinalInvoicePaidForCertificate(req, res, next) {
   try {
     const application_id = req.body.application_id || req.body.applicationId;
-    if (!application_id) return next();
+    if (!application_id || application_id === 'undefined' || application_id === 'null' || application_id === 'direct') return next();
+
+    if (!mongoose.Types.ObjectId.isValid(application_id)) {
+      return next();
+    }
 
     const app = await Application.findById(application_id);
     if (!app) {
@@ -54,7 +58,8 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
       if (addOn) {
         return next();
       }
-      return res.status(404).json({ error: 'Application not found.' });
+      // If application_id is not an Application or AddOn, it might be a logsheet or direct issuance
+      return next();
     }
 
     // Renewal & Surveillance applications require invoice payment before certificate / letter issuance
@@ -463,13 +468,23 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET certificate by application ID
 router.get('/application/:appId', authenticateToken, async (req, res) => {
   try {
-    let data = await Certificate.findOne({ application_id: req.params.appId }).sort({ issue_date: -1, created_at: -1, createdAt: -1 })
+    if (!mongoose.isValidObjectId(req.params.appId)) {
+      return res.json({ data: null });
+    }
+
+    let data = await Certificate.findOne({
+      $or: [
+        { application_id: req.params.appId },
+        { logsheet_id: req.params.appId }
+      ]
+    }).sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .populate('site_id')
       .populate('application_id')
+      .populate('logsheet_id')
       .populate('created_by', 'full_name email role')
       .populate('reviewed_by', 'full_name email role');
 
-    if (!data && mongoose.isValidObjectId(req.params.appId)) {
+    if (!data) {
       const addOn = await AddOnApplication.findById(req.params.appId);
       if (addOn?.certificate_id) {
         data = await Certificate.findById(addOn.certificate_id)
@@ -644,8 +659,12 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
     const certPath = getS3PathFromKey(s3Key);
     const fullCertUrl = resolveCertificateUrl(certPath);
 
+    const hasMeatSignal = /\b(meat|slaughter|cutting|abattoir|beef|lamb|poultry|chicken|mutton|veal|turkey|carcass|bovine|ovine)\b/i.test(effectiveScope || company_name || '');
+    const isGsoSignal = /\b(gso|uae|dual)\b/i.test(effectiveScope || '');
+    const fallbackCertType = isGsoSignal ? (hasMeatSignal ? 'GSO MEAT' : 'GSO NON MEAT') : (hasMeatSignal ? 'HFA SCHEME MEAT' : 'HFA SCHEME NON MEAT');
+
     const pdfBuffer = await generateCertificate({
-      certificateType: certificate_type || 'GSO MEAT',
+      certificateType: certificate_type || fallbackCertType,
       businessName: company_name || '',
       businessAddress: company_address || '',
       manufacturerAddress: manufacturing_address || '',
@@ -1060,6 +1079,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     const {
       client_id,
       application_id,
+      logsheet_id,
       site_id,
       certificate_type,
       company_name,
@@ -1079,13 +1099,36 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       review_notes
     } = req.body;
 
-    let resolvedSiteId = site_id || null;
-    if (!resolvedSiteId && application_id) {
-      const appForSite = await Application.findById(application_id).select('site_id');
+    let resolvedAppId = null;
+    let resolvedLogsheetId = (req.body.logsheet_id && mongoose.isValidObjectId(req.body.logsheet_id)) ? req.body.logsheet_id : null;
+
+    if (application_id && application_id !== 'undefined' && application_id !== 'null' && application_id !== 'direct' && mongoose.isValidObjectId(application_id)) {
+      const foundApp = await Application.findById(application_id);
+      if (foundApp) {
+        resolvedAppId = foundApp._id;
+      } else {
+        const foundAddOn = await AddOnApplication.findById(application_id);
+        if (foundAddOn) {
+          resolvedAppId = foundAddOn._id;
+        } else {
+          // Check if application_id is actually a logsheet ID
+          const foundLog = await ApplicationLogsheet.findById(application_id);
+          if (foundLog) {
+            resolvedLogsheetId = foundLog._id;
+            if (foundLog.application_id) resolvedAppId = foundLog.application_id;
+            else if (foundLog.addon_application_id) resolvedAppId = foundLog.addon_application_id;
+          }
+        }
+      }
+    }
+
+    let resolvedSiteId = (site_id && mongoose.isValidObjectId(site_id)) ? site_id : null;
+    if (!resolvedSiteId && resolvedAppId) {
+      const appForSite = await Application.findById(resolvedAppId).select('site_id');
       if (appForSite?.site_id) {
         resolvedSiteId = appForSite.site_id;
       } else {
-        const addOnForSite = await AddOnApplication.findById(application_id).select('site_id certificate_id');
+        const addOnForSite = await AddOnApplication.findById(resolvedAppId).select('site_id certificate_id');
         if (addOnForSite?.site_id) {
           resolvedSiteId = addOnForSite.site_id;
         } else if (addOnForSite?.certificate_id) {
@@ -1094,14 +1137,52 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         }
       }
     }
+    if (!resolvedSiteId && resolvedLogsheetId) {
+      const logForSite = await ApplicationLogsheet.findById(resolvedLogsheetId).select('site_id client_id');
+      if (logForSite?.site_id) {
+        resolvedSiteId = logForSite.site_id;
+      }
+    }
+
+    let resolvedClientId = (client_id && mongoose.isValidObjectId(client_id)) ? String(client_id) : null;
+    if (!resolvedClientId && resolvedLogsheetId) {
+      const logForClient = await ApplicationLogsheet.findById(resolvedLogsheetId).select('client_id');
+      if (logForClient?.client_id) {
+        resolvedClientId = String(logForClient.client_id);
+      }
+    }
+    if (!resolvedClientId && resolvedAppId) {
+      const appForClient = await Application.findById(resolvedAppId).select('client_id');
+      if (appForClient?.client_id) {
+        resolvedClientId = String(appForClient.client_id);
+      }
+    }
+
+    if (!resolvedSiteId && resolvedClientId) {
+      const existingSite = await Site.findOne({ client_id: resolvedClientId });
+      if (existingSite) {
+        resolvedSiteId = existingSite._id;
+      } else {
+        try {
+          const newSite = new Site({
+            client_id: resolvedClientId,
+            name: company_name || 'Main Facility',
+            address_1: manufacturing_address || company_address || 'Main Facility'
+          });
+          await newSite.save();
+          resolvedSiteId = newSite._id;
+        } catch (_) {}
+      }
+    }
+
     if (!resolvedSiteId) {
       return res.status(400).json({ error: 'Site selection is compulsory. A certificate must be issued for a specific site.' });
     }
 
     let companyForId = company_name || 'HFA';
     let cUser = null;
-    if (client_id) {
-      cUser = await User.findById(client_id);
+    if (resolvedClientId) {
+      cUser = await User.findById(resolvedClientId);
       if (cUser) {
         companyForId = company_name || cUser.company_name || cUser.full_name || 'HFA';
       }
@@ -1110,13 +1191,13 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let isAddOn = req.body.is_add_on === true || req.body.is_add_on === 'true' ||
       (certificate_type && (certificate_type.toLowerCase().includes('add') || certificate_type.toLowerCase().includes('addon')));
 
-    if (!isAddOn && application_id) {
+    if (!isAddOn && resolvedAppId) {
       try {
-        const foundAddOn = await AddOnApplication.findById(application_id).select('_id application_number');
+        const foundAddOn = await AddOnApplication.findById(resolvedAppId).select('_id application_number');
         if (foundAddOn) {
           isAddOn = true;
         } else {
-          const foundApp = await Application.findById(application_id).select('application_number application_type is_add_on');
+          const foundApp = await Application.findById(resolvedAppId).select('application_number application_type is_add_on');
           if (foundApp && (foundApp.is_add_on || foundApp.application_type === 'addon' || foundApp.application_type === 'add-on' || foundApp.application_number?.includes('-AD-') || foundApp.application_number?.startsWith('ADD-'))) {
             isAddOn = true;
           }
@@ -1236,9 +1317,13 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
     const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
+    const isDirect = !resolvedAppId || req.body.is_direct_issuance === true || req.body.is_direct_issuance === 'true';
+
     let certificate = null;
-    if (application_id) {
-      certificate = await Certificate.findOne({ application_id, status: { $in: ['under_review', 'draft'] } });
+    if (resolvedAppId) {
+      certificate = await Certificate.findOne({ application_id: resolvedAppId, status: { $in: ['under_review', 'draft'] } });
+    } else if (resolvedLogsheetId) {
+      certificate = await Certificate.findOne({ logsheet_id: resolvedLogsheetId, status: { $in: ['under_review', 'draft'] } });
     }
 
     // Ensure certNo is strictly unique across the database
@@ -1247,8 +1332,11 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     if (existingWithNumber) {
       if (certificate && existingWithNumber._id.equals(certificate._id)) {
         // Same document, no collision
-      } else if (!certificate && String(existingWithNumber.application_id) === String(application_id)) {
+      } else if (!certificate && resolvedAppId && String(existingWithNumber.application_id) === String(resolvedAppId)) {
         // It's the existing certificate record for this application
+        certificate = existingWithNumber;
+      } else if (!certificate && resolvedLogsheetId && String(existingWithNumber.logsheet_id) === String(resolvedLogsheetId)) {
+        // It's the existing certificate record for this logsheet
         certificate = existingWithNumber;
       } else {
         // Collision with another certificate (e.g. from an old certificate during renewal)
@@ -1263,7 +1351,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     if (certificate) {
       certificate.certificate_number = finalCertNo;
-      certificate.client_id = client_id || certificate.client_id;
+      certificate.client_id = resolvedClientId || client_id || certificate.client_id;
+      if (resolvedAppId) certificate.application_id = resolvedAppId;
+      if (resolvedLogsheetId) certificate.logsheet_id = resolvedLogsheetId;
       certificate.site_id = resolvedSiteId || certificate.site_id;
       certificate.certificate_type = resolvedScheme;
       certificate.company_name = resolvedCompanyName;
@@ -1283,12 +1373,14 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
       certificate.is_add_on = isAddOn;
+      certificate.is_direct_issuance = isDirect;
       certificate.updated_at = new Date();
     } else {
       certificate = new Certificate({
         certificate_number: finalCertNo,
-        client_id,
-        application_id,
+        client_id: resolvedClientId || client_id || 'DIRECT',
+        application_id: resolvedAppId || undefined,
+        logsheet_id: resolvedLogsheetId || undefined,
         site_id: resolvedSiteId,
         certificate_type: resolvedScheme,
         company_name: resolvedCompanyName,
@@ -1307,6 +1399,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         certificate_url,
         status: initialStatus,
         is_add_on: isAddOn,
+        is_direct_issuance: isDirect,
         created_by: req.user._id,
         review_notes: review_notes || ''
       });
@@ -1464,6 +1557,17 @@ async function performCertificateIssuance({ certificate, application_id, client_
           console.error('Error updating add-on logsheets on certificate issuance:', e);
         }
       }
+    }
+  }
+
+  // Mark specific logsheet as Completed if issued from a logsheet
+  if (certificate.logsheet_id) {
+    try {
+      await ApplicationLogsheet.findByIdAndUpdate(certificate.logsheet_id, {
+        $set: { status: 'Completed', updated_at: new Date() }
+      });
+    } catch (e) {
+      console.error('Error updating logsheet_id to Completed:', e);
     }
   }
 

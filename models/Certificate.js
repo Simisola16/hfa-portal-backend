@@ -4,6 +4,7 @@ const certificateSchema = new mongoose.Schema({
   certificate_number: { type: String, required: true, unique: true },
   client_id: { type: String, required: true },
   application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
+  logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet' },
   site_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Site' },
   site_name: String,
   certificate_type: String,
@@ -65,6 +66,7 @@ certificateSchema.index({ client_id: 1, status: 1 });
 certificateSchema.index({ client_id: 1, status: 1, issue_date: -1 });
 certificateSchema.index({ client_id: 1, issue_date: -1 });
 certificateSchema.index({ application_id: 1 });
+certificateSchema.index({ logsheet_id: 1 });
 certificateSchema.index({ expiry_date: 1 });
 certificateSchema.index({ is_direct_issuance: 1, created_at: -1 });
 certificateSchema.index({ is_direct_issuance: 1, createdAt: -1 });
