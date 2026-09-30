@@ -56,7 +56,15 @@ async function enrichProductsWithClients(products) {
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    const ADMIN_ROLES = [
+      'admin', 'superadmin', 'scheme_manager', 'certificate_officer',
+      'accountant', 'inspector', 'audit_manager', 'food_tech_manager',
+      'food_tech', 'support_manager'
+    ];
+    const isAdmin = req.userModelType === 'Admin' ||
+      ADMIN_ROLES.includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ADMIN_ROLES.includes(r)));
+
     const page = parseInt(req.query.page, 10);
     const limit = parseInt(req.query.limit, 10);
     const isPaginated = (!isNaN(page) && page > 0) || (!isNaN(limit) && limit > 0) || req.query.paginated === 'true';
@@ -80,12 +88,18 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
-    // 2. Status filtering
+    // 2. Status filtering - normalize 'active' and 'approved'
     const statusParam = req.query.status ? String(req.query.status).trim().toLowerCase() : '';
-    if (statusParam && statusParam !== 'all') {
+    if (statusParam === 'active' || statusParam === 'approved') {
+      query.status = { $in: ['active', 'approved'] };
+    } else if (statusParam === 'inactive' || statusParam === 'rejected') {
+      query.status = { $in: ['inactive', 'rejected'] };
+    } else if (statusParam === 'pending') {
+      query.status = 'pending';
+    } else if (statusParam && statusParam !== 'all') {
       query.status = statusParam;
     } else if (!statusParam) {
-      // Legacy unpaginated callers (or clients) don't expect pending products
+      // Non-admins or unpaginated calls without all=true filter out pending products
       if (!isAdmin || (!isPaginated && req.query.all !== 'true')) {
         query.status = { $ne: 'pending' };
       }
@@ -135,7 +149,7 @@ router.get('/', authenticateToken, async (req, res) => {
         Product.countDocuments(query),
         Product.find(query)
           .populate('site_id', 'name est_name trading_name address_1')
-          .sort({ created_at: -1, _id: -1 })
+          .sort({ created_at: -1 })
           .skip((currentPage - 1) * pageSize)
           .limit(pageSize)
           .lean()
@@ -158,10 +172,16 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     // Branch B: Unpaginated Query (Preserves legacy deduplication for certificate dropdowns & generators)
-    const products = await Product.find(query)
+    let productQuery = Product.find(query)
       .populate('site_id', 'name est_name trading_name address_1')
-      .sort({ created_at: -1, _id: -1 })
-      .lean();
+      .sort({ created_at: -1 });
+
+    // Safety guard: if caller did not filter by client or site or pass all=true, cap at 500 to prevent event-loop freeze
+    if (!query.client_id && !query.site_id && req.query.all !== 'true') {
+      productQuery = productQuery.limit(500);
+    }
+
+    const products = await productQuery.lean();
 
     // Deduplicate products per site (client_id + site_id + name + code)
     const uniqueProducts = [];
