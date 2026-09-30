@@ -939,7 +939,7 @@ async function runFullCompanyImport() {
       for (const p of productRows) {
         const pName = cleanStr(p.ProName || p.pro_name || p.proname);
         if (!pName) continue;
-        const pCode = cleanStr(p.ProCoder || p.procoder || p.ProID || p.proid);
+        const pCode = cleanStr(p.ProCoder || p.procoder || '');
         const assignedSiteId = siteIdMap.get(cleanStr(p.CiteID)) || defaultSiteId;
         const pCategory = cleanStr(p.Status || p.category || p.Category || p.PRODUCTCATEGORY, '');
 
