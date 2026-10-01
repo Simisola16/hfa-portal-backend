@@ -6,13 +6,10 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin, isStaffUser, requireSchemeManager } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
-import { Resend } from 'resend';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { sendEmail } from '../lib/mailer.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -243,11 +240,8 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('proposa
       try {
         const clientUser = await User.findById(data.client_id);
         if (clientUser?.email) {
-          const superadminBcc = await getSuperadminEmails();
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: clientUser.email,
-            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
             subject: `HFA Certification Proposal Received: ${data.title}`,
             html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
               <h2>Certification Proposal Received</h2>
@@ -258,7 +252,7 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('proposa
           });
         }
       } catch (e) {
-        console.error('Proposal Resend Email error:', e.message);
+        console.error('Proposal revision email error:', e.message);
       }
 
       // Clean up any other duplicate proposals for this application
@@ -348,11 +342,8 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('proposa
       try {
         const clientUser = await User.findById(data.client_id);
         if (clientUser?.email) {
-          const superadminBcc = await getSuperadminEmails();
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: clientUser.email,
-            ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
             subject: `HFA Certification Proposal Issued: ${data.title}`,
             html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
               <h2>New Certification Proposal</h2>
@@ -363,7 +354,7 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('proposa
           });
         }
       } catch (e) {
-        console.error('Proposal Resend Email error:', e.message);
+        console.error('Proposal Azure Email error:', e.message);
       }
 
       // Notify Client
@@ -437,11 +428,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     try {
       const clientUser = await User.findById(data.client_id);
       if (clientUser?.email && status) {
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: clientUser.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Proposal Update: ${data.title} (${status})`,
           html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
             <h2>Proposal Status Updated</h2>

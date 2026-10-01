@@ -9,14 +9,12 @@ import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin, requireAccountant, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
-import { Resend } from 'resend';
 import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function generateInvoicePdf({ invoiceNumber, title, amount, notes, companyName, clientEmail }) {
   const pdfDoc = await PDFDocument.create();
@@ -457,7 +455,7 @@ router.post('/', authenticateToken, requireAccountant, upload.single('invoice_fi
         });
       }
     } catch (e) {
-      console.error('Invoice Resend Email error:', e.message);
+      console.error('Invoice email notification error:', e.message);
     }
 
     // Notify Client
@@ -754,8 +752,7 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
       for (const staff of staffRecipients) {
         if (staff.email) {
           try {
-            await resend.emails.send({
-              from: emailFrom,
+            await sendEmail({
               to: staff.email.trim(),
               subject: `[HFA] Initial Payment Confirmed — ${appRef} | ${clientName}`,
               html: emailHtml

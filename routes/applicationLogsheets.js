@@ -8,19 +8,16 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId, normalizeHfaTypeCode } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 /**
  * getSignatoryEmails()
@@ -109,8 +106,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, cust
 
   for (const address of addresses) {
     try {
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: address,
         subject: `LogSheet Signature Required — ${appRef} (${companyName})`,
         html: emailHtml,
@@ -1149,8 +1145,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                     const adminBaseUrl = getAdminUrl();
                     for (const mgr of recipients) {
                       if (mgr.email) {
-                        await resend.emails.send({
-                          from: emailFrom,
+                        await sendEmail({
                           to: mgr.email.trim(),
                           subject: `📋 Ready for Audit: Application ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Client Site'})`,
                           html: `

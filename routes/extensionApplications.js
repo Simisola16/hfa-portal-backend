@@ -11,15 +11,12 @@ import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { getIO } from '../lib/socket.js';
-import { Resend } from 'resend';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // ─── Socket & Email Helpers ──────────────────────────────────────────────────
 
@@ -46,11 +43,8 @@ function emitExtensionUpdate(data, action) {
 async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
   if (!contactEmail) return;
   try {
-    const superadminBcc = await getSuperadminEmails();
-    await resend.emails.send({
-      from: emailFrom,
+    await sendEmail({
       to: contactEmail,
-      ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
       subject,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">

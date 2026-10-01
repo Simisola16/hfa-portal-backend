@@ -11,17 +11,14 @@ import Product from '../models/Product.js';
 import { authenticateToken, requireAdmin, requireFoodTechManager, requireFoodTech, requireFoodTechManagerOrAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { getIO, emitApplicationUpdate } from '../lib/socket.js';
-import { Resend } from 'resend';
 import { uploadToS3 } from '../lib/s3.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -52,11 +49,8 @@ function emitInitialProductUpdate(data, action) {
 async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }) {
   if (!contactEmail) return;
   try {
-    const superadminBcc = await getSuperadminEmails();
-    await resend.emails.send({
-      from: emailFrom,
+    await sendEmail({
       to: contactEmail,
-      ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
       subject,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;border-radius:12px">
@@ -380,8 +374,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
       for (const staff of staffRecipients) {
         if (staff.email) {
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: staff.email.trim(),
             subject: `[HFA] Initial Product Submitted — ${appRef} | ${product.name.trim()}`,
             html: emailHtml
@@ -1113,8 +1106,7 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
     if (addresses.length > 0) {
       for (const addr of addresses) {
         try {
-          await resend.emails.send({
-            from: emailFrom,
+          await sendEmail({
             to: addr,
             subject: `LogSheet Signature Required — Initial Product (${app.product?.name})`,
             html: `
@@ -1225,8 +1217,7 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
             const adminBaseUrl = getAdminUrl();
             for (const mgr of recipients) {
               if (mgr.email) {
-                await resend.emails.send({
-                  from: emailFrom,
+                await sendEmail({
                   to: mgr.email.trim(),
                   subject: `📋 Ready for Audit: Application ${parentApp.application_number} (${parentApp.site_name || parentApp.establishment_name || 'Client Site'})`,
                   html: `
