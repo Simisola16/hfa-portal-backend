@@ -13,17 +13,14 @@ import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
-import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { generateCertificate, normalizeCertificateType, CERTIFICATE_SCHEMES } from '../services/certificateGenerator.js';
 import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper: recognize all admin and staff roles
@@ -1638,11 +1635,8 @@ async function performCertificateIssuance({ certificate, application_id, client_
     const client = await User.findById(client_id);
     if (client && client.email) {
       try {
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: client.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `🏅 Your Halal Certificate is Ready – ${certNo}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -1858,9 +1852,10 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
   }
 });
 
-// POST /api/certificates/:id/approve-and-send (Finalize review, set active, update application, and send to client)
+// Handler: Finalize review, set active, update application, and send to client
+// Supported endpoints: PUT/POST /api/certificates/:id/approve & PUT/POST /api/certificates/:id/approve-and-send
 // Requires: Review Certificate Privilege (can_review_certificate) OR Superadmin
-router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, async (req, res) => {
+const handleApproveAndSendCertificate = async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
@@ -1881,9 +1876,9 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
       certificate_type,
       certificate_number,
       review_notes
-    } = req.body;
+    } = req.body || {};
 
-    // Apply any final review edits
+    // Apply any final review edits if provided
     if (certificate_number) cert.certificate_number = certificate_number;
     if (certificate_type) cert.certificate_type = certificate_type;
     if (company_name) cert.company_name = company_name;
@@ -1901,7 +1896,7 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
     if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
     if (review_notes !== undefined) cert.review_notes = review_notes;
-    if (req.body.product_table_columns !== undefined) {
+    if (req.body?.product_table_columns !== undefined) {
       cert.product_table_columns = Number(req.body.product_table_columns);
     }
 
@@ -1999,7 +1994,13 @@ router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificate
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+// Aliases for approve endpoints to ensure compatibility across all admin pages
+router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
+router.put('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
+router.put('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
+router.post('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
 
 // Helper function to build cert data from Application
 async function buildCertDataFromApplication(application) {
@@ -2721,11 +2722,8 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 
     if (send_email !== 'false' && send_email !== false && targetClient.email) {
       try {
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: targetClient.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `🏅 Official Halal Certificate Issued – ${certNumber}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -2748,7 +2746,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           `,
         });
       } catch (emailErr) {
-        console.error('[Resend] Direct issue certificate email failed:', emailErr.message);
+        console.error('Direct issue certificate email via Azure failed:', emailErr.message);
       }
     }
 
