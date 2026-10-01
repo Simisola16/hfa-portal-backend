@@ -5,12 +5,12 @@ import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { uploadToS3 } from '../lib/s3.js';
 import multer from 'multer';
-import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
+import { sendEmail } from '../lib/mailer.js';
 
 dotenv.config();
 
@@ -18,8 +18,68 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hfa_portal_secret_key_2024_@!';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
+
+/* ─── Password Reset Email Template ───────────────────────────────── */
+function buildPasswordResetEmail({ name, portalName, resetUrl }) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Reset Your Password - ${portalName}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 12px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0">
+
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#15803d 0%,#166534 100%);padding:36px 40px;text-align:center">
+          <img src="https://www.hfaportal.company/hfa-logo.png" alt="HFA Logo" width="56" height="56" style="display:block;margin:0 auto 12px auto;width:56px;height:56px;border-radius:50%;object-fit:contain;background:#ffffff;padding:4px" />
+          <div style="font-size:12px;color:#bbf7d0;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Halal Food Authority</div>
+          <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px">${portalName}</h1>
+          <p style="color:#bbf7d0;margin:6px 0 0;font-size:14px">Password Reset Request</p>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="padding:36px 40px">
+          <h2 style="color:#0f172a;font-size:19px;font-weight:700;margin:0 0 14px">Hello, ${name}!</h2>
+          <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px">
+            We received a request to reset your password for the <strong>${portalName}</strong>. If you did not make this request, you can safely ignore this email.
+          </p>
+
+          <!-- Info box -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px"><tr><td style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #15803d;border-radius:8px;padding:14px 18px">
+            <p style="color:#166534;font-size:13px;font-weight:700;margin:0 0 4px">⏱ This link expires in 1 hour</p>
+            <p style="color:#166534;font-size:13px;line-height:1.5;margin:0">For security reasons, this reset link is single-use and will expire after 60 minutes.</p>
+          </td></tr></table>
+
+          <!-- CTA Button -->
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:4px 0 28px">
+            <a href="${resetUrl}" style="display:inline-block;background:#15803d;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:15px 36px;border-radius:10px;letter-spacing:0.2px;box-shadow:0 2px 8px rgba(21,128,61,0.25)">
+              Reset Password
+            </a>
+          </td></tr></table>
+
+          <!-- Fallback Link -->
+          <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0;border-top:1px solid #f1f5f9;padding-top:18px">
+            If the button doesn't work, copy and paste this link into your browser:<br>
+            <a href="${resetUrl}" style="color:#15803d;word-break:break-all">${resetUrl}</a>
+          </p>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:20px 40px;text-align:center">
+          <p style="color:#64748b;font-size:12px;margin:0 0 4px">&copy; ${new Date().getFullYear()} Halal Food Authority. All rights reserved.</p>
+          <p style="color:#94a3b8;font-size:11px;margin:0">This is an automated system notification.</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
 
 /* ─── Email template ─────────────────────────────────────────────── */
 function buildVerificationEmail(fullName, verificationUrl) {
@@ -135,21 +195,17 @@ router.post('/register', async (req, res) => {
       console.log('=========================================\n');
     }
 
-    // Send the real verification email via Resend
+    // Send the real verification email via unified mailer (Microsoft Graph / Resend fallback)
     try {
-      const emailResponse = await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: email,
         subject: 'Verify Your Email – HFA Certification Portal',
         html: buildVerificationEmail(full_name, verificationUrl),
+        skipSuperadminBcc: true,
       });
-      if (emailResponse.error) {
-        console.error('[Resend] Verification email error for', email, ':', emailResponse.error);
-      } else {
-        console.log('[Resend] Verification email sent to', email, '| id:', emailResponse.data?.id);
-      }
+      console.log('[Auth] Verification email sent to', email);
     } catch (emailErr) {
-      console.error('[Resend] SMTP/connection error for', email, ':', emailErr.message);
+      console.error('[Auth] Verification email error for', email, ':', emailErr.message);
     }
 
     res.status(201).json({
@@ -482,7 +538,7 @@ router.post('/forgot-password', async (req, res) => {
     user.reset_password_expiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    const baseUrl = (isAdmin || portal === 'admin') ? getAdminUrl() : getClientUrl();
+    const baseUrl = (isAdmin || portal === 'admin') ? getAdminUrl(req) : getClientUrl(req);
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
 
     const portalName = isAdmin ? 'HFA Staff Admin Portal' : 'HFA Certification Portal';
@@ -493,32 +549,26 @@ router.post('/forgot-password', async (req, res) => {
     }
 
     try {
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: recipientEmail,
         subject: `Reset Your Password - ${portalName}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9fafb;padding:32px">
-            <div style="background:linear-gradient(135deg,#15803d,#166534);border-radius:12px;padding:32px;text-align:center;margin-bottom:24px">
-              <h1 style="color:white;margin:0;font-size:28px">Halal Food Authority</h1>
-              <p style="color:#bbf7d0;margin-top:8px">${portalName} Password Reset</p>
-            </div>
-            <div style="background:white;border-radius:12px;padding:32px">
-              <h2 style="color:#166534">Hello, ${user.full_name || user.username || 'User'}!</h2>
-              <p style="color:#4b5563">We received a request to reset your password for the ${portalName}. If you didn't make this request, you can safely ignore this email.</p>
-              <div style="text-align:center;margin:32px 0">
-                <a href="${resetUrl}" style="background:#15803d;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">Reset Password</a>
-              </div>
-              <p style="color:#94a3b8;font-size:12px;text-align:center">This link will expire in 1 hour.<br>If the button doesn't work, copy and paste this link:<br>${resetUrl}</p>
-            </div>
-          </div>
-        `,
+        html: buildPasswordResetEmail({
+          name: user.full_name || user.username || 'User',
+          portalName,
+          resetUrl,
+        }),
+        skipSuperadminBcc: true,
       });
+      console.log(`[Auth] ✅ Password reset email dispatched to ${recipientEmail}`);
     } catch (emailErr) {
-      console.error('Resend Reset Email Error:', emailErr);
+      console.error('[Auth] Password Reset Email Error:', emailErr.message);
+      return res.status(500).json({ error: 'Failed to send password reset email. Please try again or contact support.' });
     }
 
-    res.json({ message: `A password reset link has been sent to ${recipientEmail}.`, resetUrl: process.env.NODE_ENV === 'development' ? resetUrl : undefined });
+    res.json({
+      message: `A password reset link has been sent to ${recipientEmail}.`,
+      resetUrl: process.env.NODE_ENV === 'development' ? resetUrl : undefined
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
