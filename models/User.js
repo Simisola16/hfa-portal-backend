@@ -42,6 +42,11 @@ const userSchema = new mongoose.Schema({
   reset_password_expiry: Date,
   // Profile
   avatar_url:  String,
+  // Live presence & activity tracking
+  is_online:      { type: Boolean, default: false },
+  last_active_at: Date,
+  last_login_at:  Date,
+  last_logout_at: Date,
   created_at:  { type: Date, default: Date.now },
   updated_at:  { type: Date, default: Date.now },
 }, {
@@ -51,6 +56,7 @@ const userSchema = new mongoose.Schema({
 });
 
 userSchema.index({ role: 1 });
+userSchema.index({ is_online: 1 });
 userSchema.index({ is_verified: 1 });
 userSchema.index({ company_category: 1 });
 userSchema.index({ role: 1, is_active: 1 });

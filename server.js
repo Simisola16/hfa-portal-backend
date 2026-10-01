@@ -35,6 +35,7 @@ import surveillanceRoutes from './routes/surveillance.js';
 import initialProductRoutes from './routes/initialProducts.js';
 import extensionApplicationRoutes from './routes/extensionApplications.js';
 import surveillanceScheduleRoutes from './routes/surveillanceSchedules.js';
+import superadminRoutes from './routes/superadmin.js';
 
 dotenv.config();
 
@@ -128,6 +129,7 @@ app.use('/api/surveillance', surveillanceRoutes);
 app.use('/api/initial-products', initialProductRoutes);
 app.use('/api/extension-applications', extensionApplicationRoutes);
 app.use('/api/surveillance-schedules', surveillanceScheduleRoutes);
+app.use('/api/superadmin', superadminRoutes);
 
 // Verification alias to support legacy or direct verification paths
 app.get(['/verify/:certNumber', '/verify/*'], (req, res) => {

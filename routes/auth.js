@@ -11,6 +11,8 @@ import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 import { sendEmail } from '../lib/mailer.js';
+import UserActivityLog from '../models/UserActivityLog.js';
+import { emitToSuperadmins } from '../lib/socket.js';
 
 dotenv.config();
 
@@ -354,6 +356,37 @@ router.post('/login', async (req, res) => {
       if (parentUser) compName = parentUser.company_name || parentUser.full_name;
     }
 
+    // Update presence & activity tracking
+    const now = new Date();
+    user.last_login_at = now;
+    user.last_active_at = now;
+    user.is_online = true;
+    await user.save();
+
+    const clientDisplayName = compName || user.full_name || user.email;
+    UserActivityLog.create({
+      user_id: user._id,
+      user_model: 'User',
+      name: clientDisplayName,
+      email: user.email,
+      role: 'client',
+      user_type: 'client',
+      action: 'sign_in',
+      ip_address: req.ip || req.headers['x-forwarded-for'],
+      user_agent: req.headers['user-agent']
+    }).catch(e => console.error('[ActivityLog] Client login log error:', e.message));
+
+    // Real-time broadcast to superadmins
+    emitToSuperadmins('superadmin_user_event', {
+      type: 'sign_in',
+      user_type: 'client',
+      userId: user._id,
+      name: clientDisplayName,
+      email: user.email,
+      role: 'client',
+      timestamp: now
+    });
+
     const clientData = {
       id: user._id,
       _id: user._id,
@@ -365,6 +398,8 @@ router.post('/login', async (req, res) => {
       parent_client_id: user.parent_client_id,
       is_active: user.is_active,
       is_verified: user.is_verified,
+      is_online: true,
+      last_login_at: now
     };
 
     res.json({ token, user: clientData, profile: clientData });
@@ -381,7 +416,7 @@ router.post('/admin/login', async (req, res) => {
     if (!searchVal || !password) {
       return res.status(401).json({ error: 'Username or email and password are required' });
     }
-    const escapedVal = searchVal.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+    const escapedVal = searchVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // Look ONLY in the Admin collection
     const admin = await Admin.findOne({
@@ -406,6 +441,40 @@ router.post('/admin/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Update presence & activity tracking
+    const now = new Date();
+    admin.last_login_at = now;
+    admin.last_active_at = now;
+    admin.is_online = true;
+    await admin.save();
+
+    const adminDisplayName = admin.full_name || admin.username || 'Staff Member';
+    UserActivityLog.create({
+      user_id: admin._id,
+      user_model: 'Admin',
+      name: adminDisplayName,
+      username: admin.username,
+      email: admin.email,
+      role: admin.role,
+      user_type: 'admin',
+      action: 'sign_in',
+      ip_address: req.ip || req.headers['x-forwarded-for'],
+      user_agent: req.headers['user-agent']
+    }).catch(e => console.error('[ActivityLog] Admin login log error:', e.message));
+
+    // Real-time broadcast to superadmins
+    emitToSuperadmins('superadmin_user_event', {
+      type: 'sign_in',
+      user_type: 'admin',
+      userId: admin._id,
+      name: adminDisplayName,
+      username: admin.username,
+      email: admin.email,
+      role: admin.role,
+      roles: admin.roles,
+      timestamp: now
+    });
+
     const adminData = {
       id: admin._id,
       email: admin.email,
@@ -424,9 +493,64 @@ router.post('/admin/login', async (req, res) => {
         admin.role === 'support_manager' ||
         (Array.isArray(admin.roles) && admin.roles.includes('support_manager'))
       ),
+      is_online: true,
+      last_login_at: now
     };
 
     res.json({ token, user: adminData, profile: adminData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/logout
+router.post('/logout', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user;
+    const isModelAdmin = req.userModelType === 'Admin';
+    const displayName = user.full_name || user.username || user.company_name || user.email || 'User';
+    const now = new Date();
+
+    if (isModelAdmin) {
+      await Admin.findByIdAndUpdate(user._id, {
+        is_online: false,
+        last_logout_at: now,
+        last_active_at: now
+      });
+    } else {
+      await User.findByIdAndUpdate(user._id, {
+        is_online: false,
+        last_logout_at: now,
+        last_active_at: now
+      });
+    }
+
+    UserActivityLog.create({
+      user_id: user._id,
+      user_model: isModelAdmin ? 'Admin' : 'User',
+      name: displayName,
+      username: user.username,
+      email: user.email,
+      role: user.role || 'client',
+      user_type: isModelAdmin ? 'admin' : 'client',
+      action: 'sign_out',
+      ip_address: req.ip || req.headers['x-forwarded-for'],
+      user_agent: req.headers['user-agent']
+    }).catch(e => console.error('[ActivityLog] Logout log error:', e.message));
+
+    // Real-time broadcast to superadmins
+    emitToSuperadmins('superadmin_user_event', {
+      type: 'sign_out',
+      user_type: isModelAdmin ? 'admin' : 'client',
+      userId: user._id,
+      name: displayName,
+      username: user.username,
+      email: user.email,
+      role: user.role || 'client',
+      timestamp: now
+    });
+
+    res.json({ message: 'Signed out successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

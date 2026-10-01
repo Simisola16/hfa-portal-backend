@@ -40,7 +40,11 @@ const adminSchema = new mongoose.Schema({
   is_verified:                  { type: Boolean, default: true },
   // Password reset
   reset_password_token:  String,
-  reset_password_expiry: Date,
+  // Live presence & activity tracking
+  is_online:      { type: Boolean, default: false },
+  last_active_at: Date,
+  last_login_at:  Date,
+  last_logout_at: Date,
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   toJSON:   { virtuals: true },
@@ -49,8 +53,7 @@ const adminSchema = new mongoose.Schema({
 
 adminSchema.index({ role: 1 });
 adminSchema.index({ roles: 1 });
-adminSchema.index({ email: 1 });
-adminSchema.index({ username: 1 });
+adminSchema.index({ is_online: 1 });
 adminSchema.index({ is_active: 1 });
 adminSchema.index({ created_at: -1 });
 
