@@ -18,7 +18,7 @@ import { generateCertificate } from '../services/certificateGenerator.js';
 import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../services/surveillanceLetterGenerator.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, isStaffUser, requireSchemeManager, requireCertificateOfficer } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
@@ -37,7 +37,7 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const allowedClientIds = [req.user._id];
       if (req.user.parent_client_id) allowedClientIds.push(req.user.parent_client_id);
       query.client_id = { $in: allowedClientIds };
@@ -657,8 +657,8 @@ router.post('/', authenticateToken, upload.fields([
   }
 });
 
-// PUT /api/applications/:id/approve (admin only)
-router.put('/:id/approve', authenticateToken, async (req, res) => {
+// PUT /api/applications/:id/approve (Scheme Manager only)
+router.put('/:id/approve', authenticateToken, requireSchemeManager, async (req, res) => {
   try {
     const { note, category } = req.body;
     
@@ -707,8 +707,8 @@ router.put('/:id/approve', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/applications/:id/reject (admin only)
-router.put('/:id/reject', authenticateToken, async (req, res) => {
+// PUT /api/applications/:id/reject (Scheme Manager only)
+router.put('/:id/reject', authenticateToken, requireSchemeManager, async (req, res) => {
   try {
     const { note } = req.body;
     if (!note?.trim()) return res.status(400).json({ error: 'A rejection reason is required.' });
@@ -731,8 +731,8 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/applications/:id/ready-for-certificate (admin only — mark ready for certificate)
-router.put('/:id/ready-for-certificate', authenticateToken, async (req, res) => {
+// PUT /api/applications/:id/ready-for-certificate (Certificate Officer only)
+router.put('/:id/ready-for-certificate', authenticateToken, requireCertificateOfficer, async (req, res) => {
   try {
     const { note } = req.body;
     const app = await Application.findById(req.params.id);

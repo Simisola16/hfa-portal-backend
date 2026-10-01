@@ -10,7 +10,7 @@ import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
 import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, requireCertificateOfficer, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { Resend } from 'resend';
@@ -1281,7 +1281,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     let resolvedCompanyName = (company_name || cUser?.company_name || app?.establishment_name || addOnApp?.contact_name || '').trim();
     let resolvedCompanyAddress = (company_address || cUser?.address || app?.establishment_address || '').trim();
-    let resolvedManufacturingAddress = (manufacturing_address || app?.manufacturer_address || '').trim();
+    let resolvedManufacturingAddress = (manufacturing_address !== undefined && manufacturing_address !== null)
+      ? String(manufacturing_address).trim()
+      : (app?.manufacturer_address || '').trim();
     let resolvedScope = (scope || app?.scope || '').trim();
     let resolvedProductCategory = (req.body.product_category || product_category || resolvedScope || '').trim();
 
@@ -1696,7 +1698,7 @@ router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.
     if (certificate_type) cert.certificate_type = certificate_type;
     if (company_name) cert.company_name = company_name;
     if (company_address) cert.company_address = company_address;
-    if (manufacturing_address) cert.manufacturing_address = manufacturing_address;
+    if (manufacturing_address !== undefined) cert.manufacturing_address = (manufacturing_address || '').trim();
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
@@ -1778,7 +1780,7 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
     if (certificate_type) cert.certificate_type = certificate_type;
     if (company_name) cert.company_name = company_name;
     if (company_address) cert.company_address = company_address;
-    if (manufacturing_address) cert.manufacturing_address = manufacturing_address;
+    if (manufacturing_address !== undefined) cert.manufacturing_address = (manufacturing_address || '').trim();
     if (product_category) {
       cert.product_category = product_category;
       cert.scope = product_category;
@@ -2074,7 +2076,7 @@ async function buildCertDataFromApplication(application) {
   }
 
 // POST /api/certificates/generate
-router.post('/generate', authenticateToken, requireAdmin, requireFinalInvoicePaidForCertificate, async (req, res) => {
+router.post('/generate', authenticateToken, requireCertificateOfficer, requireFinalInvoicePaidForCertificate, async (req, res) => {
   try {
     const { applicationId } = req.body;
     if (!applicationId) {

@@ -8,7 +8,7 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
 import { generateHfaId } from '../lib/idGenerator.js';
-import { authenticateToken, requireAdmin, requireStaff } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { getIO } from '../lib/socket.js';
 import { Resend } from 'resend';
@@ -277,7 +277,7 @@ router.post('/', authenticateToken, async (req, res) => {
 // ─── GET /api/extension-applications (List Applications) ───────────────────────
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const isStaff = ['admin', 'superadmin', 'manager', 'food_tech_manager', 'mufti'].includes(req.user.role);
+    const isStaff = isStaffUser(req.user, req.userModelType);
     let query = {};
 
     if (!isStaff) {

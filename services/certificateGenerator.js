@@ -747,20 +747,26 @@ export async function generateCertificate(certData) {
   const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
   const resolvedAddress = isCompanyAddrEmpty ? '' : sanitizeForPdf(rawCompanyAddr.toUpperCase());
 
-  const rawMfg = (
-    manufacturingAddress ||
-    manufacturerAddress ||
-    certData.manufacturing_address ||
-    certData.manufacturer_address ||
-    certData.manufacturing_facility_address ||
-    certData.facility_address ||
-    certData.facilityAddress ||
-    certData.manufacturingFacility ||
-    certData.manufacturing_facility ||
-    certData.site_address ||
-    (certData.site_id && (certData.site_id.address || certData.site_id.address_1)) ||
-    (certData.application_id && (certData.application_id.manufacturer_address || certData.application_id.site_address)) ||
-    ''
+  const explicitMfg = (manufacturingAddress !== undefined && manufacturingAddress !== null)
+    ? manufacturingAddress
+    : (manufacturerAddress !== undefined && manufacturerAddress !== null)
+      ? manufacturerAddress
+      : (certData.manufacturing_address !== undefined && certData.manufacturing_address !== null)
+        ? certData.manufacturing_address
+        : null;
+
+  const rawMfg = (explicitMfg !== null
+    ? explicitMfg
+    : (
+        certData.manufacturer_address ||
+        certData.manufacturing_facility_address ||
+        certData.facility_address ||
+        certData.facilityAddress ||
+        certData.manufacturingFacility ||
+        certData.manufacturing_facility ||
+        certData.site_address ||
+        ''
+      )
   ).trim();
 
   const isMfgEmpty = (
@@ -1327,18 +1333,26 @@ export async function buildCertificateHtml(certData) {
   const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
   const resolvedAddress = isCompanyAddrEmpty ? '' : rawCompanyAddr.toUpperCase();
 
-  const rawMfg = (
-    manufacturingAddress ||
-    manufacturerAddress ||
-    certData.manufacturing_address ||
-    certData.manufacturer_address ||
-    certData.manufacturing_facility_address ||
-    certData.facility_address ||
-    certData.facilityAddress ||
-    certData.manufacturingFacility ||
-    certData.manufacturing_facility ||
-    certData.site_address ||
-    ''
+  const explicitMfg = (manufacturingAddress !== undefined && manufacturingAddress !== null)
+    ? manufacturingAddress
+    : (manufacturerAddress !== undefined && manufacturerAddress !== null)
+      ? manufacturerAddress
+      : (certData.manufacturing_address !== undefined && certData.manufacturing_address !== null)
+        ? certData.manufacturing_address
+        : null;
+
+  const rawMfg = (explicitMfg !== null
+    ? explicitMfg
+    : (
+        certData.manufacturer_address ||
+        certData.manufacturing_facility_address ||
+        certData.facility_address ||
+        certData.facilityAddress ||
+        certData.manufacturingFacility ||
+        certData.manufacturing_facility ||
+        certData.site_address ||
+        ''
+      )
   ).trim();
 
   const isMfgEmpty = (

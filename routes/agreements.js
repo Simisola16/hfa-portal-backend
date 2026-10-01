@@ -3,7 +3,7 @@ import multer from 'multer';
 import { uploadToS3 } from '../lib/s3.js';
 import Agreement from '../models/Agreement.js';
 import Application from '../models/Application.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, isStaffUser, requireSchemeManager } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
@@ -30,7 +30,7 @@ function getAdminNotificationEmails() {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const allowedClientIds = [
         req.user._id,
         req.user._id.toString(),
@@ -59,7 +59,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 });
 
 // POST /api/agreements (Admin only - send agreement)
-router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'), async (req, res) => {
+router.post('/', authenticateToken, requireSchemeManager, upload.single('agreement_file'), async (req, res) => {
   try {
     const agreementData = { ...req.body };
     let fileUrl = null;
@@ -335,8 +335,8 @@ router.put('/:id', authenticateToken, upload.fields([
   }
 });
 
-// POST /api/agreements/:id/finalize (Admin only — Send Final Countersigned Agreement)
-router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('final_agreement_file'), async (req, res) => {
+// POST /api/agreements/:id/finalize (Scheme Manager only — Send Final Countersigned Agreement)
+router.post('/:id/finalize', authenticateToken, requireSchemeManager, upload.single('final_agreement_file'), async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id);
     if (!agreement) return res.status(404).json({ error: 'Agreement not found' });

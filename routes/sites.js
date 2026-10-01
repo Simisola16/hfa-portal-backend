@@ -2,13 +2,13 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Site from '../models/Site.js';
 import User from '../models/User.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, isStaffUser } from '../middleware/auth.js';
 const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const ids = [req.user._id];
       if (req.user.parent_client_id) ids.push(req.user.parent_client_id);
       const strIds = ids.map(id => id.toString());
@@ -66,7 +66,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('client_id', 'company_name full_name email phone address');
     if (!site) return res.status(404).json({ error: 'Site not found' });
 
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const siteClientId = site.client_id?._id?.toString() || site.client_id?.toString();
       const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
       if (!allowed.includes(siteClientId)) {
@@ -146,7 +146,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     // Clients cannot change site name or modify other clients' sites
     const updateData = { ...req.body };
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const existingClientId = existing.client_id?._id?.toString() || existing.client_id?.toString();
       const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
       if (!allowed.includes(existingClientId)) {
@@ -166,7 +166,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     // Only admins can delete sites
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       return res.status(403).json({ error: 'Clients cannot delete registered sites. Please contact support.' });
     }
     const result = await Site.findByIdAndDelete(req.params.id);

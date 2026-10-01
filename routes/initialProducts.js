@@ -8,7 +8,7 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
-import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireFoodTechManager, requireFoodTech, requireFoodTechManagerOrAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { getIO, emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
@@ -463,11 +463,6 @@ router.get('/', authenticateToken, async (req, res) => {
       const allowed = [req.user._id];
       if (req.user.parent_client_id) allowed.push(req.user.parent_client_id);
       query.client_id = { $in: allowed };
-    } else if (req.user.role === 'food_tech') {
-      query.$or = [
-        { assigned_food_techs: req.user._id },
-        { assigned_food_tech: req.user._id }
-      ];
     }
 
     if (req.query.application_id) {
@@ -598,9 +593,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
-    if (req.user.role === 'food_tech' && !item.assigned_food_techs?.some(ft => ft._id.toString() === req.user._id.toString())) {
-      return res.status(403).json({ error: 'Access denied. You are not assigned to this application.' });
-    }
 
     res.json({ data: item });
   } catch (err) {
@@ -609,8 +601,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // ─── PUT /api/initial-products/:id/assign-ft ─────────────────────────────────
-// Admin / FT Manager: Directly assign FT (NO accept/reject step required!)
-router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// FT Manager ONLY: Directly assign FT (NO accept/reject step required!)
+router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (req, res) => {
   try {
     const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
     const ftIds = (Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean)).filter(id => id && mongoose.Types.ObjectId.isValid(id));
@@ -685,8 +677,8 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 });
 
 // ─── PUT /api/initial-products/:id/enable-form ───────────────────────────────
-// Admin / FT: Enable or update Product Approval Form for the Initial Product
-router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), async (req, res) => {
+// FT Manager / FT: Enable or update Product Approval Form for the Initial Product
+router.put('/:id/enable-form', authenticateToken, requireFoodTech, upload.any(), async (req, res) => {
   try {
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
@@ -876,8 +868,8 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
 });
 
 // ─── PUT /api/initial-products/:id/mark-form-received ────────────────────────
-// Admin / FT: Confirm / Mark Product Approval Form as Received
-router.put('/:id/mark-form-received', authenticateToken, requireStaff, async (req, res) => {
+// FT Manager / FT: Confirm / Mark Product Approval Form as Received
+router.put('/:id/mark-form-received', authenticateToken, requireFoodTech, async (req, res) => {
   try {
     const app = await InitialProductApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Initial product application not found' });
@@ -1042,8 +1034,8 @@ router.put('/:id/product-info', authenticateToken, requireStaff, async (req, res
 });
 
 // ─── POST /api/initial-products/:id/create-logsheet ──────────────────────────
-// Admin / FT Manager: Create or Update Logsheet for Initial Product
-router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// FT Manager / FT: Create or Update Logsheet for Initial Product
+router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (req, res) => {
   try {
     const app = await InitialProductApplication.findById(req.params.id)
       .populate('client_id', 'company_name full_name email')

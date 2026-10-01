@@ -6,7 +6,7 @@ import Invoice from '../models/Invoice.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireAccountant, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
@@ -263,8 +263,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/invoices — client or admin creates/uploads invoice (supports file upload & revision override)
-router.post('/', authenticateToken, upload.single('invoice_file'), async (req, res) => {
+// POST /api/invoices — accountant creates/uploads invoice (supports file upload & revision override)
+router.post('/', authenticateToken, requireAccountant, upload.single('invoice_file'), async (req, res) => {
   try {
     const invoiceData = { ...req.body };
 
@@ -773,8 +773,8 @@ const confirmInvoicePaymentHelper = async (invoice, adminUser) => {
   return { invoice: savedInvoice, application: updatedApp };
 };
 
-// POST /api/invoices/confirm-payment — admin confirms payment for application
-router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/invoices/confirm-payment — accountant confirms payment for application
+router.post('/confirm-payment', authenticateToken, requireAccountant, async (req, res) => {
   try {
     const { application_id, invoice_id } = req.body;
     let invoice = null;
@@ -812,8 +812,8 @@ router.post('/confirm-payment', authenticateToken, requireAdmin, async (req, res
         changedAt: new Date(),
         changedBy: req.user._id,
         note: targetStatus === 'initial_product'
-          ? `Payment confirmed by admin. Application advanced to Initial Product Evaluation.`
-          : `Payment confirmed by admin.`,
+          ? `Payment confirmed by accountant. Application advanced to Initial Product Evaluation.`
+          : `Payment confirmed by accountant.`,
       };
       const updatedApp = await Application.findByIdAndUpdate(
         application_id,
@@ -854,14 +854,14 @@ const handleConfirmInvoiceById = async (req, res) => {
   }
 };
 
-// PUT /api/invoices/:id/confirm-payment — admin confirms client payment
-router.put('/:id/confirm-payment', authenticateToken, requireAdmin, handleConfirmInvoiceById);
+// PUT /api/invoices/:id/confirm-payment — accountant confirms client payment
+router.put('/:id/confirm-payment', authenticateToken, requireAccountant, handleConfirmInvoiceById);
 
 // PATCH /api/invoices/:id/confirm-payment — alias for confirm-payment
-router.patch('/:id/confirm-payment', authenticateToken, requireAdmin, handleConfirmInvoiceById);
+router.patch('/:id/confirm-payment', authenticateToken, requireAccountant, handleConfirmInvoiceById);
 
 // PUT /api/invoices/:id/status — status change handler with support for 'paid'
-router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+router.put('/:id/status', authenticateToken, requireAccountant, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid invoice ID' });

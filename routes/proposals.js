@@ -4,7 +4,7 @@ import { uploadToS3 } from '../lib/s3.js';
 import Proposal from '../models/Proposal.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, isStaffUser, requireSchemeManager } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import { getSuperadminEmails } from '../lib/mailer.js';
@@ -17,7 +17,7 @@ const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundatio
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!isStaffUser(req.user, req.userModelType)) {
       const allowedClientIds = [
         req.user._id,
         req.user._id.toString(),
@@ -174,7 +174,7 @@ async function generateProposalPdfFromDetails({ title, details, companyName, est
   return Buffer.from(pdfBytes);
 }
 
-router.post('/', authenticateToken, requireAdmin, upload.single('proposal_file'), async (req, res) => {
+router.post('/', authenticateToken, requireSchemeManager, upload.single('proposal_file'), async (req, res) => {
   try {
     const { application_id, client_id, title, estimated_cost, admin_comment, details } = req.body;
 

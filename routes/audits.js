@@ -4,7 +4,7 @@ import Application from '../models/Application.js';
 import InitialProductApplication from '../models/InitialProductApplication.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireAuditManager, requireAuditorOrManager, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { Resend } from 'resend';
 import { uploadToS3 } from '../lib/s3.js';
@@ -293,7 +293,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 
     // Check permission
     const allowedClientIds = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
-    if (!['admin', 'superadmin'].includes(req.user.role) && audits[0].client_id && !allowedClientIds.includes(audits[0].client_id.toString())) {
+    if (!isStaffUser(req.user, req.userModelType) && audits[0].client_id && !allowedClientIds.includes(audits[0].client_id.toString())) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json({ data: audits });
@@ -302,8 +302,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/audits/propose-dates (Admin)
-router.post('/propose-dates', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/audits/propose-dates (Audit Manager or Auditor)
+router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { application_id, client_id, dates, stage } = req.body;
     if (!dates || !Array.isArray(dates) || dates.length !== 3) {
@@ -536,8 +536,8 @@ router.post('/select-dates', authenticateToken, handleClientAuditDateResponse);
 router.post('/:id/respond-dates', authenticateToken, handleClientAuditDateResponse);
 router.post('/respond-dates/:id', authenticateToken, handleClientAuditDateResponse);
 
-// POST /api/audits/finalize-date (Admin picks 1 final date from client's 2)
-router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/audits/finalize-date (Audit Manager or Auditor picks 1 final date from client's 2)
+router.post('/finalize-date', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { audit_id, finalized_date } = req.body;
     const audit = await Audit.findById(audit_id);
@@ -603,8 +603,8 @@ router.post('/finalize-date', authenticateToken, requireAdmin, async (req, res) 
   }
 });
 
-// POST /api/audits/assign-auditors (Admin)
-router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res) => {
+// POST /api/audits/assign-auditors (Audit Manager ONLY)
+router.post('/assign-auditors', authenticateToken, requireAuditManager, async (req, res) => {
   try {
     const { audit_id, application_id, stage, auditors } = req.body;
     let audit = null;
@@ -792,8 +792,8 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
 });
 
 
-// POST /api/audits/flag-nc (Admin/Auditor - Flags an NC report)
-router.post('/flag-nc', authenticateToken, upload.single('nc_document'), async (req, res) => {
+// POST /api/audits/flag-nc (Audit Manager or Auditor - Flags an NC report)
+router.post('/flag-nc', authenticateToken, requireAuditorOrManager, upload.single('nc_document'), async (req, res) => {
   try {
     const { audit_id, application_id, text } = req.body;
     let audit = null;
@@ -1088,8 +1088,8 @@ router.post('/nc-reply', authenticateToken, requireAdmin, upload.single('reply_d
   }
 });
 
-// POST /api/audits/nc-close (Admin/Auditor - Closes NC and advances application to NC Closed)
-router.post('/nc-close', authenticateToken, async (req, res) => {
+// POST /api/audits/nc-close (Audit Manager or Auditor - Closes NC and advances application to NC Closed)
+router.post('/nc-close', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { audit_id, application_id, report_id, note } = req.body;
     let appId = application_id;
@@ -1165,8 +1165,8 @@ router.post('/nc-close', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/audits/complete-clean (Admin/Auditor - Marks audit stage as completed/audited)
-router.post('/complete-clean', authenticateToken, async (req, res) => {
+// POST /api/audits/complete-clean (Audit Manager or Auditor - Marks audit stage as completed/audited)
+router.post('/complete-clean', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { audit_id, application_id } = req.body;
     let audit = null;

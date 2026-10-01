@@ -7,7 +7,7 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
-import { authenticateToken, requireAdmin, requireFoodTechManagerOrAdmin, requireStaff } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSchemeManager, requireFoodTechManager, requireFoodTech, requireFoodTechManagerOrAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { Resend } from 'resend';
@@ -220,11 +220,6 @@ router.get('/', authenticateToken, async (req, res) => {
       const allowed = [req.user._id];
       if (req.user.parent_client_id) allowed.push(req.user.parent_client_id);
       query.client_id = { $in: allowed };
-    } else if (req.user.role === 'food_tech') {
-      query.$or = [
-        { assigned_food_techs: req.user._id },
-        { assigned_food_tech: req.user._id }
-      ];
     }
 
     const data = await AddOnApplication.find(query)
@@ -268,9 +263,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
-    if (req.user.role === 'food_tech' && !app.assigned_food_techs?.some(ft => ft._id.toString() === req.user._id.toString())) {
-      return res.status(403).json({ error: 'Access denied. You are not assigned to this application.' });
-    }
 
     res.json({ data: app });
   } catch (err) {
@@ -279,8 +271,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // ─── PUT /api/add-on-applications/:id/review ─────────────────────────────────
-// Admin: Accept Or Reject
-router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// Scheme Manager: Accept Or Reject
+router.put('/:id/review', authenticateToken, requireSchemeManager, async (req, res) => {
   try {
     const { decision, rejection_reason, notes } = req.body;
     if (!['accepted', 'rejected', 'on_hold'].includes(decision)) {
@@ -345,8 +337,8 @@ router.put('/:id/review', authenticateToken, requireFoodTechManagerOrAdmin, asyn
 });
 
 // ─── PUT /api/add-on-applications/:id/assign-ft ──────────────────────────────
-// Admin: Assign one or more FT staff and/or typed custom FT details
-router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// FT Manager ONLY: Assign one or more FT staff and/or typed custom FT details
+router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (req, res) => {
   try {
     // Accept single ID string OR array of IDs
     const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
@@ -437,8 +429,8 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManagerOrAdmin, a
 });
 
 // ─── PUT /api/add-on-applications/:id/enable-form ────────────────────────────
-// Admin: Enable or Save Draft Product Approval Form (upload PDF or write text)
-router.put('/:id/enable-form', authenticateToken, requireStaff, upload.any(), async (req, res) => {
+// FT Manager / FT: Enable or Save Draft Product Approval Form (upload PDF or write text)
+router.put('/:id/enable-form', authenticateToken, requireFoodTech, upload.any(), async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
@@ -770,8 +762,8 @@ router.put('/:id/reply-more-info', authenticateToken, upload.any(), handleReplyM
 router.post('/:id/reply-more-info', authenticateToken, upload.any(), handleReplyMoreInfoRoute);
 
 // ─── PUT /api/add-on-applications/:id/confirm-form-received ───────────────────
-// Admin / Staff: Confirm that the Product Form responses have been received
-router.put('/:id/confirm-form-received', authenticateToken, requireStaff, async (req, res) => {
+// FT Manager / FT: Confirm that the Product Form responses have been received
+router.put('/:id/confirm-form-received', authenticateToken, requireFoodTech, async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
@@ -886,8 +878,8 @@ router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
 });
 
 // ─── POST /api/add-on-applications/:id/create-logsheet ───────────────────────
-// Admin: Create Logsheet (reuses ApplicationLogsheet infrastructure with source_type=addon_application)
-router.post('/:id/create-logsheet', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+// FT Manager / FT: Create Logsheet (reuses ApplicationLogsheet infrastructure with source_type=addon_application)
+router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (req, res) => {
   try {
     const app = await AddOnApplication.findById(req.params.id)
       .populate('client_id', 'company_name full_name email')
