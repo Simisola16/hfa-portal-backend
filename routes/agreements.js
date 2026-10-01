@@ -7,17 +7,14 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
-import { Resend } from 'resend';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import dotenv from 'dotenv';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper to get admin email addresses for Agreement signing notifications
@@ -135,11 +132,8 @@ router.post('/', authenticateToken, requireAdmin, upload.single('agreement_file'
       const clientUser = await User.findById(data.client_id);
       if (clientUser && clientUser.email) {
         const clientPortalUrl = getClientUrl();
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: clientUser.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Certification Agreement Sent — ${appNumber}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
@@ -300,8 +294,7 @@ router.put('/:id', authenticateToken, upload.fields([
 
         for (const address of adminAddresses) {
           try {
-            await resend.emails.send({
-              from: emailFrom,
+            await sendEmail({
               to: address,
               subject: `Client Agreement Signed — ${appNumber} (${companyName})`,
               html: emailHtml
@@ -391,11 +384,8 @@ router.post('/:id/finalize', authenticateToken, requireAdmin, upload.single('fin
       if (clientUser && clientUser.email) {
         const clientPortalUrl = getClientUrl();
         const appNumber = updatedApp ? updatedApp.application_number : 'N/A';
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: clientUser.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Final Countersigned Agreement Sent — ${appNumber}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">

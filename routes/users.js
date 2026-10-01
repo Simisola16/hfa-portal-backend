@@ -7,15 +7,13 @@ import Application from '../models/Application.js';
 import Certificate from '../models/Certificate.js';
 import Site from '../models/Site.js';
 import { createNotification } from '../lib/notifications.js';
-import { Resend } from 'resend';
+import { sendEmail } from '../lib/mailer.js';
 import dotenv from 'dotenv';
 import { getClientUrl } from '../lib/urls.js';
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // ─── CLIENT TEAM / SUBUSERS ENDPOINTS (Must be defined BEFORE /:id) ───────────
 
@@ -93,8 +91,7 @@ router.post('/company/subusers', authenticateToken, async (req, res) => {
 
     try {
       const clientPortalUrl = getClientUrl();
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: subUser.email,
         subject: `Welcome to HFA Portal — Team Account for ${parent.company_name || parent.full_name}`,
         html: `

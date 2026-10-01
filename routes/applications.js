@@ -19,19 +19,16 @@ import { generateSurveillanceLetter, buildSurveillanceLetterHtml } from '../serv
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { getClientUrl, resolveCertificateUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 dotenv.config();
 
 const router = express.Router();
 // Use memory storage — buffers are uploaded directly to Supabase
 const upload = multer({ storage: multer.memoryStorage() });
-const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_key_for_init');
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 
 // GET /api/applications
 router.get('/', authenticateToken, async (req, res) => {
@@ -615,11 +612,8 @@ router.post('/', authenticateToken, upload.fields([
 
     // Send confirmation email
     try {
-      const superadminBcc = await getSuperadminEmails();
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: req.user.email,
-        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject: `Application Received – ${appNumber}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -636,7 +630,7 @@ router.post('/', authenticateToken, upload.fields([
         `,
       });
     } catch (emailErr) {
-      console.error('Resend Email Error:', emailErr);
+      console.error('Application Email Error:', emailErr.message || emailErr);
     }
 
     // Notify Admin
@@ -1071,11 +1065,8 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       };
 
       try {
-        const superadminBcc = await getSuperadminEmails();
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: client.email,
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Application Update – ${data.application_number}`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">
@@ -1244,11 +1235,8 @@ router.post('/renew', authenticateToken, upload.fields([
 
     // Confirmation email to client
     try {
-      const superadminBcc = await getSuperadminEmails();
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: req.user.email,
-        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject: `Renewal Application Received – ${appNumber}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb">

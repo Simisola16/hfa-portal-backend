@@ -6,18 +6,15 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
-import { Resend } from 'resend';
 import { uploadToS3 } from '../lib/s3.js';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
-import { getSuperadminEmails } from '../lib/mailer.js';
+import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const resend = new Resend(process.env.RESEND_API_KEY);
-const emailFrom = process.env.EMAIL_FROM || 'HFA Portal <info@halalfoodfoundation.org.uk>';
 const clientPortalUrl = getClientUrl();
 
 const sendClientEmail = async (clientId, subject, html) => {
@@ -25,11 +22,8 @@ const sendClientEmail = async (clientId, subject, html) => {
   try {
     const clientUser = await User.findById(clientId);
     if (clientUser && clientUser.email) {
-      const superadminBcc = await getSuperadminEmails();
-      await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: clientUser.email.trim(),
-        ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
         subject,
         html
       });
@@ -671,14 +665,11 @@ router.post('/assign-auditors', authenticateToken, requireAdmin, async (req, res
     let emailFailures = 0;
 
     // Send email notifications to each assigned auditor & copy superadmins
-    const superadminBcc = await getSuperadminEmails();
     for (const auditor of auditors) {
       if (!auditor || !auditor.email || !auditor.email.trim()) continue;
       try {
-        await resend.emails.send({
-          from: emailFrom,
+        await sendEmail({
           to: auditor.email.trim(),
-          ...(superadminBcc.length > 0 ? { bcc: superadminBcc } : {}),
           subject: `Audit Assignment Notification: ${companyName} - ${siteName} (${appRef})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">

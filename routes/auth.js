@@ -172,32 +172,23 @@ router.post('/register', async (req, res) => {
     const clientUrl = getClientUrl();
     const verificationUrl = `${clientUrl}/verify-email?token=${verificationToken}`;
 
-    // In development when no Resend key is set, log the link and return it
-    // so developers can test without a real email. In production this block
-    // is never reached because RESEND_API_KEY is always present on Render.
-    const isDevNoResend = (!process.env.RESEND_API_KEY) &&
+    // In development when no Azure mail credentials are set, log the link and return it
+    // so developers can test without a real email.
+    const isDevNoAzure = (!process.env.AZURE_CLIENT_ID) &&
       (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
 
-    if (isDevNoResend) {
+    if (isDevNoAzure) {
       console.log('\n=========================================');
-      console.log('[DEV — no Resend key] VERIFICATION LINK FOR:', email);
+      console.log('[DEV — no Azure credentials] VERIFICATION LINK FOR:', email);
       console.log(verificationUrl);
       console.log('=========================================\n');
       return res.status(201).json({
-        message: 'Account created. (Dev mode — no Resend key; use the link below to verify.)',
+        message: 'Account created. (Dev mode — no email service configured; use the link below to verify.)',
         verificationUrl,
       });
     }
 
-    // Also log in development when Resend IS present (useful to verify without email client)
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      console.log('\n=========================================');
-      console.log('[DEV] EMAIL VERIFICATION LINK FOR:', email);
-      console.log(verificationUrl);
-      console.log('=========================================\n');
-    }
-
-    // Send the real verification email via unified mailer (Microsoft Graph / Resend fallback)
+    // Send the verification email via Azure Microsoft Graph
     try {
       await sendEmail({
         to: email,
@@ -287,19 +278,15 @@ router.post('/resend-verification', async (req, res) => {
     }
 
     try {
-      const emailResponse = await resend.emails.send({
-        from: emailFrom,
+      await sendEmail({
         to: email,
         subject: 'New Verification Link – HFA Certification Portal',
         html: buildVerificationEmail(user.full_name, verificationUrl),
+        skipSuperadminBcc: true,
       });
-      if (emailResponse.error) {
-        console.error('[Resend] Resend-verification error for', email, ':', emailResponse.error);
-      } else {
-        console.log('[Resend] Re-verification email sent to', email, '| id:', emailResponse.data?.id);
-      }
+      console.log('[Auth] Re-verification email sent to', email);
     } catch (emailErr) {
-      console.error('[Resend] SMTP error on resend-verification for', email, ':', emailErr.message);
+      console.error('[Auth] Email error on resend-verification for', email, ':', emailErr.message);
     }
 
     res.json({ message: 'A new verification email has been sent. Please check your inbox.' });
