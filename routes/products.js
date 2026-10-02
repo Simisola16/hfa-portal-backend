@@ -84,16 +84,30 @@ router.get('/', authenticateToken, async (req, res) => {
       }).flat().filter(Boolean);
 
       query.client_id = { $in: [...new Set(validClientIds)] };
-    } else {
-      if (req.query.client_id) {
-        query.client_id = mongoose.isValidObjectId(req.query.client_id)
-          ? { $in: [new mongoose.Types.ObjectId(req.query.client_id), req.query.client_id] }
-          : req.query.client_id;
+      if (req.query.site_id && req.query.site_id !== 'undefined' && req.query.site_id !== 'null' && req.query.site_id !== 'all') {
+        const sId = String(req.query.site_id).trim();
+        if (sId) {
+          query.site_id = mongoose.isValidObjectId(sId)
+            ? { $in: [new mongoose.Types.ObjectId(sId), sId] }
+            : sId;
+        }
       }
-      if (req.query.site_id) {
-        query.site_id = mongoose.isValidObjectId(req.query.site_id)
-          ? { $in: [new mongoose.Types.ObjectId(req.query.site_id), req.query.site_id] }
-          : req.query.site_id;
+    } else {
+      if (req.query.client_id && req.query.client_id !== 'undefined' && req.query.client_id !== 'null') {
+        const cId = String(req.query.client_id).trim();
+        if (cId) {
+          query.client_id = mongoose.isValidObjectId(cId)
+            ? { $in: [new mongoose.Types.ObjectId(cId), cId] }
+            : cId;
+        }
+      }
+      if (req.query.site_id && req.query.site_id !== 'undefined' && req.query.site_id !== 'null' && req.query.site_id !== 'all') {
+        const sId = String(req.query.site_id).trim();
+        if (sId) {
+          query.site_id = mongoose.isValidObjectId(sId)
+            ? { $in: [new mongoose.Types.ObjectId(sId), sId] }
+            : sId;
+        }
       }
     }
 

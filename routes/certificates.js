@@ -941,20 +941,50 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       }
     } catch (_) { }
 
-    // 8. Build unified product catalog (deduplicated by normalized name)
+    // 8. Build unified product catalog (differentiating products with same name and different codes)
     const productMap = new Map();
+
+    const findExistingKey = (p) => {
+      const pId = p._id ? p._id.toString() : (p.id ? String(p.id) : '');
+      const name = (p.name || p.title || p.product_name || '').trim().toLowerCase();
+      const code = (p.code || p.barcode || '').trim().toLowerCase();
+
+      for (const [k, existing] of productMap.entries()) {
+        const existingId = existing.id ? String(existing.id) : '';
+        const existingName = (existing.name || '').trim().toLowerCase();
+        const existingCode = (existing.code || existing.barcode || '').trim().toLowerCase();
+
+        // 1. Exact DB _id match
+        if (pId && existingId && pId === existingId) {
+          return k;
+        }
+
+        // 2. Same name AND same code match
+        if (name && existingName && name === existingName) {
+          if (code && existingCode) {
+            if (code === existingCode) return k;
+          } else if (!code && !existingCode) {
+            return k;
+          }
+        }
+      }
+      return null;
+    };
 
     const addProduct = (p, source = 'site_product') => {
       if (!p) return;
       const name = (p.name || p.title || p.product_name || '').trim();
       if (!name) return;
-      const key = name.toLowerCase();
+      const code = (p.code || p.barcode || '').trim();
 
-      if (!productMap.has(key)) {
-        productMap.set(key, {
+      const existingKey = findExistingKey(p);
+
+      if (!existingKey) {
+        const newKey = p._id ? `id_${p._id}` : `prod_${productMap.size}_${Math.random().toString(36).substr(2, 6)}`;
+        productMap.set(newKey, {
           id: p._id ? p._id.toString() : (p.id || `gen_${Math.random().toString(36).substr(2, 9)}`),
           name,
-          code: p.code || p.barcode || '',
+          code: code,
           category: p.category || 'Halal Certified',
           product_type: p.product_type || p.type || 'Processed',
           description: p.description || '',
@@ -964,8 +994,8 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
           site_id: p.site_id || siteId || null
         });
       } else {
-        const existing = productMap.get(key);
-        if (!existing.code && (p.code || p.barcode)) existing.code = p.code || p.barcode;
+        const existing = productMap.get(existingKey);
+        if (!existing.code && code) existing.code = code;
         if (!existing.category && p.category) existing.category = p.category;
         if (!existing.description && p.description) existing.description = p.description;
         if (!existing.barcode && p.barcode) existing.barcode = p.barcode;
@@ -1600,8 +1630,12 @@ async function performCertificateIssuance({ certificate, application_id, client_
       const prodCategory = typeof prod === 'object' ? (prod.category || 'Halal Certified') : 'Halal Certified';
       const prodType = typeof prod === 'object' ? (prod.product_type || 'Processed') : 'Processed';
 
+      const syncQuery = { client_id, name: prodName };
+      if (prodCode) syncQuery.code = prodCode;
+      if (site_id) syncQuery.site_id = site_id;
+
       await Product.findOneAndUpdate(
-        { client_id, name: prodName },
+        syncQuery,
         {
           $set: {
             client_id,
@@ -2668,10 +2702,21 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         existingProd = await Product.findOne({ _id: prodId, client_id: targetClientId });
       }
       if (!existingProd && prod.name) {
-        existingProd = await Product.findOne({
+        const queryWithCodeAndSite = {
           client_id: targetClientId,
           name: { $regex: new RegExp(`^${prod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
-        });
+        };
+        if (prod.code) queryWithCodeAndSite.code = prod.code;
+        if (targetSiteId) queryWithCodeAndSite.site_id = targetSiteId;
+        existingProd = await Product.findOne(queryWithCodeAndSite);
+
+        if (!existingProd && targetSiteId) {
+          existingProd = await Product.findOne({
+            client_id: targetClientId,
+            site_id: targetSiteId,
+            name: { $regex: new RegExp(`^${prod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+        }
       }
 
       if (existingProd) {

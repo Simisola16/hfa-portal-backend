@@ -1039,8 +1039,12 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
               const pCode = prod.new_code || prod.code || '';
               const pType = prod.type || 'Add product';
               if (pType === 'Add product' || pType === 'Change name/code') {
+                const pQuery = { client_id: clientId, name: pName };
+                if (pCode) pQuery.code = pCode;
+                if (siteId) pQuery.site_id = siteId;
+
                 await Product.findOneAndUpdate(
-                  { client_id: clientId, name: pName },
+                  pQuery,
                   {
                     client_id: clientId,
                     name: pName,
@@ -1367,12 +1371,17 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
             for (const prod of approved_products) {
               const pName = prod.name || prod.product_name;
               if (pName) {
+                const pCode = prod.code || '';
+                const pQuery = { client_id: clientId, name: pName };
+                if (pCode) pQuery.code = pCode;
+                if (siteId) pQuery.site_id = siteId;
+
                 await Product.findOneAndUpdate(
-                  { client_id: clientId, name: pName },
+                  pQuery,
                   {
                     client_id: clientId,
                     name: pName,
-                    code: prod.code || '',
+                    code: pCode,
                     category: prod.category || currentApp.category || 'Halal Certified',
                     site_id: siteId,
                     status: 'approved',
@@ -1401,12 +1410,17 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           for (const prod of prodsToSync) {
             const pName = prod.name || prod.product_name;
             if (pName) {
+              const pCode = prod.code || '';
+              const pQuery = { client_id: clientId, name: pName };
+              if (pCode) pQuery.code = pCode;
+              if (siteId) pQuery.site_id = siteId;
+
               await Product.findOneAndUpdate(
-                { client_id: clientId, name: pName },
+                pQuery,
                 {
                   client_id: clientId,
                   name: pName,
-                  code: prod.code || '',
+                  code: pCode,
                   category: prod.category || logsheet.product_category || 'Halal Certified',
                   site_id: siteId,
                   status: 'approved',
