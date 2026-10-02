@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import QRCode from 'qrcode';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -64,13 +65,16 @@ function wrapTextLines(text, font, fontSize, maxWidth) {
  * Resolves the path to the official Surveillance Letter PDF template.
  */
 function getTemplatePath() {
-  const primary = path.resolve(__dirname, '../assets/certificates/SURVEILLANCE_TEMPLATE.pdf');
-  if (fs.existsSync(primary)) return primary;
-
-  const fallback = path.resolve(__dirname, '../assets/SURVEILLANCE_TEMPLATE.pdf');
-  if (fs.existsSync(fallback)) return fallback;
-
-  throw new Error(`Official Surveillance Letter template not found at: ${primary}`);
+  const candidates = [
+    path.resolve(__dirname, '../assets/certificates/SURVEILLANCE_TEMPLATE.pdf'),
+    path.resolve(__dirname, '../assets/SURVEILLANCE_TEMPLATE.pdf'),
+    path.resolve(__dirname, '../survellance-unlocked template.pdf'),
+    path.resolve(__dirname, '../../survellance-unlocked template.pdf')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  throw new Error(`Official Surveillance Letter template not found at: ${candidates[0]}`);
 }
 
 /**
@@ -80,7 +84,7 @@ function getTemplatePath() {
  */
 export async function generateSurveillanceLetter(letterData = {}) {
   const {
-    letter_number = 'DU-KH/QR' + Date.now().toString().slice(-12),
+    letter_number,
     issue_date = new Date(),
     recipient_name = '',
     recipient_address = '',
@@ -91,6 +95,9 @@ export async function generateSurveillanceLetter(letterData = {}) {
     manual = 'HFA Halal Certification Requirements Manual HFP-1005-20/5',
     letter_body = ''
   } = letterData;
+
+  const resolvedCertNumber = (certificate_number && String(certificate_number).trim()) || '';
+  const resolvedLetterNumber = (letter_number && String(letter_number).trim()) || resolvedCertNumber || `HFA-SURV-${Date.now().toString().slice(-8)}`;
 
   const templatePath = getTemplatePath();
   const templateBuf = fs.readFileSync(templatePath);
@@ -105,8 +112,8 @@ export async function generateSurveillanceLetter(letterData = {}) {
   const leftX = 18;
   const maxWidth = 454; // left margin 18 to 472 before blue sidebar
 
-  // 1. Reference Number (DU-KH/QR...)
-  page.drawText(letter_number, {
+  // 1. Reference Number / Certificate Number
+  page.drawText(resolvedLetterNumber, {
     x: leftX,
     y: 679,
     size: 11,
@@ -225,11 +232,8 @@ export async function generateSurveillanceLetter(letterData = {}) {
       p1Y -= 11;
     }
 
-    // 7. Standard Paragraph 2 (Certification maintenance)
-    const certClause = certificate_number && certificate_number.trim()
-      ? `number ${certificate_number.trim()} `
-      : 'number ';
-    const p2Text = `Therefore, your certification for the process and products stipulated in your halal certificate ${certClause}is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.`;
+    // 7. Standard Paragraph 2 (Certification maintenance - exactly as in template)
+    const p2Text = `Therefore, your certification for the process and products stipulated in your halal certificate number is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.`;
 
     const p2Lines = wrapTextLines(p2Text, fontTimes, 10, maxWidth);
     let p2Y = 355;
@@ -281,7 +285,7 @@ export async function generateSurveillanceLetter(letterData = {}) {
  */
 export async function buildSurveillanceLetterHtml(letterData = {}) {
   const {
-    letter_number = 'DU-KH/QR' + Date.now().toString().slice(-12),
+    letter_number,
     issue_date = new Date(),
     recipient_name = '',
     recipient_address = '',
@@ -292,16 +296,18 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
     manual = 'HFA Halal Certification Requirements Manual HFP-1005-20/5'
   } = letterData;
 
+  const resolvedCertNumber = (certificate_number && String(certificate_number).trim()) || '';
+  const resolvedLetterNumber = (letter_number && String(letter_number).trim()) || resolvedCertNumber || `HFA-SURV-${Date.now().toString().slice(-8)}`;
+
   const dateFormatted = formatDate(issue_date);
   const fullFacility = [recipient_name, recipient_address].filter(Boolean).join(', ').replace(/\s+/g, ' ');
-  const certClause = certificate_number && certificate_number.trim() ? `number ${certificate_number.trim()} ` : 'number ';
 
   return `
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>Surveillance Letter - ${letter_number}</title>
+      <title>Surveillance Letter - ${resolvedLetterNumber}</title>
       <style>
         body { font-family: "Times New Roman", Times, serif; font-size: 10pt; color: #111827; padding: 30px; line-height: 1.4; }
         .ref { font-family: Arial, sans-serif; font-size: 11pt; margin-bottom: 20px; }
@@ -313,13 +319,13 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
       </style>
     </head>
     <body>
-      <div class="ref">${letter_number}</div>
+      <div class="ref">${resolvedLetterNumber}</div>
       <div class="address">${recipient_name}<br>${(recipient_address || '').replace(/,\s*/g, '<br>')}</div>
       <div class="date">${dateFormatted}</div>
       <div class="salutation">Dear ${recipient_attention || ''},</div>
       <div class="subject">${letter_subject}</div>
       <p>The Surveillance audit carried out at ${fullFacility} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${standards}.</p>
-      <p>Therefore, your certification for the process and products stipulated in your halal certificate ${certClause}is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.</p>
+      <p>Therefore, your certification for the process and products stipulated in your halal certificate number is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.</p>
       <p>If you have any queries or questions, please do not hesitate to contact us.</p>
       <p>Thank you.</p>
       <p>Kind regards,</p>

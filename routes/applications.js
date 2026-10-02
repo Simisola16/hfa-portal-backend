@@ -827,19 +827,22 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
       const company = recipient_name || app.establishment_name || clientProfile.company_name || clientProfile.full_name || 'HFA Client';
       const address = recipient_address || app.establishment_address || clientProfile.address || '—';
 
+      const resolvedCertNumber = app.certificate_number || app.renewed_certificate_id?.certificate_number || '';
+      const resolvedLetterNumber = letter_number || resolvedCertNumber || `HFA-SURV-${Date.now().toString().slice(-8)}`;
+
       const pdfBuffer = await generateSurveillanceLetter({
-        letter_number: letter_number || `DU-KH/QR${Date.now().toString().slice(-12)}`,
+        letter_number: resolvedLetterNumber,
         issue_date: issue_date || new Date(),
         recipient_name: company,
         recipient_address: address,
         recipient_attention: recipient_attention || '',
         letter_subject: letter_subject || 'Re: Surveillance Audit Outcome',
-        certificate_number: app.certificate_number || app.renewed_certificate_id?.certificate_number || '',
+        certificate_number: resolvedCertNumber,
         standards: standards || 'UAE.S.2055-1:2015',
         letter_body: letter_body || ''
       });
 
-      const fileName = `HFA-Surveillance-Letter-${letter_number || app.application_number || Date.now()}.pdf`;
+      const fileName = `HFA-Surveillance-Letter-${resolvedLetterNumber || app.application_number || Date.now()}.pdf`;
       letterUrl = await uploadToS3(pdfBuffer, fileName, 'application/pdf', 'surveillance');
     }
 
