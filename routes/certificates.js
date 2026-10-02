@@ -800,7 +800,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     let dbProducts = [];
     const seenProductIds = new Set();
 
-    // Strategy A: Query Product collection by site_id (matches both ObjectId and String)
+    // Strategy A: Query Product collection strictly by site_id (matches both ObjectId and String)
     if (siteIds.length > 0) {
       const siteScopedProducts = await Product.find({
         $or: [
@@ -816,10 +816,8 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
         seenProductIds.add(p._id.toString());
         dbProducts.push(p);
       });
-    }
-
-    // Strategy B: Query Product collection by client_id (matches ObjectId, String, and object representations)
-    if (clientIds.length > 0) {
+    } else if (clientIds.length > 0) {
+      // Strategy B: ONLY query by client_id if certificate has NO site specified
       const clientScopedProducts = await Product.find({
         $or: [
           { client_id: { $in: clientIds } },
@@ -843,7 +841,20 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     if (cert._id) certOrClauses.push({ certificate_id: cert._id.toString() });
     if (cert.certificate_number) certOrClauses.push({ certificate_id: cert.certificate_number });
     if (certOrClauses.length > 0) {
-      const certLinked = await Product.find({ $or: certOrClauses })
+      const certLinkedQuery = { $or: certOrClauses };
+      if (siteIds.length > 0) {
+        certLinkedQuery.$and = [
+          {
+            $or: [
+              { site_id: { $in: siteIds } },
+              { 'site_id._id': { $in: siteIds } },
+              { site_id: null },
+              { site_id: { $exists: false } }
+            ]
+          }
+        ];
+      }
+      const certLinked = await Product.find(certLinkedQuery)
         .populate('site_id', 'name est_name trading_name')
         .sort({ created_at: -1 })
         .lean();
@@ -871,11 +882,14 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       appProducts.push(...cert.application_id.products);
     }
 
-    // Search applications by application_id, site_id, or client_id
+    // Search applications by application_id or site_id (or client_id ONLY if siteIds is empty)
     const appOrClauses = [];
     if (appIdsToQuery.length > 0) appOrClauses.push({ _id: { $in: appIdsToQuery } });
-    if (siteIds.length > 0) appOrClauses.push({ site_id: { $in: siteIds.map(s => s.toString()) } });
-    if (clientIds.length > 0) appOrClauses.push({ client_id: { $in: clientIds } });
+    if (siteIds.length > 0) {
+      appOrClauses.push({ site_id: { $in: siteIds.map(s => s.toString()) } });
+    } else if (clientIds.length > 0) {
+      appOrClauses.push({ client_id: { $in: clientIds } });
+    }
 
     if (appOrClauses.length > 0) {
       const matchedApps = await Application.find({ $or: appOrClauses })
@@ -883,6 +897,10 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
         .lean();
       matchedApps.forEach(a => {
         if (Array.isArray(a.products)) {
+          if (siteIds.length > 0 && a.site_id) {
+            const aSiteStr = a.site_id.toString();
+            if (!siteIds.map(s => s.toString()).includes(aSiteStr)) return;
+          }
           appProducts.push(...a.products);
         }
       });
@@ -892,14 +910,21 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     let logsheetProducts = [];
     const logsheetOrClauses = [];
     if (appIdsToQuery.length > 0) logsheetOrClauses.push({ application_id: { $in: appIdsToQuery } });
-    if (siteIds.length > 0) logsheetOrClauses.push({ site_id: { $in: siteIds } });
-    if (clientIds.length > 0) logsheetOrClauses.push({ client_id: { $in: clientIds } });
+    if (siteIds.length > 0) {
+      logsheetOrClauses.push({ site_id: { $in: siteIds } });
+    } else if (clientIds.length > 0) {
+      logsheetOrClauses.push({ client_id: { $in: clientIds } });
+    }
 
     if (logsheetOrClauses.length > 0) {
       const logsheets = await ApplicationLogsheet.find({ $or: logsheetOrClauses })
-        .select('products_list product_name')
+        .select('products_list product_name site_id')
         .lean();
       logsheets.forEach(l => {
+        if (siteIds.length > 0 && l.site_id) {
+          const lSiteStr = l.site_id.toString();
+          if (!siteIds.map(s => s.toString()).includes(lSiteStr)) return;
+        }
         if (Array.isArray(l.products_list)) {
           logsheetProducts.push(...l.products_list);
         }
@@ -913,11 +938,18 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     try {
       const AddOnApplication = mongoose.model('AddOnApplication');
       const addOnOr = [];
-      if (clientIds.length > 0) addOnOr.push({ client_id: { $in: clientIds } });
-      if (siteIds.length > 0) addOnOr.push({ site_id: { $in: siteIds } });
+      if (siteIds.length > 0) {
+        addOnOr.push({ site_id: { $in: siteIds } });
+      } else if (clientIds.length > 0) {
+        addOnOr.push({ client_id: { $in: clientIds } });
+      }
       if (addOnOr.length > 0) {
-        const addOns = await AddOnApplication.find({ $or: addOnOr }).select('products').lean();
+        const addOns = await AddOnApplication.find({ $or: addOnOr }).select('products site_id').lean();
         addOns.forEach(ao => {
+          if (siteIds.length > 0 && ao.site_id) {
+            const aoSiteStr = ao.site_id.toString();
+            if (!siteIds.map(s => s.toString()).includes(aoSiteStr)) return;
+          }
           if (Array.isArray(ao.products)) {
             logsheetProducts.push(...ao.products);
           }
@@ -929,11 +961,18 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     try {
       const InitialProductApplication = mongoose.model('InitialProductApplication');
       const ipOr = [];
-      if (clientIds.length > 0) ipOr.push({ client_id: { $in: clientIds } });
-      if (siteIds.length > 0) ipOr.push({ site_id: { $in: siteIds } });
+      if (siteIds.length > 0) {
+        ipOr.push({ site_id: { $in: siteIds } });
+      } else if (clientIds.length > 0) {
+        ipOr.push({ client_id: { $in: clientIds } });
+      }
       if (ipOr.length > 0) {
-        const ips = await InitialProductApplication.find({ $or: ipOr }).select('product').lean();
+        const ips = await InitialProductApplication.find({ $or: ipOr }).select('product site_id').lean();
         ips.forEach(ip => {
+          if (siteIds.length > 0 && ip.site_id) {
+            const ipSiteStr = ip.site_id.toString();
+            if (!siteIds.map(s => s.toString()).includes(ipSiteStr)) return;
+          }
           if (ip.product?.name) {
             logsheetProducts.push(ip.product);
           }
@@ -973,6 +1012,15 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
 
     const addProduct = (p, source = 'site_product') => {
       if (!p) return;
+      // If certificate is assigned to a specific site, reject products belonging to other sites!
+      if (siteIds.length > 0 && p.site_id) {
+        const pSiteStr = (p.site_id._id ? p.site_id._id.toString() : p.site_id.toString());
+        const validSiteStrs = siteIds.map(s => s.toString());
+        if (!validSiteStrs.includes(pSiteStr)) {
+          return; // Skip product that belongs to another site!
+        }
+      }
+
       const name = (p.name || p.title || p.product_name || '').trim();
       if (!name) return;
       const code = (p.code || p.barcode || '').trim();
@@ -1007,14 +1055,18 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
     logsheetProducts.forEach(p => addProduct(p, 'logsheet'));
     appProducts.forEach(p => addProduct(p, 'application'));
 
-    if (Array.isArray(cert.product_details)) {
-      cert.product_details.forEach(p => addProduct(p, 'certificate'));
-    }
-    if (Array.isArray(cert.products_covered)) {
-      cert.products_covered.forEach(p => {
-        if (typeof p === 'string') addProduct({ name: p }, 'certificate');
-        else if (typeof p === 'object') addProduct(p, 'certificate');
-      });
+    // Only add cert.product_details / products_covered if no site-scoped db products exist,
+    // preventing old/foreign products recorded on the certificate from polluting the site catalog
+    if (dbProducts.length === 0) {
+      if (Array.isArray(cert.product_details)) {
+        cert.product_details.forEach(p => addProduct(p, 'certificate'));
+      }
+      if (Array.isArray(cert.products_covered)) {
+        cert.products_covered.forEach(p => {
+          if (typeof p === 'string') addProduct({ name: p }, 'certificate');
+          else if (typeof p === 'object') addProduct(p, 'certificate');
+        });
+      }
     }
 
     const allSiteProducts = Array.from(productMap.values());
