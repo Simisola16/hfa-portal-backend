@@ -121,18 +121,19 @@ export async function generateSurveillanceLetter(letterData = {}) {
     color: cBlack
   });
 
-  // 2. Recipient Address Block
+  // 2. Recipient Address Block (Only address, with "The" before the address)
   let addressLines = [];
-  if (recipient_name && recipient_name.trim()) {
-    addressLines.push(recipient_name.trim().replace(/,\s*$/, '') + ',');
-  }
   if (recipient_address && recipient_address.trim()) {
-    // If address contains newlines, preserve them; otherwise split by commas
-    if (recipient_address.includes('\n')) {
-      const parts = recipient_address.split('\n').map(s => s.trim()).filter(Boolean);
+    let cleanAddress = recipient_address.trim();
+    if (!/^the\b/i.test(cleanAddress)) {
+      cleanAddress = `The ${cleanAddress}`;
+    }
+
+    if (cleanAddress.includes('\n')) {
+      const parts = cleanAddress.split('\n').map(s => s.trim()).filter(Boolean);
       parts.forEach(p => addressLines.push(p));
     } else {
-      const rawParts = recipient_address.split(',').map(s => s.trim()).filter(Boolean);
+      const rawParts = cleanAddress.split(',').map(s => s.trim()).filter(Boolean);
       for (let i = 0; i < rawParts.length; i++) {
         const isLast = i === rawParts.length - 1;
         addressLines.push(rawParts[i] + (isLast ? '' : ','));
@@ -163,9 +164,10 @@ export async function generateSurveillanceLetter(letterData = {}) {
     color: cBlack
   });
 
-  // 4. Salutation
-  const salutation = recipient_attention && recipient_attention.trim()
-    ? `Dear ${recipient_attention.trim()},`
+  // 4. Salutation (Dear {company name},)
+  const salutationTarget = (recipient_name && recipient_name.trim()) || (recipient_attention && recipient_attention.trim()) || '';
+  const salutation = salutationTarget
+    ? `Dear ${salutationTarget},`
     : `Dear ,`;
   page.drawText(salutation, {
     x: leftX,
@@ -214,10 +216,10 @@ export async function generateSurveillanceLetter(letterData = {}) {
       color: cBlack
     });
   } else {
-    // 6. Standard Paragraph 1 (Outcome statement)
-    const fullFacility = [recipient_name, recipient_address].filter(Boolean).join(', ').replace(/\s+/g, ' ');
+    // 6. Standard Paragraph 1 (Outcome statement - only address, company name not included)
+    const facilityLocation = (recipient_address || '').trim().replace(/\s+/g, ' ');
     const resolvedStandards = standards && standards.trim() ? standards.trim() : 'UAE.S.2055-1:2015';
-    const p1Text = `The Surveillance audit carried out at ${fullFacility} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
+    const p1Text = `The Surveillance audit carried out at ${facilityLocation} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
 
     const p1Lines = wrapTextLines(p1Text, fontTimes, 10, maxWidth);
     let p1Y = 417;
@@ -300,7 +302,11 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
   const resolvedLetterNumber = (letter_number && String(letter_number).trim()) || resolvedCertNumber || `HFA-SURV-${Date.now().toString().slice(-8)}`;
 
   const dateFormatted = formatDate(issue_date);
-  const fullFacility = [recipient_name, recipient_address].filter(Boolean).join(', ').replace(/\s+/g, ' ');
+  let cleanAddress = (recipient_address || '').trim();
+  if (cleanAddress && !/^the\b/i.test(cleanAddress)) {
+    cleanAddress = `The ${cleanAddress}`;
+  }
+  const facilityLocation = (recipient_address || '').trim().replace(/\s+/g, ' ');
 
   return `
     <!DOCTYPE html>
@@ -320,11 +326,11 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
     </head>
     <body>
       <div class="ref">${resolvedLetterNumber}</div>
-      <div class="address">${recipient_name}<br>${(recipient_address || '').replace(/,\s*/g, '<br>')}</div>
+      <div class="address">${(cleanAddress || '').replace(/,\s*/g, '<br>')}</div>
       <div class="date">${dateFormatted}</div>
-      <div class="salutation">Dear ${recipient_attention || ''},</div>
+      <div class="salutation">Dear ${recipient_name || recipient_attention || ''},</div>
       <div class="subject">${letter_subject}</div>
-      <p>The Surveillance audit carried out at ${fullFacility} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${standards}.</p>
+      <p>The Surveillance audit carried out at ${facilityLocation} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${standards}.</p>
       <p>Therefore, your certification for the process and products stipulated in your halal certificate number is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.</p>
       <p>If you have any queries or questions, please do not hesitate to contact us.</p>
       <p>Thank you.</p>
