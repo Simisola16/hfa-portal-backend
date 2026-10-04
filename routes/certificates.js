@@ -15,6 +15,7 @@ import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { generateCertificate, normalizeCertificateType, CERTIFICATE_SCHEMES } from '../services/certificateGenerator.js';
+import { generateSurveillanceLetter } from '../services/surveillanceLetterGenerator.js';
 import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
 
@@ -637,16 +638,16 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
 
     const certNo = (certificate_number && certificate_number.trim()) || 'HFA-PREVIEW-001';
 
-    const isSurv = req.body.is_surveillance || String(certificate_type || '').toUpperCase() === 'SURVEILLANCE';
+    const isSurv = req.body.is_surveillance || String(certificate_type || '').toUpperCase().includes('SURVEILLANCE');
     if (isSurv) {
       const survPdfBuffer = await generateSurveillanceLetter({
         letter_number: certNo,
         issue_date: issue_date ? new Date(issue_date) : new Date(),
         recipient_name: company_name || '',
-        recipient_address: company_address || '',
+        recipient_address: company_address || manufacturing_address || '',
         recipient_attention: req.body.recipient_attention || '',
         letter_subject: req.body.letter_subject || 'Re: Surveillance Audit Outcome',
-        certificate_number: req.body.halal_certificate_number || '',
+        certificate_number: req.body.halal_certificate_number || certNo,
         standards: req.body.standards || 'UAE.S.2055-1:2015',
         letter_body: req.body.letter_body || ''
       });
@@ -1350,8 +1351,21 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       }
     }
 
+    const isSurvApp = Boolean(
+      req.body.is_surveillance ||
+      String(certificate_type || '').toUpperCase().includes('SURVEILLANCE') ||
+      String(app?.application_type || '').toLowerCase().includes('surveillance') ||
+      String(app?.type || '').toLowerCase().includes('surveillance') ||
+      Boolean(app?.is_surveillance) ||
+      String(app?.application_number || '').includes('-SU-') ||
+      String(app?.category || '').toLowerCase().includes('surveillance') ||
+      String(certNo || '').includes('-SU-')
+    );
+
     let resolvedScheme = certificate_type;
-    if (!resolvedScheme) {
+    if (isSurvApp) {
+      resolvedScheme = 'SURVEILLANCE LETTER';
+    } else if (!resolvedScheme) {
       if (app?.category?.toLowerCase().includes('cosmetic')) resolvedScheme = 'Cosmetics';
       else if (app?.category?.toLowerCase().includes('meat') && !app?.category?.toLowerCase().includes('non')) resolvedScheme = 'HFA Scheme (meat)';
       else if (app?.category?.toLowerCase().includes('gso') || app?.category?.toLowerCase().includes('uae')) resolvedScheme = 'GSO non-meat';
@@ -2122,7 +2136,8 @@ async function buildCertDataFromApplication(application) {
   const certNumber = generateHfaId(companyForId, certTypeCode);
 
   let scheme = 'HFA Scheme (meat)';
-  if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
+  if (isSurvApp) scheme = 'SURVEILLANCE LETTER';
+  else if (application?.category?.toLowerCase().includes('cosmetic')) scheme = 'Cosmetics';
   else if (application?.category?.toLowerCase().includes('meat') && !application?.category?.toLowerCase().includes('non')) scheme = 'HFA Scheme (meat)';
   else if (application?.category?.toLowerCase().includes('gso') || application?.category?.toLowerCase().includes('uae')) scheme = 'GSO non-meat';
   else if (application?.category?.toLowerCase().includes('non-meat') || application?.category?.toLowerCase().includes('non meat')) scheme = 'HFA Scheme (non-meat)';

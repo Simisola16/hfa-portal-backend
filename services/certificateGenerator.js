@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import QRCode from 'qrcode';
+import { generateSurveillanceLetter } from './surveillanceLetterGenerator.js';
 import { getClientUrl, getBackendUrl, resolveCertificateUrl } from '../lib/urls.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -430,6 +431,14 @@ export const CERTIFICATE_SCHEMES = {
       'below has/have been successfully evaluated and audited in accordance with GSO 2055-1,',
       'OIC/SMIIC 1 and HFA Halal Certification Requirements Manual HFP-1005-20/5.'
     ]
+  },
+  'SURVEILLANCE LETTER': {
+    name: 'SURVEILLANCE LETTER',
+    templateType: 'surveillance',
+    basePdf: 'SURVEILLANCE_TEMPLATE.pdf',
+    defaultColumns: 1,
+    docFooter: 'Official Halal Surveillance Letter',
+    declarationLines: []
   }
 };
 
@@ -450,13 +459,16 @@ CERTIFICATE_SCHEMES['Cosmetics'] = CERTIFICATE_SCHEMES['COSMETICS'];
 CERTIFICATE_SCHEMES['Cosmetic'] = CERTIFICATE_SCHEMES['COSMETICS'];
 CERTIFICATE_SCHEMES['Smiic'] = CERTIFICATE_SCHEMES['SMIIC'];        // SMIIC uses GSO NON MEAT template
 CERTIFICATE_SCHEMES['SMIIC Scheme'] = CERTIFICATE_SCHEMES['SMIIC']; // SMIIC uses GSO NON MEAT template
-CERTIFICATE_SCHEMES['Surveillance Letter'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
-CERTIFICATE_SCHEMES['UAE/GSO Halal Surveillance Letter'] = CERTIFICATE_SCHEMES['GSO NON MEAT'];
+CERTIFICATE_SCHEMES['Surveillance Letter'] = CERTIFICATE_SCHEMES['SURVEILLANCE LETTER'];
+CERTIFICATE_SCHEMES['Surveillance letter'] = CERTIFICATE_SCHEMES['SURVEILLANCE LETTER'];
+CERTIFICATE_SCHEMES['SURVEILLANCE'] = CERTIFICATE_SCHEMES['SURVEILLANCE LETTER'];
+CERTIFICATE_SCHEMES['Surveillance'] = CERTIFICATE_SCHEMES['SURVEILLANCE LETTER'];
+CERTIFICATE_SCHEMES['UAE/GSO Halal Surveillance Letter'] = CERTIFICATE_SCHEMES['SURVEILLANCE LETTER'];
 
 /**
  * Normalize a raw certificate_type string (from DB, form, or application category)
- * to one of the 6 canonical scheme keys: 'GSO MEAT' | 'GSO NON MEAT' | 'HFA SCHEME MEAT' |
- * 'HFA SCHEME NON MEAT' | 'COSMETICS' | 'SMIIC'
+ * to one of the canonical scheme keys: 'GSO MEAT' | 'GSO NON MEAT' | 'HFA SCHEME MEAT' |
+ * 'HFA SCHEME NON MEAT' | 'COSMETICS' | 'SMIIC' | 'SURVEILLANCE LETTER'
  *
  * Handles all values found in the production database:
  *   'HFA Scheme'        → HFA SCHEME NON MEAT (meat detected via context)
@@ -464,7 +476,7 @@ CERTIFICATE_SCHEMES['UAE/GSO Halal Surveillance Letter'] = CERTIFICATE_SCHEMES['
  *   'GSO (meat)'        → GSO MEAT
  *   'SMIIC Scheme'      → SMIIC  (uses GSO NON MEAT template + 4 dates)
  *   'Cosmetic'          → COSMETICS
- *   'Surveillance Letter' → GSO NON MEAT
+ *   'Surveillance Letter' → SURVEILLANCE LETTER
  *
  * Also handles application category strings:
  *   'Annual Certification – Food and General processing' → HFA SCHEME NON MEAT
@@ -495,7 +507,7 @@ export function normalizeCertificateType(rawType, context = '') {
     }
     // Return the canonical key for this alias
     const canonical = Object.keys(CERTIFICATE_SCHEMES).find(
-      k => CERTIFICATE_SCHEMES[k] === aliased && ['GSO MEAT','GSO NON MEAT','HFA SCHEME MEAT','HFA SCHEME NON MEAT','COSMETICS','SMIIC'].includes(k)
+      k => CERTIFICATE_SCHEMES[k] === aliased && ['GSO MEAT','GSO NON MEAT','HFA SCHEME MEAT','HFA SCHEME NON MEAT','COSMETICS','SMIIC','SURVEILLANCE LETTER'].includes(k)
     );
     if (canonical) return canonical;
   }
@@ -506,8 +518,10 @@ export function normalizeCertificateType(rawType, context = '') {
   // ── 3. SMIIC (uses GSO NON MEAT template) ────────────────────────────────
   if (str === 'SMIIC' || str.includes('SMIIC')) return 'SMIIC';
 
-  // ── 4. Surveillance → GSO NON MEAT ───────────────────────────────────────
-  if (str.includes('SURVEILLANCE')) return 'GSO NON MEAT';
+  // ── 4. Surveillance Letter ───────────────────────────────────────────────
+  if (str === 'SURVEILLANCE LETTER' || str === 'SURVEILLANCE' || str.includes('SURVEILLANCE')) {
+    return 'SURVEILLANCE LETTER';
+  }
 
   // ── 5. GSO (checked before ANNUAL/HFA so GSO-annual entries resolve correctly)
   if (str.includes('GSO') || str.includes('UAE.S') || str.includes('UAE S')) {
@@ -596,8 +610,28 @@ export async function generateCertificate(certData) {
     verificationUrl
   } = certData;
 
+  const rawType = String(certificateType || certData.certificate_type || '').trim().toUpperCase();
   const ctx = scopeOfCertification || scope || productCategory || certData.product_category || companyName || certData.company_name || businessName || '';
   const normalizedScheme = normalizeCertificateType(certificateType || certData.certificate_type, ctx);
+
+  if (normalizedScheme === 'SURVEILLANCE LETTER' || rawType.includes('SURVEILLANCE') || certData.is_surveillance) {
+    const certNo = certificateNumber || certData.certificate_number || '';
+    const compName = companyName || certData.company_name || businessName || certData.establishment_name || '';
+    const compAddr = companyAddress || certData.company_address || businessAddress || certData.establishment_address || '';
+    return await generateSurveillanceLetter({
+      letter_number: certNo,
+      issue_date: issueDate || certData.issue_date || new Date(),
+      recipient_name: compName,
+      recipient_address: compAddr,
+      recipient_attention: certData.recipient_attention || '',
+      letter_subject: certData.letter_subject || 'Re: Surveillance Audit Outcome',
+      certificate_number: certData.halal_certificate_number || certNo,
+      standards: certData.standards || 'UAE.S.2055-1:2015',
+      manual: certData.manual || 'HFA Halal Certification Requirements Manual HFP-1005-20/5',
+      letter_body: certData.letter_body || ''
+    });
+  }
+
   const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['GSO MEAT'];
   const isGso = scheme.templateType === 'gso';
 
