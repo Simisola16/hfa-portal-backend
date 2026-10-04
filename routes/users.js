@@ -395,7 +395,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       username:  username?.trim() || undefined,
       role:      primaryRole,
       roles:     assignedRoles,
-      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || isSuperAdmin || isCertOfficer),
+      can_issue_direct_certificate: Boolean(can_issue_direct_certificate || isSuperAdmin),
       is_support_manager:           Boolean(is_support_manager || isSuperAdmin || isSupportManager),
       can_sign_logsheet:            Boolean(can_sign_logsheet  || isSuperAdmin),
       can_review_certificate:       Boolean(can_review_certificate || isSuperAdmin),

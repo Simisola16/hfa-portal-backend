@@ -131,7 +131,7 @@ export const requireSuperAdmin = (req, res, next) => {
 export const requireDirectCertificatePermission = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   const hasPermission =
-    userHasRole(req.user, 'superadmin', 'certificate_officer') ||
+    userHasRole(req.user, 'superadmin') ||
     req.user.can_issue_direct_certificate === true;
   if (!hasPermission) {
     return res.status(403).json({ error: 'Direct certificate issuance privilege required. Contact Superadmin for access.' });
