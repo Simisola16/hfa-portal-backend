@@ -151,9 +151,7 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
  */
 function computeProductTableColumns(products, numColumns, fontBold, fontRegular) {
   const MAX_TABLE_WIDTH = 505.0;
-  const list = Array.isArray(products) && products.length > 0
-    ? products
-    : [{ name: 'Certified Halal Products' }];
+  const list = Array.isArray(products) ? products : [];
 
   // 1. Measure NO. column text width
   const maxIdxStr = String(list.length);
@@ -692,14 +690,7 @@ export async function generateCertificate(certData) {
       }
     });
   }
-  if (allProducts.length === 0) {
-    allProducts.push({
-      code: 'PRD-01',
-      name: 'Certified Halal Products & Schedule',
-      description: 'Certified Halal Products & Schedule',
-      category: 'Halal Certified'
-    });
-  }
+  // Do NOT add dummy placeholder product if no products are selected - keep it blank
 
   // Page 1 has company info, declaration & dates. Fits exactly up to 5 products with generous breathing room above signatures.
   // Subsequent pages fit up to 15 products per page cleanly above seals and signatures.
@@ -707,7 +698,9 @@ export async function generateCertificate(certData) {
   const SUBSEQUENT_PAGE_LIMIT = 15;
 
   let pagesProducts = [];
-  if (allProducts.length <= PAGE1_LIMIT) {
+  if (allProducts.length === 0) {
+    pagesProducts = [[]];
+  } else if (allProducts.length <= PAGE1_LIMIT) {
     pagesProducts = [allProducts];
   } else {
     pagesProducts.push(allProducts.slice(0, PAGE1_LIMIT));
@@ -1253,6 +1246,34 @@ export async function generateCertificate(certData) {
       });
     });
 
+    if (currentProducts.length === 0) {
+      const thisRowHeight = rowHeight;
+      curRowY -= thisRowHeight;
+
+      // Horizontal bottom divider
+      page.drawLine({
+        start: { x: tableLeftX, y: curRowY },
+        end: { x: tableLeftX + tableWidth, y: curRowY },
+        thickness: 0.5,
+        color: cTableGrid
+      });
+
+      let rowXCursor = tableLeftX;
+      colDefs.forEach((col, cIdx) => {
+        // Vertical divider between columns
+        if (cIdx < colDefs.length - 1) {
+          const divX = rowXCursor + col.width;
+          page.drawLine({
+            start: { x: divX, y: curRowY },
+            end: { x: divX, y: curRowY + thisRowHeight },
+            thickness: 0.5,
+            color: cTableGrid
+          });
+        }
+        rowXCursor += col.width;
+      });
+    }
+
     // Outer table border (covering entire table including header)
     page.drawRectangle({
       x: tableLeftX,
@@ -1447,7 +1468,7 @@ export async function buildCertificateHtml(certData) {
         category: p.category || 'Halal Certified'
       };
     })
-    : [{ code: 'PRD-01', name: 'Certified Halal Products', description: 'Certified Halal Products', category: 'Halal Certified' }];
+    : [];
 
   const declarationText = scheme.declarationLines.join(' ');
 
@@ -1590,7 +1611,7 @@ export async function buildCertificateHtml(certData) {
             </tr>
           </thead>
           <tbody>
-            ${productList.map((p, idx) => `
+            ${productList.length > 0 ? productList.map((p, idx) => `
               <tr>
                 <td style="text-align: center; font-weight: 700; padding: 6px 12px;">${idx + 1}</td>
                 ${numColumns === 1 ? `
@@ -1604,7 +1625,21 @@ export async function buildCertificateHtml(certData) {
                   <td style="text-align: left; padding: 6px 12px;">${p.description || p.name}</td>
                 `}
               </tr>
-            `).join('')}
+            `).join('') : `
+              <tr>
+                <td style="text-align: center; padding: 6px 12px;">&nbsp;</td>
+                ${numColumns === 1 ? `
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                ` : numColumns === 3 ? `
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                ` : `
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                  <td style="text-align: left; padding: 6px 12px;">&nbsp;</td>
+                `}
+              </tr>
+            `}
           </tbody>
         </table>
       </div>

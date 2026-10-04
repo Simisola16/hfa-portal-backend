@@ -1,14 +1,15 @@
 import mongoose from 'mongoose';
 
 const applicationLogsheetSchema = new mongoose.Schema({
-  // Source discriminator: 'application' (main cert flow), 'addon_application', 'initial_product_application', or 'direct' (direct logsheet studio)
-  source_type: { type: String, enum: ['application', 'addon_application', 'initial_product_application', 'direct'], default: 'application' },
+  // Source discriminator: 'application' (main cert flow), 'addon_application', 'initial_product_application', 'direct', or 'kfc' (KFC logsheet)
+  source_type: { type: String, enum: ['application', 'addon_application', 'initial_product_application', 'direct', 'kfc'], default: 'application' },
   // Specific Logsheet Sub-Type for Direct & Application Flows:
   logsheet_type: { 
     type: String, 
-    enum: ['application', 'initial_product', 'addon', 'extension'], 
+    enum: ['application', 'initial_product', 'addon', 'extension', 'kfc'], 
     default: 'application' 
   },
+  is_kfc: { type: Boolean, default: false },
   direct_ref: String, // e.g. DL-2026-XXXX for direct logsheets
   legacy_id: { type: String, index: true },
   certificate_standard: String, // GSO MEAT, GSO NON MEAT, SMIIC, HFA SCHEME, COSMETICS

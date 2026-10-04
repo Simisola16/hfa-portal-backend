@@ -14,10 +14,11 @@ const extensionLogsheetSchema = new mongoose.Schema({
   facility_address: { type: String, default: '' }, // Address of certificated facility
   contact_person: { type: String, default: '' },   // Contact Person of the company
   product_category: { type: String, default: '' }, // Product category
-  certificate_type: { type: String, default: '' }, // Auto-detected certificate type
+  certificate_type: { type: String, default: '' }, // Auto-detected / Recommended certificate type
+  suggested_certificate_type: { type: String, default: '' }, // Recommended Scheme for Issuer
+  recommended_scheme: { type: String, default: '' }, // Recommended Scheme
   scheme: { 
     type: String, 
-    enum: ['GSO', 'HFA', 'Both'], 
     default: 'HFA' 
   }, // Scheme: [ ] GSO  [ ] HFA
   certificate_expiry_date: { type: Date }, // Certificate expiry date

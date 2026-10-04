@@ -39,6 +39,8 @@ const certificateSchema = new mongoose.Schema({
   superseded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Certificate' },
   revocation_reason: String,
   is_add_on: { type: Boolean, default: false },
+  is_extension: { type: Boolean, default: false },
+  extension_application_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtensionApplication' },
   is_direct_issuance: { type: Boolean, default: false },
   issued_by:   { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   created_by:  { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },

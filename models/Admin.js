@@ -35,6 +35,7 @@ const adminSchema = new mongoose.Schema({
   can_review_certificate:       { type: Boolean, default: false },
   can_mark_done:                { type: Boolean, default: false },
   can_change_application_status: { type: Boolean, default: false },
+  can_create_kfc_logsheet:      { type: Boolean, default: false },
   is_support_manager:           { type: Boolean, default: false },
   is_active:                    { type: Boolean, default: true },
   is_verified:                  { type: Boolean, default: true },

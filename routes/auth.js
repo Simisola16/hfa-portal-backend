@@ -474,6 +474,7 @@ router.post('/admin/login', async (req, res) => {
       can_review_certificate: Boolean(admin.can_review_certificate || admin.role === 'superadmin'),
       can_mark_done: Boolean(admin.can_mark_done || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
       can_change_application_status: Boolean(admin.can_change_application_status || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
+      can_create_kfc_logsheet: Boolean(admin.can_create_kfc_logsheet || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
       is_support_manager: Boolean(
         admin.is_support_manager ||
         admin.role === 'superadmin' ||

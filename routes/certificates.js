@@ -9,6 +9,8 @@ import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Site from '../models/Site.js';
 import Invoice from '../models/Invoice.js';
+import ExtensionApplication from '../models/ExtensionApplication.js';
+import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, requireCertificateOfficer, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -174,7 +176,7 @@ const handlePublicCertificateAccess = async (req, res) => {
     // If PDF is not yet uploaded, generate it on demand
     const prods = (cert.products_covered && cert.products_covered.length > 0)
       ? cert.products_covered
-      : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }];
+      : [];
 
     const s3Key = generateS3Key('certificates', `${cert.certificate_number}.pdf`);
     const certPath = getS3PathFromKey(s3Key);
@@ -487,7 +489,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
     let data = await Certificate.findOne({
       $or: [
         { application_id: req.params.appId },
-        { logsheet_id: req.params.appId }
+        { logsheet_id: req.params.appId },
+        { extension_application_id: req.params.appId }
       ]
     }).sort({ issue_date: -1, created_at: -1, createdAt: -1 })
       .populate('site_id')
@@ -503,6 +506,14 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
           .populate('site_id')
           .populate('created_by', 'full_name email role')
           .populate('reviewed_by', 'full_name email role');
+      } else {
+        const extApp = await ExtensionApplication.findById(req.params.appId);
+        if (extApp?.certificate_id) {
+          data = await Certificate.findById(extApp.certificate_id)
+            .populate('site_id')
+            .populate('created_by', 'full_name email role')
+            .populate('reviewed_by', 'full_name email role');
+        }
       }
     }
 
@@ -632,9 +643,7 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       barcode: typeof p === 'object' && p.barcode ? p.barcode : ''
     })).filter(p => p.name);
 
-    if (cleanProducts.length === 0) {
-      cleanProducts.push({ code: 'PRD-01', name: 'Certified Halal Products & Schedule', description: 'Certified Halal Products', category: 'Halal Certified' });
-    }
+    // Keep cleanProducts empty if none selected - do not inject dummy placeholder product
 
     const certNo = (certificate_number && certificate_number.trim()) || 'HFA-PREVIEW-001';
 
@@ -1197,6 +1206,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
     let resolvedAppId = null;
     let resolvedLogsheetId = (req.body.logsheet_id && mongoose.isValidObjectId(req.body.logsheet_id)) ? req.body.logsheet_id : null;
+    let resolvedExtApp = null;
 
     if (application_id && application_id !== 'undefined' && application_id !== 'null' && application_id !== 'direct' && mongoose.isValidObjectId(application_id)) {
       const foundApp = await Application.findById(application_id);
@@ -1207,15 +1217,30 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         if (foundAddOn) {
           resolvedAppId = foundAddOn._id;
         } else {
-          // Check if application_id is actually a logsheet ID
-          const foundLog = await ApplicationLogsheet.findById(application_id);
-          if (foundLog) {
-            resolvedLogsheetId = foundLog._id;
-            if (foundLog.application_id) resolvedAppId = foundLog.application_id;
-            else if (foundLog.addon_application_id) resolvedAppId = foundLog.addon_application_id;
+          const foundExt = await ExtensionApplication.findById(application_id);
+          if (foundExt) {
+            resolvedAppId = foundExt._id;
+            resolvedExtApp = foundExt;
+          } else {
+            // Check if application_id is actually a logsheet ID
+            const foundLog = await ApplicationLogsheet.findById(application_id);
+            if (foundLog) {
+              resolvedLogsheetId = foundLog._id;
+              if (foundLog.application_id) resolvedAppId = foundLog.application_id;
+              else if (foundLog.addon_application_id) resolvedAppId = foundLog.addon_application_id;
+            }
           }
         }
       }
+    }
+
+    if (!resolvedExtApp && req.body.extension_application_id && mongoose.isValidObjectId(req.body.extension_application_id)) {
+      resolvedExtApp = await ExtensionApplication.findById(req.body.extension_application_id);
+      if (resolvedExtApp && !resolvedAppId) resolvedAppId = resolvedExtApp._id;
+    }
+
+    if (resolvedExtApp) {
+      if (!resolvedLogsheetId && resolvedExtApp.logsheet_id) resolvedLogsheetId = resolvedExtApp.logsheet_id;
     }
 
     let resolvedSiteId = (site_id && mongoose.isValidObjectId(site_id)) ? site_id : null;
@@ -1239,6 +1264,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         resolvedSiteId = logForSite.site_id;
       }
     }
+    if (!resolvedSiteId && resolvedExtApp?.site_id) {
+      resolvedSiteId = resolvedExtApp.site_id;
+    }
 
     let resolvedClientId = (client_id && mongoose.isValidObjectId(client_id)) ? String(client_id) : null;
     if (!resolvedClientId && resolvedLogsheetId) {
@@ -1252,6 +1280,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       if (appForClient?.client_id) {
         resolvedClientId = String(appForClient.client_id);
       }
+    }
+    if (!resolvedClientId && resolvedExtApp?.client_id) {
+      resolvedClientId = String(resolvedExtApp.client_id);
     }
 
     if (!resolvedSiteId && resolvedClientId) {
@@ -1484,6 +1515,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
       certificate.is_add_on = isAddOn;
+      certificate.is_extension = Boolean(req.body.is_extension || resolvedExtApp);
+      if (resolvedExtApp) certificate.extension_application_id = resolvedExtApp._id;
       certificate.is_direct_issuance = isDirect;
       certificate.updated_at = new Date();
     } else {
@@ -1492,6 +1525,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         client_id: resolvedClientId || client_id || 'DIRECT',
         application_id: resolvedAppId || undefined,
         logsheet_id: resolvedLogsheetId || undefined,
+        extension_application_id: resolvedExtApp ? resolvedExtApp._id : (req.body.extension_application_id || undefined),
         site_id: resolvedSiteId,
         certificate_type: resolvedScheme,
         company_name: resolvedCompanyName,
@@ -1510,6 +1544,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         certificate_url,
         status: initialStatus,
         is_add_on: isAddOn,
+        is_extension: Boolean(req.body.is_extension || resolvedExtApp),
         is_direct_issuance: isDirect,
         created_by: req.user._id,
         review_notes: review_notes || ''
@@ -1532,6 +1567,12 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     if (addOnApp) {
       addOnApp.certificate_id = data._id;
       await addOnApp.save();
+    }
+
+    if (resolvedExtApp) {
+      resolvedExtApp.certificate_id = data._id;
+      resolvedExtApp.certificate_number = data.certificate_number;
+      await resolvedExtApp.save();
     }
 
     res.status(201).json({
@@ -1666,6 +1707,32 @@ async function performCertificateIssuance({ certificate, application_id, client_
           );
         } catch (e) {
           console.error('Error updating add-on logsheets on certificate issuance:', e);
+        }
+      } else {
+        const extApp = await ExtensionApplication.findById(application_id || certificate.extension_application_id);
+        if (extApp) {
+          extApp.status = 'extension_approved';
+          extApp.certificate_id = certificate._id;
+          extApp.certificate_number = certNo;
+          extApp.extended_until = certificate.expiry_date;
+          extApp.expiry_date = certificate.expiry_date;
+          extApp.statusHistory = extApp.statusHistory || [];
+          extApp.statusHistory.push({
+            status: 'extension_approved',
+            changedAt: new Date(),
+            changedBy: user?._id || user,
+            note: `Extension Certificate Approved & Issued: ${certNo}`
+          });
+          await extApp.save();
+
+          try {
+            await ExtensionLogsheet.updateMany(
+              { extension_application_id: extApp._id },
+              { $set: { status: 'Approved', updated_at: new Date() } }
+            );
+          } catch (e) {
+            console.error('Error updating extension logsheet on certificate issuance:', e);
+          }
         }
       }
     }
@@ -2218,10 +2285,7 @@ router.post('/generate', authenticateToken, requireCertificateOfficer, requireFi
       site_id: application.site_id,
       certificate_type: application.application_type || 'Halal Certificate',
       issue_date: certData.issueDate,
-      expiry_date: certData.expiryDate,
-      products_covered: (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean).length > 0
-        ? (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean)
-        : ['Certified Halal Food Products'],
+      products_covered: (certData.productCategories || []).map(p => typeof p === 'string' ? p : (p?.name || '')).filter(Boolean),
       certificate_url,
       status: 'under_review'
     });
@@ -2643,9 +2707,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     const productsCoveredNames = cleanProducts.map(p => p.name);
-    if (productsCoveredNames.length === 0) {
-      productsCoveredNames.push('Certified Halal Food Products');
-    }
 
     // 5. Handle Certificate File / Generation
     const parsedIssueDate = issue_date ? new Date(issue_date) : new Date();
@@ -2678,10 +2739,10 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           productCategory: effectiveScope,
           productCategories: cleanProducts.length > 0
             ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
-            : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
+            : [],
           products: cleanProducts.length > 0
             ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
-            : [{ code: 'PRD-01', name: 'Certified Halal Food Products', description: 'Certified Halal Food Products', category: 'Halal Certified' }],
+            : [],
           productTableColumns: resolvedTableCols,
           issueDate: parsedIssueDate,
           expiryDate: parsedExpiryDate,

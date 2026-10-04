@@ -314,7 +314,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // ─── GET /api/extension-applications/:id (Get Single Application) ──────────────
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const isStaff = ['admin', 'superadmin', 'manager', 'food_tech_manager', 'mufti'].includes(req.user.role);
+    const isStaff = isStaffUser(req.user, req.userModelType);
     const app = await ExtensionApplication.findById(req.params.id)
       .populate('client_id', 'full_name email company_name business_name phone address')
       .populate('site_id')
@@ -500,6 +500,9 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
       facility_address,
       contact_person,
       product_category,
+      certificate_type,
+      suggested_certificate_type,
+      recommended_scheme,
       scheme,
       certificate_expiry_date,
       justification,
@@ -527,12 +530,29 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
       });
     }
 
+    const chosenScheme = suggested_certificate_type || recommended_scheme || certificate_type || detected.certificate_type || logsheet.certificate_type;
+
     logsheet.company_name = company_name || app.company_name;
     logsheet.facility_address = facility_address || '';
     logsheet.contact_person = contact_person || app.contact_person;
     logsheet.product_category = product_category || detected.product_category || '';
-    logsheet.certificate_type = detected.certificate_type || logsheet.certificate_type;
-    logsheet.scheme = detected.scheme || logsheet.scheme || 'HFA'; // Scheme is auto-detected and not changeable
+    logsheet.certificate_type = chosenScheme || 'HFA SCHEME NON MEAT';
+    logsheet.suggested_certificate_type = chosenScheme || 'HFA SCHEME NON MEAT';
+    logsheet.recommended_scheme = chosenScheme || 'HFA SCHEME NON MEAT';
+
+    if (scheme) {
+      logsheet.scheme = scheme;
+    } else if (chosenScheme) {
+      const u = chosenScheme.toUpperCase();
+      const hasGSO = u.includes('GSO') || u.includes('UAE') || u.includes('GCC');
+      const hasHFA = u.includes('HFA');
+      if (hasGSO && hasHFA) logsheet.scheme = 'Both';
+      else if (hasGSO) logsheet.scheme = 'GSO';
+      else if (hasHFA) logsheet.scheme = 'HFA';
+      else logsheet.scheme = detected.scheme || 'HFA';
+    } else {
+      logsheet.scheme = detected.scheme || logsheet.scheme || 'HFA';
+    }
     if (certificate_expiry_date) {
       logsheet.certificate_expiry_date = new Date(certificate_expiry_date);
     }
