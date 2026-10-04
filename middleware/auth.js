@@ -108,12 +108,15 @@ export const userHasRole = (user, ...allowedRoles) => {
 
 export const isStaffUser = (user, userModelType) => {
   if (!user) return false;
-  if (userModelType === 'Admin') return true;
+  if (userModelType === 'Admin' || user.constructor?.modelName === 'Admin') return true;
+  if (user.is_admin || user.isAdmin) return true;
+  if (user.role && user.role !== 'client') return true;
+  if (Array.isArray(user.roles) && user.roles.some(r => r && r !== 'client')) return true;
   return userHasRole(
     user,
     'admin', 'superadmin', 'scheme_manager', 'certificate_officer',
     'accountant', 'audit_manager', 'food_tech_manager', 'food_tech',
-    'inspector', 'auditor', 'staff', 'support_manager'
+    'inspector', 'auditor', 'staff', 'support_manager', 'mufti', 'ceo', 'director', 'manager'
   );
 };
 
@@ -169,8 +172,20 @@ export const requireChangeStatusPrivilege = (req, res, next) => {
   next();
 };
 
+export const requireKfcLogsheetPermission = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+  if (!isSuperAdmin && !req.user.can_create_kfc_logsheet) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the KFC Logsheet Privilege. Please contact a Superadmin to grant you this privilege.',
+    });
+  }
+  next();
+};
+
 export const requireAdmin = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (isStaffUser(req.user, req.userModelType)) return next();
   if (!userHasRole(req.user, 'admin', 'superadmin', 'scheme_manager', 'certificate_officer', 'accountant', 'audit_manager', 'food_tech_manager', 'inspector', 'food_tech')) {
     return res.status(403).json({ error: 'Admin access required' });
   }
