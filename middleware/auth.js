@@ -237,7 +237,7 @@ export const requireFoodTechOrManager = (req, res, next) => {
   if (userHasRole(req.user, 'scheme_manager') && !userHasRole(req.user, 'food_tech', 'food_tech_manager', 'superadmin')) {
     return res.status(403).json({ error: 'Access denied. Scheme Manager cannot accept or reject add-on applications. Only Food Tech or Food Tech Manager can review add-on applications.' });
   }
-  if (!userHasRole(req.user, 'food_tech', 'food_tech_manager', 'superadmin', 'admin')) {
+  if (!userHasRole(req.user, 'food_tech', 'food_tech_manager', 'superadmin')) {
     return res.status(403).json({ error: 'Access denied. Food Tech or Food Tech Manager access required.' });
   }
   next();
