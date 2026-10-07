@@ -7,7 +7,7 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import ApplicationLogsheet from '../models/ApplicationLogsheet.js';
 import Product from '../models/Product.js';
-import { authenticateToken, requireAdmin, requireSchemeManager, requireFoodTechManager, requireFoodTech, requireFoodTechManagerOrAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSchemeManager, requireFoodTechManager, requireFoodTech, requireFoodTechOrManager, requireFoodTechManagerOrAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { generateCertificate } from '../services/certificateGenerator.js';
@@ -267,8 +267,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // ─── PUT /api/add-on-applications/:id/review ─────────────────────────────────
-// Scheme Manager: Accept Or Reject
-router.put('/:id/review', authenticateToken, requireSchemeManager, async (req, res) => {
+// Food Tech & FT Manager: Accept Or Reject
+router.put('/:id/review', authenticateToken, requireFoodTechOrManager, async (req, res) => {
   try {
     const { decision, rejection_reason, notes } = req.body;
     if (!['accepted', 'rejected', 'on_hold'].includes(decision)) {

@@ -231,9 +231,21 @@ export const requireFoodTechManager = (req, res, next) => {
   next();
 };
 
+export const requireFoodTechOrManager = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  // Explicitly deny scheme_manager unless they also hold food_tech, food_tech_manager, or superadmin
+  if (userHasRole(req.user, 'scheme_manager') && !userHasRole(req.user, 'food_tech', 'food_tech_manager', 'superadmin')) {
+    return res.status(403).json({ error: 'Access denied. Scheme Manager cannot accept or reject add-on applications. Only Food Tech or Food Tech Manager can review add-on applications.' });
+  }
+  if (!userHasRole(req.user, 'food_tech', 'food_tech_manager', 'superadmin', 'admin')) {
+    return res.status(403).json({ error: 'Access denied. Food Tech or Food Tech Manager access required.' });
+  }
+  next();
+};
+
 export const requireFoodTechManagerOrAdmin = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (!userHasRole(req.user, 'food_tech_manager', 'admin', 'superadmin', 'food_tech', 'scheme_manager')) {
+  if (!userHasRole(req.user, 'food_tech_manager', 'admin', 'superadmin', 'food_tech')) {
     return res.status(403).json({ error: 'Access denied. Food Tech Manager or Admin role required.' });
   }
   next();
