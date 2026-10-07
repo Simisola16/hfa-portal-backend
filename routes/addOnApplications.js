@@ -167,6 +167,8 @@ router.post('/', authenticateToken, async (req, res) => {
       message,
       products,
       status: 'submitted',
+      created_at: new Date(),
+      submission_date: new Date(),
       statusHistory: [{
         status: 'submitted',
         changedAt: new Date(),
@@ -224,7 +226,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('assigned_food_tech', 'full_name email phone')
       .populate('assigned_food_techs', 'full_name email phone')
       .populate('statusHistory.changedBy', 'full_name username email role')
-      .sort({ created_at: -1, createdAt: -1 });
+      .sort({ created_at: -1, submission_date: -1, createdAt: -1, _id: -1 });
 
     res.json({ data });
   } catch (err) {
