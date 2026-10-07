@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.*
 .DS_Store
 *.log
 
@@ -10,8 +11,28 @@ scratch/
 test-cert-out.pdf
 *.pdf
 *.png
+*.html
+*.txt
 
-# Migration & server sync scripts
+# Scraping & Automation
+scrape.js
+
+# Migration & Server Sync Scripts with sensitive data/endpoints
 scripts/*ubuntu*
 scripts/cleanup_products_and_cards.mjs
-scripts/update_macphie_cert.mjs
+scripts/update_macphie_cert.mjs
+scripts/import_all_companies_to_mongodb.js
+scripts/remove_accounts_not_in_4_apis.js
+scripts/remove_companies_not_in_4_apis.js
+scripts/import_and_sync_all_4354_logsheets.mjs
+scripts/import_subusers_and_fix_dates.js
+scripts/validate_and_prepare_import.js
+scripts/sync_addon_dates_to_ubuntu_server.mjs
+scripts/check_all_orphaned_ubuntu.mjs
+scripts/relink_ubuntu_clients.mjs
+scripts/search_ubuntu_20805.mjs
+scripts/check_dates.mjs
+scripts/find_unnamed.mjs
+scripts/inspect_plantex_addons.mjs
+scripts/inspect_target_id.mjs
+scripts/sync_missing_to_atlas.mjs

@@ -1325,7 +1325,7 @@ export async function generateCertificate(certData) {
   const pdfBytes = await pdfDoc.save();
 
   // Apply Permissions / Owner Password protection to lock document against unauthorized editing
-  const ownerPassword = process.env.CERTIFICATE_OWNER_PASSWORD || '@Muhayad2000';
+  const ownerPassword = process.env.CERTIFICATE_OWNER_PASSWORD || '';
   if (ownerPassword) {
     try {
       const encryptedBytes = await encryptPDF(pdfBytes, '', {
