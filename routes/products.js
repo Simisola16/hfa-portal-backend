@@ -8,6 +8,7 @@ import Site from '../models/Site.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
+import { generateProductApprovalPdfBuffer } from '../services/productApprovalPdfGenerator.js';
 const router = express.Router();
 
 // Helper to enrich product records with client user information efficiently
@@ -453,6 +454,25 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Product deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Direct PDF download endpoint for Product Approval Form
+router.post('/approval-form/download-pdf', authenticateToken, async (req, res) => {
+  try {
+    const { formData, product, company } = req.body;
+    const productName = formData?.product_name || product?.name || 'Product';
+    const cleanFileName = `HFA_Product_Approval_Form_${String(productName).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+
+    const pdfBuffer = await generateProductApprovalPdfBuffer({ formData, product, company });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${cleanFileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Error generating product approval PDF:', err);
+    res.status(500).json({ error: 'Failed to generate PDF: ' + err.message });
   }
 });
 
