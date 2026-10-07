@@ -40,6 +40,10 @@ const addOnApplicationSchema = new mongoose.Schema({
   // Multi-product table (one application can cover many products)
   products: { type: [addOnProductSchema], default: [] },
 
+  // Submission and creation dates (synced from SQL database)
+  submission_date: { type: Date },
+  created_at: { type: Date },
+
   // Canonical 10-state status flow
   status: {
     type: String,
@@ -125,6 +129,12 @@ addOnApplicationSchema.pre('save', function(next) {
   if (!this.application_number) {
     const comp = this.contact_name || 'HFA';
     this.application_number = generateHfaId(comp, 'AD');
+  }
+  if (!this.created_at) {
+    this.created_at = this.createdAt || new Date();
+  }
+  if (!this.submission_date) {
+    this.submission_date = this.created_at;
   }
   next();
 });
