@@ -58,7 +58,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, cust
 
   const loginUrl = `${adminUrl || getAdminUrl()}/login`;
   const companyName = logsheet.company_name || 'the applicant company';
-  const appRef = applicationNumber || getLogsheetEffectiveRef(logsheet);
+  const appRef = getLogsheetEffectiveRef(logsheet);
   const issueDate = logsheet.issue_date
     ? new Date(logsheet.issue_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'N/A';
