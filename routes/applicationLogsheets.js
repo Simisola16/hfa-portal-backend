@@ -10,7 +10,7 @@ import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
-import { generateHfaId, normalizeHfaTypeCode } from '../lib/idGenerator.js';
+import { generateHfaId, normalizeHfaTypeCode, generateLogsheetNumber, getLogsheetEffectiveRef } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
 import { getAdminUrl } from '../lib/urls.js';
 import { getSuperadminEmails, sendEmail, emailFrom } from '../lib/mailer.js';
@@ -58,7 +58,7 @@ async function sendSignatoryEmails({ logsheet, applicationNumber, adminUrl, cust
 
   const loginUrl = `${adminUrl || getAdminUrl()}/login`;
   const companyName = logsheet.company_name || 'the applicant company';
-  const appRef = applicationNumber || 'N/A';
+  const appRef = applicationNumber || getLogsheetEffectiveRef(logsheet);
   const issueDate = logsheet.issue_date
     ? new Date(logsheet.issue_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'N/A';
@@ -251,9 +251,11 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       logsheet = await ApplicationLogsheet.findById(directTargetId);
     }
 
-    const directRef = logsheet?.direct_ref || generateHfaId(company_name || 'DL', normalizeHfaTypeCode(logsheet_type || 'NE'));
+    const directRef = logsheet?.direct_ref || logsheet?.logsheet_number || generateHfaId(company_name || 'DL', normalizeHfaTypeCode(logsheet_type || 'NE'));
 
     if (logsheet) {
+      logsheet.direct_ref = directRef;
+      logsheet.logsheet_number = directRef;
       logsheet.certificate_standard = certificate_standard || logsheet.certificate_standard || 'GSO MEAT';
       logsheet.scope = scope !== undefined ? scope : logsheet.scope;
       if (resolvedClientId) logsheet.client_id = resolvedClientId;
@@ -327,6 +329,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         source_type: 'direct',
         logsheet_type: logsheet_type || 'application',
         direct_ref: directRef,
+        logsheet_number: directRef,
         certificate_standard: certificate_standard || 'GSO MEAT',
         scope: scope || 'Halal Certification Operations',
         client_id: resolvedClientId || undefined,
@@ -510,10 +513,12 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
       logsheet = await ApplicationLogsheet.findById(targetId);
     }
 
-    const directRef = logsheet?.direct_ref || `KFC-${Date.now().toString().slice(-6)}`;
+    const directRef = logsheet?.direct_ref || logsheet?.logsheet_number || `KFC-${Date.now().toString().slice(-6)}`;
 
     if (logsheet) {
       Object.assign(logsheet, {
+        direct_ref: directRef,
+        logsheet_number: directRef,
         site_name: site_name !== undefined ? site_name : logsheet.site_name,
         company_name: company_name !== undefined ? company_name : logsheet.company_name,
         company_address: company_address !== undefined ? company_address : logsheet.company_address,
@@ -577,6 +582,7 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
         logsheet_type: 'kfc',
         is_kfc: true,
         direct_ref: directRef,
+        logsheet_number: directRef,
         certificate_standard: 'KFC Logsheet',
         certificate_type: 'KFC Logsheet',
         suggested_certificate_type: 'KFC Logsheet',
@@ -701,6 +707,15 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       return true;
     }) || null;
 
+    if (mainLogsheet) {
+      if (!mainLogsheet.logsheet_number) {
+        mainLogsheet.logsheet_number = mainLogsheet.direct_ref || (mainLogsheet.legacy_id ? (String(mainLogsheet.legacy_id).toUpperCase().startsWith('LOG-') ? mainLogsheet.legacy_id : `LOG-${mainLogsheet.legacy_id}`) : `LOG-${String(mainLogsheet._id).slice(-6).toUpperCase()}`);
+      }
+      if (!mainLogsheet.direct_ref) {
+        mainLogsheet.direct_ref = mainLogsheet.logsheet_number;
+      }
+    }
+
     res.json({ data: mainLogsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -793,14 +808,23 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       if (clientIdVal) logsheet.client_id = clientIdVal;
       if (siteIdVal) logsheet.site_id = siteIdVal;
       if (!logsheet.created_by) logsheet.created_by = req.user._id;
+      if (!logsheet.logsheet_number) {
+        logsheet.logsheet_number = logsheet.direct_ref || (logsheet.legacy_id ? (String(logsheet.legacy_id).toUpperCase().startsWith('LOG-') ? logsheet.legacy_id : `LOG-${logsheet.legacy_id}`) : `LOG-${String(logsheet._id).slice(-6).toUpperCase()}`);
+      }
+      if (!logsheet.direct_ref) {
+        logsheet.direct_ref = logsheet.logsheet_number;
+      }
       logsheet.updated_at = new Date();
     } else {
+      const generatedRef = logsheetData.direct_ref || logsheetData.logsheet_number || `LOG-${Date.now().toString().slice(-6)}`;
       logsheet = new ApplicationLogsheet({
         application_id,
         client_id: clientIdVal,
         site_id: siteIdVal,
         source_type: 'application',
         created_by: req.user._id,
+        direct_ref: generatedRef,
+        logsheet_number: generatedRef,
         ...logsheetData
       });
       if (!logsheet.created_by) logsheet.created_by = req.user._id;
@@ -936,6 +960,16 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       ipLogsToComplete.forEach(l => { l.status = 'Completed'; });
     }
 
+    // Ensure every logsheet has a guaranteed logsheet_number and direct_ref
+    logsheets.forEach(l => {
+      if (!l.logsheet_number) {
+        l.logsheet_number = l.direct_ref || (l.legacy_id ? (String(l.legacy_id).toUpperCase().startsWith('LOG-') ? l.legacy_id : `LOG-${l.legacy_id}`) : `LOG-${String(l._id).slice(-6).toUpperCase()}`);
+      }
+      if (!l.direct_ref) {
+        l.direct_ref = l.logsheet_number;
+      }
+    });
+
     res.json({ data: logsheets });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -951,6 +985,14 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username');
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    if (!logsheet.logsheet_number) {
+      logsheet.logsheet_number = logsheet.direct_ref || (logsheet.legacy_id ? (String(logsheet.legacy_id).toUpperCase().startsWith('LOG-') ? logsheet.legacy_id : `LOG-${logsheet.legacy_id}`) : `LOG-${String(logsheet._id).slice(-6).toUpperCase()}`);
+    }
+    if (!logsheet.direct_ref) {
+      logsheet.direct_ref = logsheet.logsheet_number;
+    }
+
     res.json({ data: logsheet });
   } catch (err) {
     res.status(500).json({ error: err.message });
