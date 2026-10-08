@@ -11,6 +11,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   },
   is_kfc: { type: Boolean, default: false },
   direct_ref: String, // e.g. DL-2026-XXXX for direct logsheets
+  logsheet_number: { type: String, index: true }, // Formal logsheet identifier e.g. LOG-XXXX
   legacy_id: { type: String, index: true },
   certificate_standard: String, // GSO MEAT, GSO NON MEAT, SMIIC, HFA SCHEME, COSMETICS
   certificate_type: String,
@@ -139,6 +140,19 @@ const applicationLogsheetSchema = new mongoose.Schema({
 
 applicationLogsheetSchema.pre('save', function(next) {
   this.updated_at = Date.now();
+  if (!this.logsheet_number) {
+    if (this.direct_ref) {
+      this.logsheet_number = this.direct_ref;
+    } else if (this.legacy_id) {
+      const cleanLegacy = String(this.legacy_id).trim();
+      this.logsheet_number = cleanLegacy.toUpperCase().startsWith('LOG-') ? cleanLegacy : `LOG-${cleanLegacy}`;
+    } else if (this._id) {
+      this.logsheet_number = `LOG-${String(this._id).slice(-6).toUpperCase()}`;
+    }
+  }
+  if (!this.direct_ref && this.logsheet_number) {
+    this.direct_ref = this.logsheet_number;
+  }
   next();
 });
 
@@ -158,5 +172,6 @@ applicationLogsheetSchema.index({ source_type: 1 });
 applicationLogsheetSchema.index({ source_type: 1, logsheet_type: 1 });
 applicationLogsheetSchema.index({ source_type: 1, created_at: -1 });
 applicationLogsheetSchema.index({ direct_ref: 1 });
+applicationLogsheetSchema.index({ logsheet_number: 1 });
 
 export default mongoose.model('ApplicationLogsheet', applicationLogsheetSchema);
