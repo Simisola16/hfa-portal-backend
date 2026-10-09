@@ -321,9 +321,13 @@ router.get('/', authenticateToken, async (req, res) => {
             { status: 'active', expiry_date: { $lt: now } }
           ]
         });
-      } else if (s === 'under_review' || s === 'review') {
+      } else if (s === 'under_review' || s === 'review' || s === 'pending') {
         andConditions.push({
           status: { $in: ['under_review', 'draft'] }
+        });
+      } else if (s === 'inactive' || s === 'superseded') {
+        andConditions.push({
+          status: { $in: ['inactive', 'superseded'] }
         });
       } else {
         andConditions.push({ status: s });
@@ -1645,7 +1649,7 @@ async function performCertificateIssuance({ certificate, application_id, client_
       },
       {
         $set: {
-          status: 'superseded',
+          status: 'inactive',
           is_renewed: true,
           superseded_by: certificate._id,
           updated_at: new Date()
@@ -2825,7 +2829,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         },
         {
           $set: {
-            status: 'superseded',
+            status: 'inactive',
             is_renewed: true,
             superseded_by: savedCert._id,
             updated_at: new Date()
@@ -2952,6 +2956,70 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
   }
 });
 
+
+// PUT activate certificate (Admin activates inactive, expired, superseded, or revoked certificate)
+router.put('/:id/activate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = 'active';
+    cert.is_renewed = false;
+    cert.superseded_by = null;
+    cert.renewed_by = null;
+    cert.revocation_reason = null;
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: 'Certificate activated successfully', data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT deactivate certificate (Admin sets status to inactive)
+router.put('/:id/deactivate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = 'inactive';
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: 'Certificate marked as inactive', data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH / PUT update status generic endpoint
+router.patch('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { status, reason } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = status;
+    if (status === 'active') {
+      cert.is_renewed = false;
+      cert.superseded_by = null;
+      cert.renewed_by = null;
+      cert.revocation_reason = null;
+    }
+    if (status === 'revoked' && reason) {
+      cert.revocation_reason = reason;
+    }
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: `Certificate status updated to ${status}`, data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // PUT revoke
 router.put('/:id/revoke', authenticateToken, requireAdmin, async (req, res) => {
