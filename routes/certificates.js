@@ -2443,8 +2443,15 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
 
     // Client can only download their own certificate; all admin tokens are authorized
-    const allowedClientIds = [req.user._id?.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
-    if (!isAdminUser(req.user, req) && !allowedClientIds.includes(certificate.client_id?.toString())) {
+    const allowedClientIds = [
+      req.user._id?.toString(),
+      req.user.id?.toString(),
+      req.user.parent_client_id?.toString(),
+      req.user.company_id?.toString()
+    ].filter(Boolean);
+    const isClientMatch = allowedClientIds.includes(certificate.client_id?.toString()) ||
+      (req.user.company_name && certificate.company_name && req.user.company_name.trim().toLowerCase() === certificate.company_name.trim().toLowerCase());
+    if (!isAdminUser(req.user, req) && !isClientMatch) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -2499,7 +2506,13 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 
     // Redirect to the correct file endpoint — handles S3, legacy GridFS, and absolute URLs
     const host = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-    const certUrl = certificate.certificate_url;
+    let certUrl = certificate.certificate_url;
+    const isDownload = req.query.download === 'true' || req.query.download === '1';
+
+    if (isDownload && !certUrl.includes('download=')) {
+      const sep = certUrl.includes('?') ? '&' : '?';
+      certUrl = `${certUrl}${sep}download=1`;
+    }
 
     if (certUrl.startsWith('http://') || certUrl.startsWith('https://')) {
       // Absolute URL (e.g. direct S3 or CDN link) — redirect directly
