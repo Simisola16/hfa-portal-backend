@@ -167,6 +167,72 @@ const handlePublicCertificateAccess = async (req, res) => {
       `);
     }
 
+    const certStatus = (cert.status || '').toLowerCase().trim();
+    if (['inactive', 'superseded', 'revoked', 'deactivated'].includes(certStatus)) {
+      const isRevoked = certStatus === 'revoked';
+      const companyName = cert.company_name || cert.client_id?.company_name || cert.client_id?.name || '';
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Certificate Inactive | Halal Food Authority</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; box-sizing: border-box; }
+            .card { background: white; max-width: 520px; width: 100%; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); padding: 40px; text-align: center; border: 1px solid #e2e8f0; }
+            .badge-deactivated { display: inline-block; padding: 6px 14px; border-radius: 9999px; background: #fee2e2; color: #b91c1c; font-weight: 700; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 16px; }
+            .badge-inactive { display: inline-block; padding: 6px 14px; border-radius: 9999px; background: #f1f5f9; color: #475569; font-weight: 700; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 16px; }
+            .icon { font-size: 44px; margin-bottom: 12px; }
+            h1 { font-size: 22px; font-weight: 700; margin: 0 0 10px 0; color: #0f172a; }
+            p { font-size: 14.5px; line-height: 1.6; color: #64748b; margin: 0 0 20px 0; }
+            .details { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin: 20px 0; text-align: left; font-size: 13.5px; }
+            .detail-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+            .detail-row:last-child { margin-bottom: 0; }
+            .detail-label { color: #64748b; font-weight: 500; }
+            .detail-value { color: #0f172a; font-weight: 600; text-align: right; }
+            .btn { display: inline-block; background: #15803d; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+            .footer-note { font-size: 12px; color: #94a3b8; margin-top: 24px; line-height: 1.4; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="icon">⛔</div>
+            <div class="${isRevoked ? 'badge-deactivated' : 'badge-inactive'}">
+              ${isRevoked ? 'Certificate Revoked' : 'Certificate Inactive / Deactivated'}
+            </div>
+            <h1>Certificate No Longer Valid</h1>
+            <p>
+              The certificate associated with this QR code has been <strong>${isRevoked ? 'revoked' : 'deactivated'}</strong> by the Halal Food Authority. This verification record is no longer active.
+            </p>
+            <div class="details">
+              <div class="detail-row">
+                <span class="detail-label">Certificate No:</span>
+                <span class="detail-value">${cert.certificate_number || certNo}</span>
+              </div>
+              ${companyName ? `
+              <div class="detail-row">
+                <span class="detail-label">Company:</span>
+                <span class="detail-value">${companyName}</span>
+              </div>` : ''}
+              <div class="detail-row">
+                <span class="detail-label">Status:</span>
+                <span class="detail-value" style="color: #dc2626; text-transform: capitalize;">${cert.status}</span>
+              </div>
+            </div>
+            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 24px;">
+              If you require verification assistance, please contact the Halal Food Authority directly.
+            </p>
+            <a href="https://halalfoodauthority.com" class="btn">Visit HFA Official Site</a>
+            <div class="footer-note">
+              Halal Food Authority (HFA) · Official Certification Registry
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
     // If certificate has an uploaded file URL, redirect directly to it
     if (cert.certificate_url) {
       const fullUrl = resolveCertificateUrl(cert.certificate_url, cert.certificate_number);
@@ -321,9 +387,13 @@ router.get('/', authenticateToken, async (req, res) => {
             { status: 'active', expiry_date: { $lt: now } }
           ]
         });
-      } else if (s === 'under_review' || s === 'review') {
+      } else if (s === 'under_review' || s === 'review' || s === 'pending') {
         andConditions.push({
           status: { $in: ['under_review', 'draft'] }
+        });
+      } else if (s === 'inactive' || s === 'superseded') {
+        andConditions.push({
+          status: { $in: ['inactive', 'superseded'] }
         });
       } else {
         andConditions.push({ status: s });
@@ -1645,7 +1715,7 @@ async function performCertificateIssuance({ certificate, application_id, client_
       },
       {
         $set: {
-          status: 'superseded',
+          status: 'inactive',
           is_renewed: true,
           superseded_by: certificate._id,
           updated_at: new Date()
@@ -2443,8 +2513,15 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     if (!certificate) return res.status(404).json({ error: 'Certificate not found' });
 
     // Client can only download their own certificate; all admin tokens are authorized
-    const allowedClientIds = [req.user._id?.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
-    if (!isAdminUser(req.user, req) && !allowedClientIds.includes(certificate.client_id?.toString())) {
+    const allowedClientIds = [
+      req.user._id?.toString(),
+      req.user.id?.toString(),
+      req.user.parent_client_id?.toString(),
+      req.user.company_id?.toString()
+    ].filter(Boolean);
+    const isClientMatch = allowedClientIds.includes(certificate.client_id?.toString()) ||
+      (req.user.company_name && certificate.company_name && req.user.company_name.trim().toLowerCase() === certificate.company_name.trim().toLowerCase());
+    if (!isAdminUser(req.user, req) && !isClientMatch) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -2499,7 +2576,13 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 
     // Redirect to the correct file endpoint — handles S3, legacy GridFS, and absolute URLs
     const host = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-    const certUrl = certificate.certificate_url;
+    let certUrl = certificate.certificate_url;
+    const isDownload = req.query.download === 'true' || req.query.download === '1';
+
+    if (isDownload && !certUrl.includes('download=')) {
+      const sep = certUrl.includes('?') ? '&' : '?';
+      certUrl = `${certUrl}${sep}download=1`;
+    }
 
     if (certUrl.startsWith('http://') || certUrl.startsWith('https://')) {
       // Absolute URL (e.g. direct S3 or CDN link) — redirect directly
@@ -2812,7 +2895,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         },
         {
           $set: {
-            status: 'superseded',
+            status: 'inactive',
             is_renewed: true,
             superseded_by: savedCert._id,
             updated_at: new Date()
@@ -2939,6 +3022,70 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
   }
 });
 
+
+// PUT activate certificate (Admin activates inactive, expired, superseded, or revoked certificate)
+router.put('/:id/activate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = 'active';
+    cert.is_renewed = false;
+    cert.superseded_by = null;
+    cert.renewed_by = null;
+    cert.revocation_reason = null;
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: 'Certificate activated successfully', data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT deactivate certificate (Admin sets status to inactive)
+router.put('/:id/deactivate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = 'inactive';
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: 'Certificate marked as inactive', data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH / PUT update status generic endpoint
+router.patch('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { status, reason } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const cert = await Certificate.findById(req.params.id);
+    if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    cert.status = status;
+    if (status === 'active') {
+      cert.is_renewed = false;
+      cert.superseded_by = null;
+      cert.renewed_by = null;
+      cert.revocation_reason = null;
+    }
+    if (status === 'revoked' && reason) {
+      cert.revocation_reason = reason;
+    }
+    cert.updated_at = new Date();
+    await cert.save();
+
+    res.json({ success: true, message: `Certificate status updated to ${status}`, data: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // PUT revoke
 router.put('/:id/revoke', authenticateToken, requireAdmin, async (req, res) => {

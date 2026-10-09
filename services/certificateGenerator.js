@@ -817,9 +817,8 @@ export async function generateCertificate(certData) {
   const isScopeEmpty = !rawScope || rawScope === '-' || rawScope === '—' || rawScope.toUpperCase() === 'N/A';
   const resolvedScope = isScopeEmpty ? '' : sanitizeForPdf(rawScope.toUpperCase());
 
-  // Generate QR Code PNG pointing directly to the certificate URL
-  const certUrlCandidate = certData.certificate_url || certData.certificateUrl || certData.certificateFileUrl || certData.pdfUrl || certData.url;
-  const qrUrl = resolveCertificateUrl(certUrlCandidate, sanitizedCertNo, verificationUrl) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(sanitizedCertNo)}`;
+  // Generate QR Code PNG pointing to public verification gate so active/inactive status is enforced
+  const qrUrl = `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(sanitizedCertNo)}`;
   const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
     type: 'png',
     margin: 0,
@@ -1440,8 +1439,8 @@ export async function buildCertificateHtml(certData) {
   const numColumns = (rawColOption >= 1 && rawColOption <= 3) ? rawColOption : scheme.defaultColumns;
 
 
-  const certUrlCandidate = certData.certificate_url || certData.certificateUrl || certData.certificateFileUrl || certData.pdfUrl || certData.url;
-  const qrUrl = resolveCertificateUrl(certUrlCandidate, certificateNumber, verificationUrl) || `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(certificateNumber)}`;
+  // Point QR code to public verification gate so active/inactive status is enforced
+  const qrUrl = `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(certificateNumber)}`;
   const qrBase64 = await QRCode.toDataURL(qrUrl, { margin: 0, width: 250 });
 
   const formattedIssue = formatDate(issueDate);
