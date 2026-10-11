@@ -167,6 +167,183 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// POST & PUT /api/users/company/transfer-primary — Transfer Primary Account Holder to another team member
+const handleTransferPrimary = async (req, res) => {
+  try {
+    const parentId = req.user.parent_client_id || req.user._id;
+    const targetUserId = req.body.new_primary_user_id || req.body.target_user_id || req.body.userId;
+
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'New primary account holder ID is required' });
+    }
+
+    if (targetUserId.toString() === parentId.toString()) {
+      return res.status(400).json({ error: 'Selected user is already the Primary Account Holder' });
+    }
+
+    // Only allow if user is primary owner or admin
+    if (req.user.parent_client_id && req.user.client_role !== 'owner') {
+      return res.status(403).json({ error: 'Only the Primary Account Holder can transfer primary account ownership' });
+    }
+
+    // Verify current primary user
+    const currentPrimary = await User.findById(parentId);
+    if (!currentPrimary) {
+      return res.status(404).json({ error: 'Current Primary Account Holder not found' });
+    }
+
+    // Verify target user belongs to the same company
+    const newPrimary = await User.findOne({ _id: targetUserId, parent_client_id: parentId });
+    if (!newPrimary) {
+      return res.status(404).json({ error: 'Selected user is not an active team member of this company' });
+    }
+
+    const oldParentId = currentPrimary._id;
+    const newParentId = newPrimary._id;
+
+    // 1. Promote newPrimary to Primary Account Holder
+    newPrimary.parent_client_id = null;
+    newPrimary.client_role = 'owner';
+    if (!newPrimary.company_name) {
+      newPrimary.company_name = currentPrimary.company_name || currentPrimary.full_name;
+    }
+    if (!newPrimary.phone && currentPrimary.phone) newPrimary.phone = currentPrimary.phone;
+    if (!newPrimary.address && currentPrimary.address) newPrimary.address = currentPrimary.address;
+    if (!newPrimary.postcode && currentPrimary.postcode) newPrimary.postcode = currentPrimary.postcode;
+    if (!newPrimary.country && currentPrimary.country) newPrimary.country = currentPrimary.country;
+    await newPrimary.save();
+
+    // 2. Demote currentPrimary to Team Member
+    currentPrimary.parent_client_id = newParentId;
+    currentPrimary.client_role = 'member';
+    await currentPrimary.save();
+
+    // 3. Update all other team members to point to new primary
+    await User.updateMany(
+      { parent_client_id: oldParentId, _id: { $nin: [newParentId, oldParentId] } },
+      { $set: { parent_client_id: newParentId } }
+    );
+
+    // 4. Safely re-point company documents
+    const modelNames = [
+      'Application', 'Site', 'Product', 'Certificate', 'Invoice', 
+      'Agreement', 'Ticket', 'Proposal', 'ApplicationLogsheet', 
+      'ExtensionApplication', 'AddOnApplication', 'InitialProductApplication', 
+      'ExportCertificate', 'SurveillanceSchedule', 'SurveillanceRequest', 
+      'ExtensionLogsheet', 'Audit'
+    ];
+
+    const stringClientModels = [
+      'Certificate', 'ExportCertificate', 'Audit', 'Agreement', 
+      'Proposal', 'SurveillanceRequest'
+    ];
+
+    await Promise.allSettled(
+      modelNames.map(async (mName) => {
+        try {
+          let model = mongoose.models[mName];
+          if (!model) {
+            try {
+              model = (await import(`../models/${mName}.js`)).default;
+            } catch (_) {
+              model = mongoose.model(mName);
+            }
+          }
+          if (!model) return;
+
+          if (stringClientModels.includes(mName)) {
+            await model.updateMany(
+              { client_id: { $in: [oldParentId, oldParentId.toString()] } },
+              { $set: { client_id: newParentId.toString() } }
+            );
+          } else {
+            await model.updateMany(
+              { client_id: { $in: [oldParentId, oldParentId.toString()] } },
+              { $set: { client_id: newParentId } }
+            );
+          }
+        } catch (err) {
+          console.warn(`[transfer-primary] Repointing ${mName}:`, err.message);
+        }
+      })
+    );
+
+    // 5. Send notification email to both parties (non-blocking)
+    try {
+      const companyName = newPrimary.company_name || currentPrimary.company_name || 'your company';
+      const clientPortalUrl = getClientUrl();
+
+      await Promise.allSettled([
+        sendEmail({
+          to: newPrimary.email,
+          subject: `Primary Account Holder Transfer — ${companyName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); padding: 28px 32px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 6px 0 0; font-size: 13.5px; opacity: 0.9;">Ownership Transfer Confirmation</p>
+              </div>
+              <div style="padding: 28px 32px; background: white;">
+                <p style="font-size: 15px; color: #1e293b; margin-top: 0;">Hello <strong>${newPrimary.full_name}</strong>,</p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  You have been designated as the new <strong>Primary Account Holder</strong> for <strong>${companyName}</strong> on the HFA Certification Portal.
+                </p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  All company certificates, applications, and documents are now under your primary account.
+                </p>
+                <div style="text-align: center; margin: 24px 0;">
+                  <a href="${clientPortalUrl}/dashboard" style="display: inline-block; background: #15803d; color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+                    Access Client Portal &rarr;
+                  </a>
+                </div>
+              </div>
+            </div>
+          `
+        }),
+        sendEmail({
+          to: currentPrimary.email,
+          subject: `Primary Account Holder Transferred — ${companyName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); padding: 28px 32px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 6px 0 0; font-size: 13.5px; opacity: 0.9;">Ownership Transfer Confirmation</p>
+              </div>
+              <div style="padding: 28px 32px; background: white;">
+                <p style="font-size: 15px; color: #1e293b; margin-top: 0;">Hello <strong>${currentPrimary.full_name}</strong>,</p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  The Primary Account Holder role for <strong>${companyName}</strong> has been transferred to <strong>${newPrimary.full_name}</strong> (${newPrimary.email}).
+                </p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  Your account remains active as a Team Member with full access to company certificates, applications, and documents.
+                </p>
+              </div>
+            </div>
+          `
+        })
+      ]);
+    } catch (emailErr) {
+      console.warn('[Users] Transfer email failed:', emailErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Primary Account Holder successfully transferred to ${newPrimary.full_name}.`,
+      data: {
+        new_primary_id: newPrimary._id,
+        new_primary_name: newPrimary.full_name,
+        previous_primary_id: currentPrimary._id,
+        previous_primary_name: currentPrimary.full_name
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+router.post('/company/transfer-primary', authenticateToken, handleTransferPrimary);
+router.put('/company/transfer-primary', authenticateToken, handleTransferPrimary);
+
 // DELETE /api/users/company/subusers/:id
 router.delete('/company/subusers/:id', authenticateToken, async (req, res) => {
   try {
