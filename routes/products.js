@@ -5,11 +5,33 @@ import AddOnApplication from '../models/AddOnApplication.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { emitAddOnUpdate } from '../lib/socket.js';
 import { generateProductApprovalPdfBuffer } from '../services/productApprovalPdfGenerator.js';
 const router = express.Router();
+
+function canUserManageProducts(user, userModelType) {
+  if (!user) return false;
+  const userRoles = Array.isArray(user.roles) && user.roles.length > 0
+    ? user.roles
+    : (user.role ? [user.role] : []);
+  if (
+    userRoles.includes('superadmin') ||
+    userRoles.includes('admin') ||
+    user.role === 'superadmin' ||
+    user.role === 'admin'
+  ) {
+    return true;
+  }
+  if (user.can_manage_products === true || user.can_manage_direct_products === true) {
+    return true;
+  }
+  if (userModelType === 'Admin' || user.constructor?.modelName === 'Admin') {
+    return true;
+  }
+  return isStaffUser(user, userModelType);
+}
 
 // Helper to enrich product records with client user information efficiently
 async function enrichProductsWithClients(products) {
@@ -347,9 +369,7 @@ router.post('/', authenticateToken, async (req, res) => {
       barcode, product_type, contact_name, contact_number, contact_email, subject, message
     } = req.body;
 
-    const isAdmin = req.userModelType === 'Admin' ||
-      ['admin', 'superadmin'].includes(req.user.role) ||
-      req.user.can_manage_products === true ||
+    const isAdmin = canUserManageProducts(req.user, req.userModelType) ||
       req.user.can_issue_direct_certificate === true;
 
     // If added by admin directly, create as active product
@@ -415,8 +435,8 @@ router.post('/', authenticateToken, async (req, res) => {
 
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Only admins can change product status.' });
+    if (!canUserManageProducts(req.user, req.userModelType)) {
+      return res.status(403).json({ error: 'Only admins and authorized staff can change product status.' });
     }
     const { status, notes } = req.body;
     const data = await Product.findByIdAndUpdate(
@@ -433,7 +453,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!canUserManageProducts(req.user, req.userModelType)) {
       return res.status(403).json({ error: 'Clients cannot modify certified products directly. Please submit an Add-on request.' });
     }
     const adminName = req.user.full_name || req.user.company_name || req.user.email || 'Admin';
@@ -454,7 +474,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    if (!['admin', 'superadmin'].includes(req.user.role)) {
+    if (!canUserManageProducts(req.user, req.userModelType)) {
       return res.status(403).json({ error: 'Clients cannot delete certified products directly. Please submit an Add-on removal request.' });
     }
     const result = await Product.findByIdAndDelete(req.params.id);
