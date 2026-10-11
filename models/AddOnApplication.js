@@ -5,6 +5,11 @@ const addOnProductSchema = new mongoose.Schema({
   sn: { type: Number }, // auto-numbered on save
   name: { type: String, required: true },
   code: { type: String },
+  original_name: { type: String },
+  new_name: { type: String },
+  new_code: { type: String },
+  description: { type: String },
+  notes: { type: String },
   type: {
     type: String,
     enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients', 'Change ingredient'],
