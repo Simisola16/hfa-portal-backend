@@ -167,7 +167,7 @@ router.post('/', authenticateToken, upload.any(), async (req, res) => {
       }
     }
 
-    const resolvedAddonType = ['add_product', 'remove_product', 'change_ingredients'].includes(addon_type)
+    const resolvedAddonType = ['add_product', 'remove_product', 'change_ingredients', 'change_supplier'].includes(addon_type)
       ? addon_type
       : 'add_product';
 
@@ -250,6 +250,8 @@ router.post('/', authenticateToken, upload.any(), async (req, res) => {
       ? 'Remove Product Request'
       : resolvedAddonType === 'change_ingredients'
       ? 'Change Ingredients Request'
+      : resolvedAddonType === 'change_supplier'
+      ? 'Change Supplier/Manufacturer Request'
       : 'Add-on Product Application';
 
     // Notify admins
@@ -1193,10 +1195,16 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
       rawType === 'change_ingredient' ||
       rawType === 'change' ||
       appNum.includes('-CI-') ||
-      (Array.isArray(app.products) && app.products.length > 0 && app.products.every(p => String(p.type || '').toLowerCase().includes('change')))
+      (Array.isArray(app.products) && app.products.length > 0 && app.products.every(p => String(p.type || '').toLowerCase().includes('change') && !String(p.type || '').toLowerCase().includes('supplier') && !String(p.type || '').toLowerCase().includes('manufacturer')))
+    );
+    const isChangeSupplier = Boolean(
+      rawType === 'change_supplier' ||
+      rawType === 'change_supplier_manufacturer' ||
+      appNum.includes('-CS-') ||
+      (Array.isArray(app.products) && app.products.length > 0 && app.products.every(p => String(p.type || '').toLowerCase().includes('supplier') || String(p.type || '').toLowerCase().includes('manufacturer')))
     );
 
-    const isNoFormNeeded = isRemoveProduct || isChangeIngredients || !hasAddProduct;
+    const isNoFormNeeded = isRemoveProduct || isChangeIngredients || isChangeSupplier || !hasAddProduct;
     const isRedo = Boolean(
       req.body.is_redo ||
       req.body.clear_signatures ||
@@ -1602,11 +1610,21 @@ router.put('/:id/accept-ingredients', authenticateToken, requireFoodTechManagerO
     const app = await AddOnApplication.findById(req.params.id);
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
 
-    app.ingredients_accepted_at = new Date();
-    app.ingredients_accepted_by = req.user._id;
+    const isSupplier = app.addon_type === 'change_supplier';
+    if (isSupplier) {
+      app.supplier_accepted_at = new Date();
+      app.supplier_accepted_by = req.user._id;
+    } else {
+      app.ingredients_accepted_at = new Date();
+      app.ingredients_accepted_by = req.user._id;
+    }
     app.status = 'completed';
 
-    await pushHistory(app, 'completed', 'Ingredient changes accepted and approved by HFA. Application completed without certificate generation.', req.user._id);
+    const historyNote = isSupplier
+      ? 'Supplier/Manufacturer changes accepted and approved by HFA. Application completed without certificate generation.'
+      : 'Ingredient changes accepted and approved by HFA. Application completed without certificate generation.';
+
+    await pushHistory(app, 'completed', historyNote, req.user._id);
     const data = await app.save();
 
     // Mark associated logsheet as 'Completed'
@@ -1637,8 +1655,8 @@ router.put('/:id/accept-ingredients', authenticateToken, requireFoodTechManagerO
       if (client) {
         await createNotification(
           client._id,
-          'Ingredient Changes Accepted! 🎉',
-          `Your change of ingredients application has been accepted and completed.`,
+          isSupplier ? 'Supplier/Manufacturer Changes Accepted! 🎉' : 'Ingredient Changes Accepted! 🎉',
+          isSupplier ? 'Your change of supplier/manufacturer application has been accepted and completed.' : 'Your change of ingredients application has been accepted and completed.',
           'success',
           `/addon-applications/${app._id}/track`
         );
@@ -1650,22 +1668,28 @@ router.put('/:id/accept-ingredients', authenticateToken, requireFoodTechManagerO
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: '🎉 HFA: Ingredient Changes Accepted',
+      subject: isSupplier ? '🎉 HFA: Supplier/Manufacturer Changes Accepted' : '🎉 HFA: Ingredient Changes Accepted',
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          Your application for <strong>Change of Ingredients</strong> has been reviewed and <strong>accepted</strong> by the Halal Committee.
+          Your application for <strong>${isSupplier ? 'Change of Supplier / Manufacturer' : 'Change of Ingredients'}</strong> has been reviewed and <strong>accepted</strong> by the Halal Committee.
         </p>
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          The requested formulation changes have been endorsed and your application is now <strong>completed</strong>.
+          The requested ${isSupplier ? 'supplier / manufacturer updates' : 'formulation changes'} have been endorsed and your application is now <strong>completed</strong>.
         </p>
       `
     });
 
-    res.json({ data, message: 'Ingredient changes accepted and application completed successfully.' });
+    res.json({ data, message: `${isSupplier ? 'Supplier/manufacturer' : 'Ingredient'} changes accepted and application completed successfully.` });
   } catch (err) {
     console.error('[AddOn] accept-ingredients error:', err);
-    res.status(500).json({ error: err.message || 'Server error accepting ingredients' });
+    res.status(500).json({ error: err.message || 'Server error accepting changes' });
   }
+});
+
+// Alias for accept-supplier
+router.put('/:id/accept-supplier', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res, next) => {
+  req.url = `/${req.params.id}/accept-ingredients`;
+  router.handle(req, res, next);
 });
 
 // ─── PUT /api/add-on-applications/:id/complete ───────────────────────────────
