@@ -300,25 +300,20 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { application_id, client_id, dates, stage } = req.body;
-    if (!dates || !Array.isArray(dates) || dates.length !== 3) {
-      return res.status(400).json({ error: 'Must provide exactly 3 dates' });
+    const dateList = Array.isArray(dates) ? dates.filter(Boolean) : (dates ? [dates] : []);
+    if (dateList.length === 0) {
+      return res.status(400).json({ error: 'Please provide a proposed audit date' });
     }
 
     // Check for past dates
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    for (const d of dates) {
+    for (const d of dateList) {
       const dt = new Date(d);
       dt.setHours(0, 0, 0, 0);
       if (isNaN(dt.getTime()) || dt < today) {
-        return res.status(400).json({ error: 'Proposed audit dates cannot be in the past. Please select future dates.' });
+        return res.status(400).json({ error: 'Proposed audit date cannot be in the past. Please select a future date.' });
       }
-    }
-
-    // Check for duplicate dates
-    const unique = new Set(dates.map(d => String(d).trim()));
-    if (unique.size !== 3) {
-      return res.status(400).json({ error: 'Please provide 3 distinct dates. Duplicate dates are not allowed.' });
     }
 
     let targetApp = null;
@@ -359,7 +354,7 @@ router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async 
     }
     
     audit.client_id = resolvedClientId;
-    audit.proposed_dates = dates;
+    audit.proposed_dates = dateList;
     audit.client_unavailable = false;
     audit.selected_dates = [];
     audit.finalized_date = null;
@@ -386,7 +381,7 @@ router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async 
             status: statusToSet,
             changedAt: new Date(),
             changedBy: req.user._id,
-            note: `Admin proposed 3 audit dates to client for Stage ${stage || 1}.`,
+            note: `Admin proposed audit date to client for Stage ${stage || 1}.`,
           }
         }
       }, { new: true });
@@ -395,8 +390,8 @@ router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async 
 
     await createNotification(
       resolvedClientId,
-      'Audit Dates Proposed 🗓️',
-      `The admin has proposed 3 dates for your ${stage === 2 ? 'Stage 2 ' : ''}audit. Please select 2 dates or mark as unavailable.`,
+      'Audit Date Proposed 🗓️',
+      `The admin has proposed an audit date for your ${stage === 2 ? 'Stage 2 ' : ''}audit. Please confirm your availability or let us know if you are not available.`,
       'info',
       '/applications'
     );
@@ -406,21 +401,21 @@ router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async 
     const appRef = appDoc?.application_number || 'HFA Audit';
     await sendClientEmail(
       client_id,
-      `Action Required: Audit Dates Proposed for Application ${appRef} 🗓️`,
+      `Action Required: Audit Date Proposed for Application ${appRef} 🗓️`,
       `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
           <div style="background: linear-gradient(135deg, #15803d, #166534); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
             <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
-            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Action Required: Audit Dates Proposed</p>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Action Required: Audit Date Proposed</p>
           </div>
           <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
-            <h3 style="color: #1e293b; margin-top: 0;">Please Select Your Preferred Audit Dates</h3>
+            <h3 style="color: #1e293b; margin-top: 0;">Please Confirm Your Proposed Audit Date</h3>
             <p style="font-size: 14px; color: #475569; line-height: 1.6;">
-              HFA Administration has proposed 3 audit dates for your application (Ref: <strong>${appRef}</strong>). Please log in to your portal account to choose 2 dates or mark your availability.
+              HFA Administration has proposed an audit date for your application (Ref: <strong>${appRef}</strong>). Please log in to your portal account to confirm the date or submit your alternative availability note.
             </p>
             <div style="text-align: center; margin-top: 24px;">
               <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
-                Select Audit Dates
+                Review Audit Date
               </a>
             </div>
           </div>
@@ -478,42 +473,47 @@ const handleClientAuditDateResponse = async (req, res) => {
       for (const admin of admins) {
         await createNotification(
           admin._id,
-          'Audit Dates Rejected ❌',
-          `Client is unavailable on the proposed audit dates.${noteText ? ` Proposed availability: "${noteText}".` : ''} Please propose 3 new dates.`,
+          'Audit Date Rejected ❌',
+          `Client is unavailable on the proposed audit date.${noteText ? ` Proposed availability: "${noteText}".` : ''} Please propose a new date.`,
           'warning',
           `/applications/${audit.application_id}/processing`
         );
       }
       return res.json({ data: audit, application: updatedApp });
     } else {
-      if (!selected_dates || selected_dates.length !== 2) {
-        return res.status(400).json({ error: 'Must select exactly 2 dates' });
+      const datesArray = Array.isArray(selected_dates) ? selected_dates.filter(Boolean) : (selected_dates ? [selected_dates] : []);
+      if (datesArray.length === 0) {
+        return res.status(400).json({ error: 'Please confirm the proposed audit date or mark as unavailable' });
       }
-      audit.selected_dates = selected_dates;
+      audit.selected_dates = datesArray;
       audit.client_unavailable = false;
+      if (datesArray.length === 1) {
+        audit.scheduled_date = new Date(datesArray[0]);
+        audit.finalized_date = new Date(datesArray[0]);
+      }
       audit.status = 'dates_accepted';
       await audit.save();
 
-        const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
-          status: 'dates_accepted',
-          updated_at: new Date(),
-          $push: {
-            statusHistory: {
-              status: 'dates_accepted',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: 'Client selected 2 preferred audit dates.',
-            }
+      const updatedApp = await Application.findByIdAndUpdate(audit.application_id, {
+        status: 'dates_accepted',
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: 'dates_accepted',
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note: 'Client confirmed proposed audit date.',
           }
-        }, { new: true });
-        if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
+        }
+      }, { new: true });
+      if (updatedApp) emitApplicationUpdate(updatedApp, 'dates_accepted');
 
       const admins = await Admin.find({});
       for (const admin of admins) {
         await createNotification(
           admin._id,
-          'Audit Dates Accepted ✅',
-          `Client has selected 2 audit dates. Please assign the auditor(s).`,
+          'Audit Date Accepted ✅',
+          `Client has confirmed the proposed audit date: ${new Date(datesArray[0]).toDateString()}. Please finalize and assign auditor(s).`,
           'success',
           '/applications'
         );
@@ -530,14 +530,20 @@ router.post('/select-dates', authenticateToken, handleClientAuditDateResponse);
 router.post('/:id/respond-dates', authenticateToken, handleClientAuditDateResponse);
 router.post('/respond-dates/:id', authenticateToken, handleClientAuditDateResponse);
 
-// POST /api/audits/finalize-date (Audit Manager or Auditor picks 1 final date from client's 2)
+// POST /api/audits/finalize-date (Audit Manager or Auditor confirms final date)
 router.post('/finalize-date', authenticateToken, requireAuditorOrManager, async (req, res) => {
   try {
     const { audit_id, finalized_date } = req.body;
     const audit = await Audit.findById(audit_id);
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
-    audit.finalized_date = new Date(finalized_date);
+    const chosenDate = finalized_date || audit.finalized_date || (audit.selected_dates && audit.selected_dates[0]);
+    if (!chosenDate) {
+      return res.status(400).json({ error: 'No audit date provided to finalize' });
+    }
+
+    audit.finalized_date = new Date(chosenDate);
+    audit.scheduled_date = new Date(chosenDate);
     audit.status = 'date_finalized';
     await audit.save();
 
@@ -550,7 +556,7 @@ router.post('/finalize-date', authenticateToken, requireAuditorOrManager, async 
           status: 'date_finalized',
           changedAt: new Date(),
           changedBy: req.user._id,
-          note: `Audit date finalized: ${new Date(finalized_date).toDateString()}. An auditor will be assigned shortly.`,
+          note: `Audit date finalized: ${new Date(chosenDate).toDateString()}. An auditor will be assigned shortly.`,
         }
       }
     }, { new: true });
