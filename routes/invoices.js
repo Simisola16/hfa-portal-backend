@@ -882,4 +882,115 @@ router.put('/:id/status', authenticateToken, requireAccountant, async (req, res)
   }
 });
 
+// POST /api/invoices/:id/remind — admin sends payment reminder to client
+router.post('/:id/remind', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid invoice ID' });
+    }
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice has already been paid and verified' });
+    }
+
+    let clientUser = null;
+    let clientId = invoice.client_id;
+    let appDoc = null;
+
+    if (invoice.application_id && mongoose.isValidObjectId(invoice.application_id.toString())) {
+      appDoc = await Application.findById(invoice.application_id).lean();
+      if (!clientId && appDoc?.client_id) {
+        clientId = appDoc.client_id;
+      }
+    }
+
+    if (clientId && mongoose.isValidObjectId(clientId.toString())) {
+      clientUser = await User.findById(clientId).lean();
+    }
+
+    const isRenewalOrSurv = Boolean(
+      (appDoc?.application_type || '').toLowerCase().includes('renewal') ||
+      (appDoc?.application_type || '').toLowerCase().includes('surveillance') ||
+      (appDoc?.category || '').toLowerCase().includes('renewal') ||
+      (appDoc?.category || '').toLowerCase().includes('surveillance')
+    );
+
+    // Update reminder stats on invoice
+    invoice.last_reminded_at = new Date();
+    invoice.reminder_count = (invoice.reminder_count || 0) + 1;
+    await invoice.save();
+
+    // Send email notification
+    const recipientEmail = clientUser?.email;
+    if (recipientEmail) {
+      try {
+        const clientPortalUrl = getClientUrl();
+        await sendEmail({
+          to: recipientEmail,
+          subject: `Payment Reminder: HFA Invoice #${invoice.invoice_number}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+              <div style="background: linear-gradient(135deg, #15803d, #166534); padding: 28px 32px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                <p style="margin: 6px 0 0; font-size: 13.5px; opacity: 0.9;">Payment Reminder</p>
+              </div>
+              <div style="padding: 28px 32px; background: white;">
+                <p style="font-size: 15px; color: #1e293b; margin-top: 0;">Dear <strong>${clientUser?.full_name || clientUser?.company_name || 'Client'}</strong>,</p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                  This is a friendly reminder that <strong>Invoice #${invoice.invoice_number}</strong> for amount <strong>£${Number(invoice.amount || 0).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</strong> is currently pending payment.
+                </p>
+                <div style="background: #f1f5f9; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+                  <div style="font-size: 13px; color: #334155; margin-bottom: 6px;"><strong>Invoice:</strong> ${invoice.invoice_number}</div>
+                  <div style="font-size: 13px; color: #334155; margin-bottom: 6px;"><strong>Description:</strong> ${invoice.title || invoice.description || 'Halal Certification Fee'}</div>
+                  <div style="font-size: 14px; color: #15803d; font-weight: 700;"><strong>Amount Due:</strong> £${Number(invoice.amount || 0).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</div>
+                </div>
+                ${isRenewalOrSurv ? `
+                  <div style="background: #fefce8; border: 1px solid #fef08a; padding: 12px 14px; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="font-size: 12.5px; color: #854d0e; margin: 0; line-height: 1.5;">
+                      ℹ️ <strong>Note:</strong> As an existing HFA client, your certification evaluation continues processing uninterrupted, but please ensure this invoice is settled at your earliest convenience.
+                    </p>
+                  </div>
+                ` : ''}
+                <div style="text-align: center; margin: 24px 0;">
+                  <a href="${clientPortalUrl}/invoices" style="display: inline-block; background: #15803d; color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+                    View & Pay Invoice in Portal &rarr;
+                  </a>
+                </div>
+              </div>
+            </div>
+          `
+        });
+      } catch (emailErr) {
+        console.warn('[Invoices] Reminder email warning:', emailErr.message);
+      }
+    }
+
+    // In-app notification to client
+    if (clientId) {
+      try {
+        await createNotification(
+          clientId,
+          'Payment Reminder 🔔',
+          `Payment reminder: Invoice #${invoice.invoice_number} (£${invoice.amount}) is awaiting payment.`,
+          'warning',
+          '/invoices'
+        );
+      } catch (notifErr) {
+        console.warn('[Invoices] In-app notification warning:', notifErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Payment reminder sent to ${clientUser?.email || 'client'}`,
+      data: invoice
+    });
+  } catch (err) {
+    console.error('[Invoices POST /:id/remind] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
