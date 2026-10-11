@@ -6,7 +6,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   // Specific Logsheet Sub-Type for Direct & Application Flows:
   logsheet_type: { 
     type: String, 
-    enum: ['application', 'initial_product', 'addon', 'extension', 'kfc'], 
+    enum: ['application', 'initial_product', 'addon', 'extension', 'surveillance', 'kfc'], 
     default: 'application' 
   },
   is_kfc: { type: Boolean, default: false },
