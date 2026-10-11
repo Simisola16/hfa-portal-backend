@@ -86,6 +86,8 @@ export async function generateSurveillanceLetter(letterData = {}) {
   const {
     letter_number,
     issue_date = new Date(),
+    audit_date,
+    certification_start_date,
     recipient_name = '',
     recipient_address = '',
     recipient_attention = '',
@@ -219,7 +221,8 @@ export async function generateSurveillanceLetter(letterData = {}) {
     // 6. Standard Paragraph 1 (Outcome statement - only address, company name not included)
     const facilityLocation = (recipient_address || '').trim().replace(/\s+/g, ' ');
     const resolvedStandards = standards && standards.trim() ? standards.trim() : 'UAE.S.2055-1:2015';
-    const p1Text = `The Surveillance audit carried out at ${facilityLocation} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
+    const auditDateFormatted = formatDate(audit_date || certification_start_date || issue_date);
+    const p1Text = `The Surveillance audit carried out at ${facilityLocation} on ${auditDateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
 
     const p1Lines = wrapTextLines(p1Text, fontTimes, 10, maxWidth);
     let p1Y = 417;
@@ -289,6 +292,8 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
   const {
     letter_number,
     issue_date = new Date(),
+    audit_date,
+    certification_start_date,
     recipient_name = '',
     recipient_address = '',
     recipient_attention = '',
@@ -302,6 +307,7 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
   const resolvedLetterNumber = (letter_number && String(letter_number).trim()) || resolvedCertNumber || `HFA-SURV-${Date.now().toString().slice(-8)}`;
 
   const dateFormatted = formatDate(issue_date);
+  const auditDateFormatted = formatDate(audit_date || certification_start_date || issue_date);
   let cleanAddress = (recipient_address || '').trim();
   if (cleanAddress && !/^the\b/i.test(cleanAddress)) {
     cleanAddress = `The ${cleanAddress}`;
@@ -330,7 +336,7 @@ export async function buildSurveillanceLetterHtml(letterData = {}) {
       <div class="date">${dateFormatted}</div>
       <div class="salutation">Dear ${recipient_name || recipient_attention || ''},</div>
       <div class="subject">${letter_subject}</div>
-      <p>The Surveillance audit carried out at ${facilityLocation} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${standards}.</p>
+      <p>The Surveillance audit carried out at ${facilityLocation} on ${auditDateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${standards}.</p>
       <p>Therefore, your certification for the process and products stipulated in your halal certificate number is hereby maintained subject to your continued conformance with the requirements of aforementioned manual and terms of your certification.</p>
       <p>If you have any queries or questions, please do not hesitate to contact us.</p>
       <p>Thank you.</p>

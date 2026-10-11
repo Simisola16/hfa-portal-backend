@@ -616,9 +616,12 @@ export async function generateCertificate(certData) {
     const certNo = certificateNumber || certData.certificate_number || '';
     const compName = companyName || certData.company_name || businessName || certData.establishment_name || '';
     const compAddr = companyAddress || certData.company_address || businessAddress || certData.establishment_address || '';
+    const resolvedAuditDate = auditDate || certData.audit_date || certificationStartDate || certData.certification_start_date || issueDate || certData.issue_date || new Date();
     return await generateSurveillanceLetter({
       letter_number: certNo,
       issue_date: issueDate || certData.issue_date || new Date(),
+      audit_date: resolvedAuditDate,
+      certification_start_date: certificationStartDate || certData.certification_start_date,
       recipient_name: compName,
       recipient_address: compAddr,
       recipient_attention: certData.recipient_attention || '',
