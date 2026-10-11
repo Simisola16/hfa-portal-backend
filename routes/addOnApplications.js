@@ -62,11 +62,41 @@ async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }
 /**
  * Push a status history entry and notify admin users.
  */
-async function pushHistory(app, status, note, changedBy) {
+async function pushHistory(app, status, note, changedBy, userObj = null) {
   if (!Array.isArray(app.statusHistory)) {
     app.statusHistory = [];
   }
-  app.statusHistory.push({ status, changedAt: new Date(), changedBy, note });
+  let changedByName = '';
+  let changedByRole = '';
+  if (userObj) {
+    changedByName = userObj.full_name || userObj.name || userObj.company_name || userObj.username || userObj.email || '';
+    changedByRole = userObj.role || '';
+  }
+  if (!changedByName && changedBy && mongoose.Types.ObjectId.isValid(changedBy)) {
+    try {
+      const adminDoc = await Admin.findById(changedBy).select('full_name role email username').lean();
+      if (adminDoc) {
+        changedByName = adminDoc.full_name || adminDoc.username || adminDoc.email || '';
+        changedByRole = adminDoc.role || '';
+      } else {
+        const userDoc = await User.findById(changedBy).select('full_name company_name email role').lean();
+        if (userDoc) {
+          changedByName = userDoc.company_name || userDoc.full_name || userDoc.email || '';
+          changedByRole = userDoc.role || 'client';
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  app.statusHistory.push({
+    status,
+    changedAt: new Date(),
+    changedBy,
+    changedByName,
+    changedByRole,
+    note
+  });
 }
 
 async function notifyAdmins(title, body) {
@@ -124,10 +154,22 @@ async function regenerateCertPdf(certificate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── POST /api/add-on-applications ───────────────────────────────────────────
-// Client submits a new multi-product add-on application
-router.post('/', authenticateToken, async (req, res) => {
+// Client submits a new multi-product add-on application (supporting files, addon_type)
+router.post('/', authenticateToken, upload.any(), async (req, res) => {
   try {
-    const { certificate_id, application_id, site_id, contact_name, contact_email, contact_phone, message, products } = req.body;
+    let { certificate_id, application_id, site_id, contact_name, contact_email, contact_phone, message, products, addon_type } = req.body;
+
+    if (typeof products === 'string') {
+      try {
+        products = JSON.parse(products);
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid products JSON format.' });
+      }
+    }
+
+    const resolvedAddonType = ['add_product', 'remove_product', 'change_ingredients'].includes(addon_type)
+      ? addon_type
+      : 'add_product';
 
     let targetCertId = certificate_id;
     if (certificate_id) {
@@ -139,12 +181,13 @@ router.post('/', authenticateToken, async (req, res) => {
       });
       const cert = activeCerts.find(c => c._id.toString() === certificate_id);
       if (!cert) {
-        // Warning only if certificate explicitly provided
         console.warn(`[AddOn] Certificate ${certificate_id} not found among active certs for user ${req.user._id}`);
       }
     }
 
     // Validate required fields
+    if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact Person Name is required.' });
+    if (!contact_phone?.trim()) return res.status(400).json({ error: 'Contact Person Phone Number is required.' });
     if (!contact_email?.trim()) return res.status(400).json({ error: 'Contact Person Email is required.' });
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product entry is required.' });
@@ -156,6 +199,25 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const resolvedContactName = contact_name?.trim() || req.user?.full_name || req.user?.company_name || '';
 
+    // Upload any attached supporting documents to S3
+    const supporting_documents = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        try {
+          const s3Key = generateS3Key('addon-applications/supporting-docs', file.originalname);
+          const file_url = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'addon-applications', s3Key);
+          supporting_documents.push({
+            file_name: file.originalname,
+            file_url,
+            file_size: file.size,
+            uploaded_at: new Date()
+          });
+        } catch (uploadErr) {
+          console.error('[AddOn] Failed to upload supporting doc to S3:', uploadErr.message);
+        }
+      }
+    }
+
     const newApp = new AddOnApplication({
       client_id: req.user.parent_client_id || req.user._id,
       certificate_id: targetCertId || undefined,
@@ -165,6 +227,8 @@ router.post('/', authenticateToken, async (req, res) => {
       contact_email,
       contact_phone,
       message,
+      addon_type: resolvedAddonType,
+      supporting_documents,
       products,
       status: 'submitted',
       created_at: new Date(),
@@ -173,31 +237,40 @@ router.post('/', authenticateToken, async (req, res) => {
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
-        note: `Add-on product application submitted with ${products.length} product(s).`
+        changedByName: req.user?.company_name || req.user?.full_name || resolvedContactName || 'Client',
+        changedByRole: 'client',
+        note: `Add-on application (${resolvedAddonType}) submitted with ${products.length} product(s) and ${supporting_documents.length} document(s).`
       }]
     });
 
     const data = await newApp.save();
     emitAddOnUpdate(data, 'created');
 
+    const typeTitle = resolvedAddonType === 'remove_product'
+      ? 'Remove Product Request'
+      : resolvedAddonType === 'change_ingredients'
+      ? 'Change Ingredients Request'
+      : 'Add-on Product Application';
+
     // Notify admins
     await notifyAdmins(
-      'New Add-on Application 📄',
-      `${req.user.company_name || req.user.full_name} submitted a new add-on application with ${products.length} product(s).`
+      `New ${typeTitle} 📄`,
+      `${req.user.company_name || req.user.full_name} submitted a new ${typeTitle.toLowerCase()} with ${products.length} product(s).`
     );
 
     // Email Contact Person
     await sendContactEmail({
       contactEmail: contact_email,
       contactName: resolvedContactName || 'Client',
-      subject: '✅ HFA Add-on Application Submitted',
+      subject: `✅ HFA ${typeTitle} Submitted`,
       bodyHtml: `
         <p style="font-size:14px;color:#334155;line-height:1.6">
-          Your add-on product application has been successfully submitted and is now <strong>under review</strong> by the HFA team.
+          Your ${typeTitle.toLowerCase()} has been successfully submitted and is now <strong>under review</strong> by the HFA team.
         </p>
         <p style="font-size:14px;color:#334155;line-height:1.6">
           <strong>Products submitted: ${products.length}</strong>
         </p>
+        ${supporting_documents.length > 0 ? `<p style="font-size:14px;color:#334155;line-height:1.6"><strong>Attached documents: ${supporting_documents.length}</strong></p>` : ''}
         <p style="font-size:14px;color:#334155;line-height:1.6">We will notify you at this email address at every stage of the process.</p>
       `
     });
@@ -250,13 +323,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id');
 
-    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-
-    if (req.user.role === 'client') {
-      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
-      const appCid = (app.client_id?._id || app.client_id)?.toString();
-      if (!allowed.includes(appCid)) {
-        return res.status(403).json({ error: 'Access denied' });
+    if (app && Array.isArray(app.statusHistory)) {
+      for (const h of app.statusHistory) {
+        if (!h.changedByName) {
+          if (h.changedBy && typeof h.changedBy === 'object') {
+            h.changedByName = h.changedBy.full_name || h.changedBy.name || h.changedBy.username || h.changedBy.email || '';
+            h.changedByRole = h.changedBy.role || '';
+          } else if (h.status === 'submitted') {
+            h.changedByName = app.client_id?.company_name || app.client_id?.full_name || app.contact_name || 'Client';
+            h.changedByRole = 'client';
+          }
+        }
       }
     }
 
@@ -336,12 +413,12 @@ router.put('/:id/review', authenticateToken, requireFoodTechOrManager, async (re
 // FT Manager ONLY: Assign one or more FT staff and/or typed custom FT details
 router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (req, res) => {
   try {
-    // Accept single ID string OR array of IDs
-    const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
+    // Accept single ID string OR array of IDs (any naming convention)
+    const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech || req.body.food_tech_ids || req.body.food_tech_id;
     const ftIds = (Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean)).filter(id => id && mongoose.Types.ObjectId.isValid(id));
-    const customFtName = (req.body.custom_ft_name || '').trim();
-    const customFtEmail = (req.body.custom_ft_email || '').trim();
-    const customFtNotes = (req.body.custom_ft_notes || '').trim();
+    const customFtName = (req.body.custom_ft_name || req.body.custom_ft?.name || req.body.assigned_ft_details || '').trim();
+    const customFtEmail = (req.body.custom_ft_email || req.body.custom_ft?.email || '').trim();
+    const customFtNotes = (req.body.custom_ft_notes || req.body.custom_ft?.notes || '').trim();
     const customFtDetails = (req.body.assigned_ft_details || customFtName || '').trim();
 
     if (ftIds.length === 0 && !customFtName && !customFtDetails) {
@@ -814,6 +891,223 @@ router.put('/:id/confirm-form-received', authenticateToken, requireFoodTech, asy
   }
 });
 
+// ─── PUT /api/add-on-applications/:id/all-documents-received ─────────────────
+// FT / Admin: Confirms all supporting documents received (for Remove Product & Change Ingredients flows)
+router.put('/:id/all-documents-received', authenticateToken, requireFoodTech, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    app.status = 'all_forms_received';
+    await pushHistory(app, 'all_forms_received', 'All documents confirmed and received by HFA admin.', req.user?._id);
+
+    const data = await app.save();
+
+    try {
+      emitAddOnUpdate(data, 'documents_received');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'All Documents Received ✅',
+          'Your supporting documents have been reviewed and accepted by the HFA team. Next step: Logsheet evaluation.',
+          'success',
+          `/addon-applications/${app._id}/track`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '✅ HFA: All Documents Received',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          All documents for your request have been verified and marked as <strong>All Documents Received</strong> by HFA.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your application is now proceeding to Committee Logsheet review.
+        </p>
+      `
+    });
+
+    res.json({ data, message: 'All documents marked as received successfully.' });
+  } catch (err) {
+    console.error('[AddOn] all-documents-received error:', err);
+    res.status(500).json({ error: err.message || 'Server error confirming documents received' });
+  }
+});
+
+// ─── POST /api/add-on-applications/:id/request-more-documents ────────────────
+// FT / Admin: Request additional documents from the client with a note and optional attachment
+router.post('/:id/request-more-documents', authenticateToken, requireFoodTech, upload.any(), async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    const note = req.body?.note?.trim() || req.body?.message?.trim();
+    if (!note) {
+      return res.status(400).json({ error: 'Please enter a note explaining what documents or details are required.' });
+    }
+
+    let attachment_url = null;
+    let attachment_name = null;
+    if (req.files && req.files.length > 0) {
+      const file = req.files[0];
+      const s3Key = generateS3Key('addon-applications/requests', file.originalname);
+      attachment_url = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'addon-applications', s3Key);
+      attachment_name = file.originalname;
+    }
+
+    if (!Array.isArray(app.document_requests)) {
+      app.document_requests = [];
+    }
+
+    app.document_requests.push({
+      requested_at: new Date(),
+      requested_by: req.user._id,
+      note,
+      attachment_url,
+      attachment_name,
+      status: 'pending'
+    });
+
+    await pushHistory(app, app.status, `Admin requested more documents: ${note}`, req.user._id);
+    const data = await app.save();
+
+    try {
+      emitAddOnUpdate(data, 'more_documents_requested');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Additional Documents Requested 📋',
+          `HFA has requested additional documents: "${note}". Please review and upload.`,
+          'info',
+          `/addon-applications/${app._id}/track`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '📋 HFA: Additional Documents Requested',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The HFA Food Technology team has reviewed your application and requested additional documents or clarifications:
+        </p>
+        <div style="background:#f1f5f9;border-left:4px solid #0284c7;padding:12px 16px;margin:16px 0;font-size:14px;color:#0f172a;border-radius:4px">
+          ${note}
+        </div>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Please log in to the HFA Client Portal to view the request and upload the required documents.
+        </p>
+      `
+    });
+
+    res.json({ data, message: 'Document request sent to client successfully.' });
+  } catch (err) {
+    console.error('[AddOn] request-more-documents error:', err);
+    res.status(500).json({ error: err.message || 'Server error requesting more documents' });
+  }
+});
+
+// ─── POST /api/add-on-applications/:id/reply-more-documents ──────────────────
+// Client: Reply to document request with a note and multiple attachments
+router.post('/:id/reply-more-documents', authenticateToken, upload.any(), async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    if (req.user.role === 'client') {
+      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
+      if (!allowed.includes(app.client_id.toString())) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+    }
+
+    const reply_note = req.body?.reply_note?.trim() || req.body?.note?.trim() || '';
+    const uploadedDocs = [];
+
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        try {
+          const s3Key = generateS3Key('addon-applications/replies', file.originalname);
+          const file_url = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'addon-applications', s3Key);
+          uploadedDocs.push({
+            file_name: file.originalname,
+            file_url,
+            file_size: file.size,
+            uploaded_at: new Date()
+          });
+        } catch (uploadErr) {
+          console.error('[AddOn] Failed to upload reply doc to S3:', uploadErr.message);
+        }
+      }
+    }
+
+    if (!reply_note && uploadedDocs.length === 0) {
+      return res.status(400).json({ error: 'Please enter a reply note or attach at least one document.' });
+    }
+
+    // Append uploaded docs to supporting_documents so they are easily accessible in one place
+    if (!Array.isArray(app.supporting_documents)) {
+      app.supporting_documents = [];
+    }
+    for (const doc of uploadedDocs) {
+      app.supporting_documents.push(doc);
+    }
+
+    // Update the last pending document request if available
+    if (Array.isArray(app.document_requests) && app.document_requests.length > 0) {
+      const pendingIdx = [...app.document_requests].reverse().findIndex(r => r.status === 'pending');
+      const targetIdx = pendingIdx !== -1 ? (app.document_requests.length - 1 - pendingIdx) : (app.document_requests.length - 1);
+      if (app.document_requests[targetIdx]) {
+        app.document_requests[targetIdx].replied_at = new Date();
+        app.document_requests[targetIdx].reply_note = reply_note;
+        app.document_requests[targetIdx].reply_attachments = uploadedDocs;
+        app.document_requests[targetIdx].status = 'replied';
+      }
+    }
+
+    await pushHistory(app, app.status, `Client replied to document request with ${uploadedDocs.length} attachment(s).`, req.user._id);
+    const data = await app.save();
+
+    try {
+      emitAddOnUpdate(data, 'documents_replied');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    await notifyAdmins(
+      'Client Replied to Document Request 📎',
+      `Client uploaded ${uploadedDocs.length} document(s) for add-on request (${app.application_number || app._id}).`
+    );
+
+    res.json({ data, message: 'Your reply and documents have been submitted to HFA successfully.' });
+  } catch (err) {
+    console.error('[AddOn] reply-more-documents error:', err);
+    res.status(500).json({ error: err.message || 'Server error submitting reply' });
+  }
+});
+
 // ─── PUT /api/add-on-applications/:id/submit-all-responses ───────────────────
 // Client: Final submit when responses for ALL products have been saved
 router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
@@ -1093,6 +1387,252 @@ router.put('/:id/approve-form', authenticateToken, requireFoodTechManagerOrAdmin
     res.json({ data: finalData });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/remove-products ─────────────────────────
+// Admin: Process Remove Product decision from Logsheet
+router.put('/:id/remove-products', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    let selectedProducts = req.body.selected_products || [];
+    if (typeof selectedProducts === 'string') {
+      try { selectedProducts = JSON.parse(selectedProducts); } catch { selectedProducts = [selectedProducts]; }
+    }
+
+    // Default to app.products if none specified
+    if (!selectedProducts || selectedProducts.length === 0) {
+      selectedProducts = app.products || [];
+    }
+
+    if (!Array.isArray(app.removed_products_history)) {
+      app.removed_products_history = [];
+    }
+
+    // Build normalized client IDs
+    const clientIds = [
+      app.client_id,
+      app.client_id?.toString?.(),
+      ...(mongoose.isValidObjectId(app.client_id) ? [new mongoose.Types.ObjectId(app.client_id)] : [])
+    ].filter(Boolean);
+
+    for (const item of selectedProducts) {
+      const prodName = typeof item === 'object' ? (item.name || item.original_name) : item;
+      const prodCode = typeof item === 'object' ? (item.code || '') : '';
+      if (!prodName) continue;
+
+      // Add to removed history
+      app.removed_products_history.push({
+        name: prodName,
+        code: prodCode,
+        removed_at: new Date(),
+        removed_by: req.user._id
+      });
+
+      // 1. Completely delete from Product collection (case-insensitive name regex, code, barcode, across clientIds)
+      const nameRegex = new RegExp(`^${String(prodName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      const deleteConditions = [
+        { client_id: { $in: clientIds }, name: { $regex: nameRegex } }
+      ];
+      if (prodCode && String(prodCode).trim()) {
+        deleteConditions.push(
+          { client_id: { $in: clientIds }, code: String(prodCode).trim() },
+          { client_id: { $in: clientIds }, barcode: String(prodCode).trim() }
+        );
+      }
+      await Product.deleteMany({ $or: deleteConditions });
+    }
+
+    // 2. Scrub removed products from ALL linked Certificates (products_covered AND product_details)
+    try {
+      const certConditions = [
+        ...(app.certificate_id ? [{ _id: app.certificate_id }] : []),
+        { client_id: { $in: clientIds.map(String) } }
+      ];
+      if (app.site_id) certConditions.push({ site_id: app.site_id });
+
+      const linkedCerts = await Certificate.find({ $or: certConditions });
+      for (const certDoc of linkedCerts) {
+        let certChanged = false;
+
+        // Scrub from products_covered
+        if (Array.isArray(certDoc.products_covered)) {
+          const origLen = certDoc.products_covered.length;
+          certDoc.products_covered = certDoc.products_covered.filter(pCovered => {
+            const trimmed = String(pCovered || '').trim().toLowerCase();
+            return !selectedProducts.some(sp => {
+              const targetName = String(typeof sp === 'object' ? (sp.name || sp.original_name) : sp).trim().toLowerCase();
+              return trimmed === targetName || trimmed.startsWith(`${targetName} (`) || trimmed.startsWith(`${targetName} -`);
+            });
+          });
+          if (certDoc.products_covered.length !== origLen) certChanged = true;
+        }
+
+        // Scrub from product_details
+        if (Array.isArray(certDoc.product_details)) {
+          const origLen = certDoc.product_details.length;
+          certDoc.product_details = certDoc.product_details.filter(pd => {
+            const pdName = String(pd.name || '').trim().toLowerCase();
+            const pdCode = String(pd.code || '').trim().toLowerCase();
+            return !selectedProducts.some(sp => {
+              const targetName = String(typeof sp === 'object' ? (sp.name || sp.original_name) : sp).trim().toLowerCase();
+              const targetCode = String(typeof sp === 'object' ? sp.code : '').trim().toLowerCase();
+              if (pdName === targetName) return true;
+              if (targetCode && pdCode === targetCode) return true;
+              return false;
+            });
+          });
+          if (certDoc.product_details.length !== origLen) certChanged = true;
+        }
+
+        if (certChanged) {
+          certDoc.updated_at = new Date();
+          await certDoc.save();
+          try {
+            regenerateCertPdf(certDoc);
+          } catch (_) {}
+        }
+      }
+    } catch (certErr) {
+      console.warn('[AddOn] Failed to scrub removed products from certificates:', certErr.message);
+    }
+
+    // Advance application status to ready_for_certificate
+    app.status = 'ready_for_certificate';
+    await pushHistory(app, 'ready_for_certificate', `${selectedProducts.length} product(s) removed. Application ready for certificate.`, req.user._id);
+    const data = await app.save();
+
+    // Mark associated logsheet as 'Waiting For Certificate'
+    try {
+      await ApplicationLogsheet.updateMany(
+        {
+          $or: [
+            { addon_application_id: app._id },
+            { application_id: app._id },
+            { source_type: 'addon_application', addon_application_id: app._id }
+          ]
+        },
+        { $set: { status: 'Waiting For Certificate', updated_at: new Date() } }
+      );
+    } catch (logErr) {
+      console.error('[AddOn] Failed to sync logsheet status for remove-products:', logErr.message);
+    }
+
+    try {
+      emitAddOnUpdate(data, 'ready_for_certificate');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Products Removed ✅',
+          `The requested products have been successfully removed from your certified product list.`,
+          'success',
+          `/addon-applications/${app._id}/track`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '✅ HFA: Products Removed from Certification',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The requested product(s) have been verified by the Committee and <strong>removed</strong> from your active certification list.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          An updated certificate reflecting these changes will be prepared and issued shortly.
+        </p>
+      `
+    });
+
+    res.json({ data, message: 'Products removed successfully and application set to Ready for Certificate.' });
+  } catch (err) {
+    console.error('[AddOn] remove-products error:', err);
+    res.status(500).json({ error: err.message || 'Server error removing products' });
+  }
+});
+
+// ─── PUT /api/add-on-applications/:id/accept-ingredients ─────────────────────
+// Admin: Process Ingredients Accepted decision from Logsheet (NO CERTIFICATE GENERATED)
+router.put('/:id/accept-ingredients', authenticateToken, requireFoodTechManagerOrAdmin, async (req, res) => {
+  try {
+    const app = await AddOnApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
+
+    app.ingredients_accepted_at = new Date();
+    app.ingredients_accepted_by = req.user._id;
+    app.status = 'completed';
+
+    await pushHistory(app, 'completed', 'Ingredient changes accepted and approved by HFA. Application completed without certificate generation.', req.user._id);
+    const data = await app.save();
+
+    // Mark associated logsheet as 'Completed'
+    try {
+      await ApplicationLogsheet.updateMany(
+        {
+          $or: [
+            { addon_application_id: app._id },
+            { application_id: app._id },
+            { source_type: 'addon_application', addon_application_id: app._id }
+          ]
+        },
+        { $set: { status: 'Completed', updated_at: new Date() } }
+      );
+    } catch (logErr) {
+      console.error('[AddOn] Failed to sync logsheet status for accept-ingredients:', logErr.message);
+    }
+
+    try {
+      emitAddOnUpdate(data, 'completed');
+    } catch (e) {
+      console.warn('[AddOn] Failed to emit socket update:', e.message);
+    }
+
+    // Notify client
+    try {
+      const client = await User.findById(app.client_id);
+      if (client) {
+        await createNotification(
+          client._id,
+          'Ingredient Changes Accepted! 🎉',
+          `Your change of ingredients application has been accepted and completed.`,
+          'success',
+          `/addon-applications/${app._id}/track`
+        );
+      }
+    } catch (e) {
+      console.warn('[AddOn] Failed to create notification:', e.message);
+    }
+
+    await sendContactEmail({
+      contactEmail: app.contact_email,
+      contactName: app.contact_name,
+      subject: '🎉 HFA: Ingredient Changes Accepted',
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Your application for <strong>Change of Ingredients</strong> has been reviewed and <strong>accepted</strong> by the Halal Committee.
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The requested formulation changes have been endorsed and your application is now <strong>completed</strong>.
+        </p>
+      `
+    });
+
+    res.json({ data, message: 'Ingredient changes accepted and application completed successfully.' });
+  } catch (err) {
+    console.error('[AddOn] accept-ingredients error:', err);
+    res.status(500).json({ error: err.message || 'Server error accepting ingredients' });
   }
 });
 
