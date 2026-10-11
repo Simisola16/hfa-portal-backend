@@ -62,11 +62,41 @@ async function sendContactEmail({ contactEmail, contactName, subject, bodyHtml }
 /**
  * Push a status history entry and notify admin users.
  */
-async function pushHistory(app, status, note, changedBy) {
+async function pushHistory(app, status, note, changedBy, userObj = null) {
   if (!Array.isArray(app.statusHistory)) {
     app.statusHistory = [];
   }
-  app.statusHistory.push({ status, changedAt: new Date(), changedBy, note });
+  let changedByName = '';
+  let changedByRole = '';
+  if (userObj) {
+    changedByName = userObj.full_name || userObj.name || userObj.company_name || userObj.username || userObj.email || '';
+    changedByRole = userObj.role || '';
+  }
+  if (!changedByName && changedBy && mongoose.Types.ObjectId.isValid(changedBy)) {
+    try {
+      const adminDoc = await Admin.findById(changedBy).select('full_name role email username').lean();
+      if (adminDoc) {
+        changedByName = adminDoc.full_name || adminDoc.username || adminDoc.email || '';
+        changedByRole = adminDoc.role || '';
+      } else {
+        const userDoc = await User.findById(changedBy).select('full_name company_name email role').lean();
+        if (userDoc) {
+          changedByName = userDoc.company_name || userDoc.full_name || userDoc.email || '';
+          changedByRole = userDoc.role || 'client';
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  app.statusHistory.push({
+    status,
+    changedAt: new Date(),
+    changedBy,
+    changedByName,
+    changedByRole,
+    note
+  });
 }
 
 async function notifyAdmins(title, body) {
@@ -207,6 +237,8 @@ router.post('/', authenticateToken, upload.any(), async (req, res) => {
         status: 'submitted',
         changedAt: new Date(),
         changedBy: req.user._id,
+        changedByName: req.user?.company_name || req.user?.full_name || resolvedContactName || 'Client',
+        changedByRole: 'client',
         note: `Add-on application (${resolvedAddonType}) submitted with ${products.length} product(s) and ${supporting_documents.length} document(s).`
       }]
     });
@@ -291,13 +323,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .populate('statusHistory.changedBy', 'full_name username email role')
       .populate('logsheet_id');
 
-    if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-
-    if (req.user.role === 'client') {
-      const allowed = [req.user._id.toString(), req.user.parent_client_id?.toString()].filter(Boolean);
-      const appCid = (app.client_id?._id || app.client_id)?.toString();
-      if (!allowed.includes(appCid)) {
-        return res.status(403).json({ error: 'Access denied' });
+    if (app && Array.isArray(app.statusHistory)) {
+      for (const h of app.statusHistory) {
+        if (!h.changedByName) {
+          if (h.changedBy && typeof h.changedBy === 'object') {
+            h.changedByName = h.changedBy.full_name || h.changedBy.name || h.changedBy.username || h.changedBy.email || '';
+            h.changedByRole = h.changedBy.role || '';
+          } else if (h.status === 'submitted') {
+            h.changedByName = app.client_id?.company_name || app.client_id?.full_name || app.contact_name || 'Client';
+            h.changedByRole = 'client';
+          }
+        }
       }
     }
 
@@ -377,12 +413,12 @@ router.put('/:id/review', authenticateToken, requireFoodTechOrManager, async (re
 // FT Manager ONLY: Assign one or more FT staff and/or typed custom FT details
 router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (req, res) => {
   try {
-    // Accept single ID string OR array of IDs
-    const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech;
+    // Accept single ID string OR array of IDs (any naming convention)
+    const rawIds = req.body.assigned_food_techs || req.body.assigned_food_tech || req.body.food_tech_ids || req.body.food_tech_id;
     const ftIds = (Array.isArray(rawIds) ? rawIds : [rawIds].filter(Boolean)).filter(id => id && mongoose.Types.ObjectId.isValid(id));
-    const customFtName = (req.body.custom_ft_name || '').trim();
-    const customFtEmail = (req.body.custom_ft_email || '').trim();
-    const customFtNotes = (req.body.custom_ft_notes || '').trim();
+    const customFtName = (req.body.custom_ft_name || req.body.custom_ft?.name || req.body.assigned_ft_details || '').trim();
+    const customFtEmail = (req.body.custom_ft_email || req.body.custom_ft?.email || '').trim();
+    const customFtNotes = (req.body.custom_ft_notes || req.body.custom_ft?.notes || '').trim();
     const customFtDetails = (req.body.assigned_ft_details || customFtName || '').trim();
 
     if (ftIds.length === 0 && !customFtName && !customFtDetails) {

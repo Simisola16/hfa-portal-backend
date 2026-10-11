@@ -95,6 +95,8 @@ const addOnApplicationSchema = new mongoose.Schema({
     status: String,
     changedAt: { type: Date, default: Date.now },
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    changedByName: String,
+    changedByRole: String,
     note: String
   }],
 
