@@ -265,10 +265,17 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       if (resolvedClientId) logsheet.client_id = resolvedClientId;
       if (site_id) logsheet.site_id = site_id;
       logsheet.existing_certificate_number = existing_certificate_number !== undefined ? existing_certificate_number : logsheet.existing_certificate_number;
-      logsheet.extension_duration_type = extension_duration_type || logsheet.extension_duration_type;
-      logsheet.extension_days = extension_days !== undefined ? extension_days : logsheet.extension_days;
-      logsheet.extension_reason = extension_reason !== undefined ? extension_reason : logsheet.extension_reason;
-      if (extended_expiry_date) logsheet.extended_expiry_date = extended_expiry_date;
+      if (logsheet_type === 'extension' || logsheet.logsheet_type === 'extension') {
+        logsheet.extension_duration_type = extension_duration_type || logsheet.extension_duration_type;
+        logsheet.extension_days = extension_days !== undefined ? extension_days : logsheet.extension_days;
+        logsheet.extension_reason = extension_reason !== undefined ? extension_reason : logsheet.extension_reason;
+        if (extended_expiry_date) logsheet.extended_expiry_date = extended_expiry_date;
+      } else {
+        logsheet.extension_duration_type = undefined;
+        logsheet.extension_days = undefined;
+        logsheet.extension_reason = undefined;
+        logsheet.extended_expiry_date = undefined;
+      }
       logsheet.addon_type = addon_type || logsheet.addon_type;
       logsheet.raw_materials_approved = raw_materials_approved || logsheet.raw_materials_approved;
       logsheet.cross_contamination_risk = cross_contamination_risk || logsheet.cross_contamination_risk;
@@ -342,11 +349,11 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         site_id: site_id || undefined,
         created_by: req.user._id,
 
-      existing_certificate_number: existing_certificate_number || '',
-      extension_duration_type: extension_duration_type || '30_days',
-      extension_days: extension_days || 30,
-      extension_reason: extension_reason || '',
-      extended_expiry_date: extended_expiry_date || undefined,
+        existing_certificate_number: logsheet_type === 'extension' ? (existing_certificate_number || '') : undefined,
+        extension_duration_type: logsheet_type === 'extension' ? (extension_duration_type || '30_days') : undefined,
+        extension_days: logsheet_type === 'extension' ? (extension_days || 30) : undefined,
+        extension_reason: logsheet_type === 'extension' ? (extension_reason || '') : undefined,
+        extended_expiry_date: logsheet_type === 'extension' ? (extended_expiry_date || undefined) : undefined,
 
       addon_type: addon_type || 'New Products',
       raw_materials_approved: raw_materials_approved || 'Yes',
