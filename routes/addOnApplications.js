@@ -1175,7 +1175,40 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
       .populate('client_id', 'company_name full_name email')
       .populate('certificate_id', 'certificate_number issue_date expiry_date');
     if (!app) return res.status(404).json({ error: 'Add-on application not found' });
-    if (app.status !== 'all_forms_received') {
+
+    let logsheet = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
+
+    const appNum = String(app.application_number || '').toUpperCase();
+    const rawType = String(app.addon_type || '').toLowerCase();
+    const hasAddProduct = Array.isArray(app.products) && app.products.some(p => p.type === 'Add product' || String(p.type || '').toLowerCase().includes('add'));
+    const isRemoveProduct = Boolean(
+      rawType === 'remove_product' ||
+      rawType === 'remove' ||
+      appNum.includes('-RP-') ||
+      appNum.includes('-RM-') ||
+      (Array.isArray(app.products) && app.products.length > 0 && app.products.every(p => String(p.type || '').toLowerCase().includes('remove')))
+    );
+    const isChangeIngredients = Boolean(
+      rawType === 'change_ingredients' ||
+      rawType === 'change_ingredient' ||
+      rawType === 'change' ||
+      appNum.includes('-CI-') ||
+      (Array.isArray(app.products) && app.products.length > 0 && app.products.every(p => String(p.type || '').toLowerCase().includes('change')))
+    );
+
+    const isNoFormNeeded = isRemoveProduct || isChangeIngredients || !hasAddProduct;
+    const isRedo = Boolean(
+      req.body.is_redo ||
+      req.body.clear_signatures ||
+      logsheet ||
+      ['logsheet_created', 'waiting_sharia_signature', 'product_form_approved', 'ready_for_certificate', 'certificate_issued'].includes(app.status)
+    );
+
+    if (['rejected', 'on_hold'].includes(app.status)) {
+      return res.status(400).json({ error: `Cannot create or redo a logsheet for an application that is ${app.status}.` });
+    }
+
+    if (!isNoFormNeeded && !isRedo && app.status !== 'all_forms_received') {
       return res.status(400).json({ error: 'All Product Approval Forms must be received before creating a logsheet.' });
     }
 
@@ -1188,7 +1221,6 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
     delete logsheetData.created_at;
     delete logsheetData.updated_at;
 
-    let logsheet = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
     if (logsheet) {
       const updatePayload = {
         ...logsheetData,
@@ -1236,7 +1268,7 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
 
     app.logsheet_id = logsheet._id;
     app.status = 'logsheet_created';
-    await pushHistory(app, 'logsheet_created', 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
+    await pushHistory(app, 'logsheet_created', isRedo ? 'Logsheet updated / redone. Awaiting Shari\'a Board signatures.' : 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'logsheet_created');
