@@ -183,6 +183,17 @@ export const requireKfcLogsheetPermission = (req, res, next) => {
   next();
 };
 
+export const requireActivateDeactivateCertificatePrivilege = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+  if (!isSuperAdmin && !req.user.can_activate_deactivate_certificate) {
+    return res.status(403).json({
+      error: 'Access denied. You do not have the Certificate Activation / Deactivation Privilege. Only users with this privilege or Superadmin can activate or deactivate certificates.',
+    });
+  }
+  next();
+};
+
 export const requireAdmin = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   if (isStaffUser(req.user, req.userModelType)) return next();
