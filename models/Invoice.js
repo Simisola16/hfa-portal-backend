@@ -19,6 +19,8 @@ const invoiceSchema = new mongoose.Schema({
   invoice_url: String,
   payment_proof_url: String,
   version: { type: Number, default: 1 },
+  last_reminded_at: Date,
+  reminder_count: { type: Number, default: 0 },
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },

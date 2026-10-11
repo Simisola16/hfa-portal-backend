@@ -80,15 +80,8 @@ async function requireFinalInvoicePaidForCertificate(req, res, next) {
     );
 
     if (isRenewal || isSurveillance) {
-      const renewalInvoice = await Invoice.findOne({ application_id }).sort({ due_date: -1, paid_at: -1, createdAt: -1 });
-      if (renewalInvoice && !['paid', 'client_paid'].includes(renewalInvoice.status)) {
-        return res.status(403).json({
-          error: `The ${isSurveillance ? 'Surveillance' : 'Renewal'} Invoice must be paid before a ${isSurveillance ? 'Letter' : 'Certificate'} can be issued.`,
-          code: 'RENEWAL_INVOICE_NOT_PAID',
-          invoice_status: renewalInvoice.status
-        });
-      }
-      if (!['ready_for_certificate', 'certificate_issued', 'application_successful', 'payment_received', 'final_invoice_paid'].includes(app.status)) {
+      // Renewal & Surveillance: Existing HFA clients continue processing without being blocked by unpaid invoice
+      if (!['ready_for_certificate', 'certificate_issued', 'application_successful', 'invoice_sent', 'payment_received', 'final_invoice_paid'].includes(app.status)) {
         return res.status(403).json({
           error: 'Application must be marked "Application Successful" or "Ready for Certificate" before issuing a certificate.',
           code: 'READY_FOR_CERTIFICATE_REQUIRED',
