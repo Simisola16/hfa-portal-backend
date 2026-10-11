@@ -981,6 +981,7 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const logsheet = await ApplicationLogsheet.findById(req.params.id)
       .populate('application_id')
+      .populate('addon_application_id')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username');
