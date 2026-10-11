@@ -12,7 +12,16 @@ const addOnProductSchema = new mongoose.Schema({
   notes: { type: String },
   type: {
     type: String,
-    enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients', 'Change ingredient'],
+    enum: [
+      'Add product',
+      'Remove product',
+      'Change name/code',
+      'Change ingredients',
+      'Change ingredient',
+      'Change supplier/manufacturer',
+      'Change supplier',
+      'Change manufacturer'
+    ],
     required: true
   }
 }, { _id: false });
@@ -42,10 +51,10 @@ const addOnApplicationSchema = new mongoose.Schema({
   // Optional message from the client
   message: { type: String },
 
-  // Add-on Application Type: 'add_product' | 'remove_product' | 'change_ingredients'
+  // Add-on Application Type: 'add_product' | 'remove_product' | 'change_ingredients' | 'change_supplier'
   addon_type: {
     type: String,
-    enum: ['add_product', 'remove_product', 'change_ingredients'],
+    enum: ['add_product', 'remove_product', 'change_ingredients', 'change_supplier', 'change_supplier_manufacturer'],
     default: 'add_product'
   },
 
@@ -159,9 +168,11 @@ const addOnApplicationSchema = new mongoose.Schema({
     removed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
   }],
 
-  // Change Ingredients completion tracking
+  // Change Ingredients & Supplier completion tracking
   ingredients_accepted_at: Date,
   ingredients_accepted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+  supplier_accepted_at: Date,
+  supplier_accepted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
 
   // Linked logsheet (once admin creates it in the "Create Logsheet" step)
   logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet' }

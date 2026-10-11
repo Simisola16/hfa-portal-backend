@@ -18,6 +18,20 @@ router.get('/', authenticateToken, async (req, res) => {
 
       query.client_id = { $in: [...new Set([...ids, ...strIds, ...objIds])] };
     }
+
+    if (req.query.client_id) {
+      const rawCid = String(req.query.client_id);
+      const cIds = [rawCid];
+      if (mongoose.isValidObjectId(rawCid)) {
+        cIds.push(new mongoose.Types.ObjectId(rawCid));
+      }
+      if (isStaffUser(req.user, req.userModelType)) {
+        query.client_id = { $in: cIds };
+      } else if (query.client_id?.$in) {
+        query.client_id.$in = query.client_id.$in.filter(id => String(id) === rawCid);
+      }
+    }
+
     const sites = await Site.find(query)
       .sort({ created_at: -1 })
       .lean();
@@ -46,6 +60,7 @@ router.get('/', authenticateToken, async (req, res) => {
       return {
         ...s,
         client_id: client || s.client_id,
+        raw_client_id: rawCid,
         profiles: {
           company_name: client?.company_name || s.est_name || s.trading_name || client?.full_name || '—',
           full_name: client?.full_name || '',

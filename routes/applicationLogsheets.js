@@ -1357,9 +1357,9 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
           const { default: Product } = await import('../models/Product.js');
           const addonApp = await AddOnApplication.findById(addonAppId);
           if (addonApp) {
-            // For remove_product or change_ingredients applications, do not auto-advance or mutate products here;
+            // For remove_product, change_ingredients, or change_supplier applications, do not auto-advance or mutate products here;
             // they are handled by their dedicated endpoints (/remove-products and /accept-ingredients)
-            const isRemoveOrChange = addonApp.action_type === 'remove_product' || addonApp.action_type === 'change_ingredients';
+            const isRemoveOrChange = ['remove_product', 'change_ingredients', 'change_supplier'].includes(addonApp.action_type || addonApp.addon_type);
             if (!isRemoveOrChange) {
               const approvedList = Array.isArray(approved_products) && approved_products.length > 0
                 ? approved_products
