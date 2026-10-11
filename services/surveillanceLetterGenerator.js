@@ -85,7 +85,9 @@ function getTemplatePath() {
 export async function generateSurveillanceLetter(letterData = {}) {
   const {
     letter_number,
+    audit_date,
     issue_date = new Date(),
+    expiry_date,
     recipient_name = '',
     recipient_address = '',
     recipient_attention = '',
@@ -219,7 +221,8 @@ export async function generateSurveillanceLetter(letterData = {}) {
     // 6. Standard Paragraph 1 (Outcome statement - only address, company name not included)
     const facilityLocation = (recipient_address || '').trim().replace(/\s+/g, ' ');
     const resolvedStandards = standards && standards.trim() ? standards.trim() : 'UAE.S.2055-1:2015';
-    const p1Text = `The Surveillance audit carried out at ${facilityLocation} on ${dateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
+    const auditDateFormatted = formatDate(audit_date || issue_date);
+    const p1Text = `The Surveillance audit carried out at ${facilityLocation} on ${auditDateFormatted} has now been successfully concluded and your site was found to be in conformance with ${manual} and ${resolvedStandards}.`;
 
     const p1Lines = wrapTextLines(p1Text, fontTimes, 10, maxWidth);
     let p1Y = 417;
