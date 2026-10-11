@@ -530,15 +530,21 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
       });
     }
 
-    const chosenScheme = suggested_certificate_type || recommended_scheme || certificate_type || detected.certificate_type || logsheet.certificate_type;
+    const chosenScheme = (suggested_certificate_type || recommended_scheme || certificate_type || logsheet.certificate_type || '').trim();
+    const INVALID_SCHEMES = ['', '-- select certificate type / scheme (required) --'];
+    if (submit_for_signature && (!chosenScheme || INVALID_SCHEMES.includes(chosenScheme.toLowerCase()))) {
+      return res.status(400).json({ error: 'Please select a valid Certificate Type / Scheme. "-- Select Certificate Type / Scheme (Required) --" is not a certificate type.' });
+    }
 
     logsheet.company_name = company_name || app.company_name;
     logsheet.facility_address = facility_address || '';
     logsheet.contact_person = contact_person || app.contact_person;
     logsheet.product_category = product_category || detected.product_category || '';
-    logsheet.certificate_type = chosenScheme || 'HFA SCHEME NON MEAT';
-    logsheet.suggested_certificate_type = chosenScheme || 'HFA SCHEME NON MEAT';
-    logsheet.recommended_scheme = chosenScheme || 'HFA SCHEME NON MEAT';
+    if (chosenScheme && !INVALID_SCHEMES.includes(chosenScheme.toLowerCase())) {
+      logsheet.certificate_type = chosenScheme;
+      logsheet.suggested_certificate_type = chosenScheme;
+      logsheet.recommended_scheme = chosenScheme;
+    }
 
     if (scheme) {
       logsheet.scheme = scheme;
