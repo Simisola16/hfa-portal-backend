@@ -12,7 +12,7 @@ import Invoice from '../models/Invoice.js';
 import ExtensionApplication from '../models/ExtensionApplication.js';
 import ExtensionLogsheet from '../models/ExtensionLogsheet.js';
 import { uploadToS3, generateS3Key, getS3PathFromKey } from '../lib/s3.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, requireCertificateOfficer, requireDirectCertificatePermission, requireReviewCertificatePrivilege } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, requireCertificateOfficer, requireDirectCertificatePermission, requireReviewCertificatePrivilege, requireActivateDeactivateCertificatePrivilege } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import dotenv from 'dotenv';
@@ -3023,11 +3023,17 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
 });
 
 
-// PUT activate certificate (Admin activates inactive, expired, superseded, or revoked certificate)
-router.put('/:id/activate', authenticateToken, requireAdmin, async (req, res) => {
+// PUT activate certificate (Requires Certificate Activation Privilege OR Superadmin)
+router.put('/:id/activate', authenticateToken, requireActivateDeactivateCertificatePrivilege, async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    const isExpired = (cert.status || '').toLowerCase().trim() === 'expired' ||
+      (cert.expiry_date && new Date(cert.expiry_date).getTime() < Date.now());
+    if (isExpired) {
+      return res.status(400).json({ error: 'Expired certificates cannot be activated.' });
+    }
 
     cert.status = 'active';
     cert.is_renewed = false;
@@ -3043,11 +3049,17 @@ router.put('/:id/activate', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
-// PUT deactivate certificate (Admin sets status to inactive)
-router.put('/:id/deactivate', authenticateToken, requireAdmin, async (req, res) => {
+// PUT deactivate certificate (Requires Certificate Activation Privilege OR Superadmin)
+router.put('/:id/deactivate', authenticateToken, requireActivateDeactivateCertificatePrivilege, async (req, res) => {
   try {
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    const isExpired = (cert.status || '').toLowerCase().trim() === 'expired' ||
+      (cert.expiry_date && new Date(cert.expiry_date).getTime() < Date.now());
+    if (isExpired) {
+      return res.status(400).json({ error: 'Expired certificates cannot be deactivated.' });
+    }
 
     cert.status = 'inactive';
     cert.updated_at = new Date();
@@ -3067,6 +3079,24 @@ router.patch('/:id/status', authenticateToken, requireAdmin, async (req, res) =>
 
     const cert = await Certificate.findById(req.params.id);
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+
+    const isTargetingActiveOrInactive = status === 'active' || status === 'inactive';
+    if (isTargetingActiveOrInactive) {
+      const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+      if (!isSuperAdmin && !req.user.can_activate_deactivate_certificate) {
+        return res.status(403).json({
+          error: 'Access denied. You do not have the Certificate Activation / Deactivation Privilege. Only users with this privilege or Superadmin can activate or deactivate certificates.',
+        });
+      }
+
+      const isExpired = (cert.status || '').toLowerCase().trim() === 'expired' ||
+        (cert.expiry_date && new Date(cert.expiry_date).getTime() < Date.now());
+      if (isExpired) {
+        return res.status(400).json({
+          error: `Expired certificates cannot be ${status === 'active' ? 'activated' : 'deactivated'}.`
+        });
+      }
+    }
 
     cert.status = status;
     if (status === 'active') {

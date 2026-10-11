@@ -352,7 +352,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     email, password, full_name, role, roles, username, company_name, phone,
     address, postcode, country,
     can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
-    can_change_application_status, can_create_kfc_logsheet
+    can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate
   } = req.body;
 
   if (!email?.trim()) return res.status(400).json({ error: 'Email address is required.' });
@@ -402,6 +402,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       can_mark_done:                Boolean(can_mark_done || isSuperAdmin),
       can_change_application_status: Boolean(can_change_application_status || isSuperAdmin),
       can_create_kfc_logsheet:      Boolean(can_create_kfc_logsheet || isSuperAdmin),
+      can_activate_deactivate_certificate: Boolean(can_activate_deactivate_certificate || isSuperAdmin),
       is_active:   true,
     });
 
@@ -642,7 +643,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       full_name, email, username, password, phone,
       roles, role,
       can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
-      can_change_application_status, can_create_kfc_logsheet,
+      can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate,
       company_name, address, postcode, country
     } = req.body;
 
@@ -715,6 +716,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
           admin.can_mark_done = true;
           admin.can_change_application_status = true;
           admin.can_create_kfc_logsheet = true;
+          admin.can_activate_deactivate_certificate = true;
         } else {
           if (can_issue_direct_certificate !== undefined) admin.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
           if (is_support_manager !== undefined) admin.is_support_manager = Boolean(is_support_manager);
@@ -723,6 +725,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
           if (can_mark_done !== undefined) admin.can_mark_done = Boolean(can_mark_done);
           if (can_change_application_status !== undefined) admin.can_change_application_status = Boolean(can_change_application_status);
           if (can_create_kfc_logsheet !== undefined) admin.can_create_kfc_logsheet = Boolean(can_create_kfc_logsheet);
+          if (can_activate_deactivate_certificate !== undefined) admin.can_activate_deactivate_certificate = Boolean(can_activate_deactivate_certificate);
         }
       }
 
@@ -796,7 +799,7 @@ router.put('/:id/password', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done, can_change_application_status, can_create_kfc_logsheet } = req.body;
+    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done, can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
@@ -818,6 +821,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       updateObj.can_mark_done                = true;
       updateObj.can_change_application_status = true;
       updateObj.can_create_kfc_logsheet      = true;
+      updateObj.can_activate_deactivate_certificate = true;
     } else {
       if (can_issue_direct_certificate !== undefined) updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
       if (is_support_manager !== undefined)            updateObj.is_support_manager           = Boolean(is_support_manager);
@@ -827,6 +831,7 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       if (can_mark_done !== undefined) updateObj.can_mark_done = Boolean(can_mark_done);
       if (can_change_application_status !== undefined) updateObj.can_change_application_status = Boolean(can_change_application_status);
       if (can_create_kfc_logsheet !== undefined) updateObj.can_create_kfc_logsheet = Boolean(can_create_kfc_logsheet);
+      if (can_activate_deactivate_certificate !== undefined) updateObj.can_activate_deactivate_certificate = Boolean(can_activate_deactivate_certificate);
     }
 
     const data = await Admin.findByIdAndUpdate(req.params.id, updateObj, { new: true }).select('-password');
@@ -1042,6 +1047,36 @@ router.put('/:id/review-certificate-permission', authenticateToken, requireSuper
     const resData = admin.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Review Certificate Privilege ${admin.can_review_certificate ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/activate-deactivate-cert-permission — Superadmin toggles Certificate Activation / Deactivation Privilege (Admin)
+router.put('/:id/activate-deactivate-cert-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_activate_deactivate_certificate } = req.body;
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
+
+    admin.can_activate_deactivate_certificate = Boolean(can_activate_deactivate_certificate);
+    await admin.save();
+
+    await createNotification(
+      admin._id,
+      admin.can_activate_deactivate_certificate
+        ? 'Privilege Granted: Certificate Activation/Deactivation 🔐'
+        : 'Privilege Revoked: Certificate Activation/Deactivation',
+      admin.can_activate_deactivate_certificate
+        ? 'Superadmin has granted you the Certificate Activation / Deactivation Privilege. You can now activate and deactivate non-expired certificates in the Admin Portal.'
+        : 'Your Certificate Activation / Deactivation privilege has been revoked by Superadmin.',
+      admin.can_activate_deactivate_certificate ? 'success' : 'warning',
+      admin.can_activate_deactivate_certificate ? '/certificates' : '/dashboard'
+    );
+
+    const resData = admin.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Certificate Activation Privilege ${admin.can_activate_deactivate_certificate ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
