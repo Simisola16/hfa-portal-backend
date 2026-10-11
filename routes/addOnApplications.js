@@ -1394,16 +1394,12 @@ router.put('/:id/remove-products', authenticateToken, requireFoodTechManagerOrAd
       app.removed_products_history = [];
     }
 
-    // Resolve certificate if any
-    let cert = null;
-    if (app.certificate_id) {
-      cert = await Certificate.findById(app.certificate_id);
-    }
-    if (!cert && app.client_id) {
-      cert = await Certificate.findOne({ client_id: app.client_id, status: 'active' });
-    }
-
-    let certProducts = Array.isArray(cert?.products_covered) ? [...cert.products_covered] : [];
+    // Build normalized client IDs
+    const clientIds = [
+      app.client_id,
+      app.client_id?.toString?.(),
+      ...(mongoose.isValidObjectId(app.client_id) ? [new mongoose.Types.ObjectId(app.client_id)] : [])
+    ].filter(Boolean);
 
     for (const item of selectedProducts) {
       const prodName = typeof item === 'object' ? (item.name || item.original_name) : item;
@@ -1418,18 +1414,72 @@ router.put('/:id/remove-products', authenticateToken, requireFoodTechManagerOrAd
         removed_by: req.user._id
       });
 
-      // Remove from client's active products in Product collection
-      await Product.deleteMany({ client_id: app.client_id, name: prodName });
-
-      // Remove from certificate's products_covered list
-      certProducts = certProducts.filter(p => p !== prodName);
+      // 1. Completely delete from Product collection (case-insensitive name regex, code, barcode, across clientIds)
+      const nameRegex = new RegExp(`^${String(prodName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      const deleteConditions = [
+        { client_id: { $in: clientIds }, name: { $regex: nameRegex } }
+      ];
+      if (prodCode && String(prodCode).trim()) {
+        deleteConditions.push(
+          { client_id: { $in: clientIds }, code: String(prodCode).trim() },
+          { client_id: { $in: clientIds }, barcode: String(prodCode).trim() }
+        );
+      }
+      await Product.deleteMany({ $or: deleteConditions });
     }
 
-    if (cert) {
-      cert.products_covered = certProducts;
-      cert.updated_at = new Date();
-      await cert.save();
-      regenerateCertPdf(cert);
+    // 2. Scrub removed products from ALL linked Certificates (products_covered AND product_details)
+    try {
+      const certConditions = [
+        ...(app.certificate_id ? [{ _id: app.certificate_id }] : []),
+        { client_id: { $in: clientIds.map(String) } }
+      ];
+      if (app.site_id) certConditions.push({ site_id: app.site_id });
+
+      const linkedCerts = await Certificate.find({ $or: certConditions });
+      for (const certDoc of linkedCerts) {
+        let certChanged = false;
+
+        // Scrub from products_covered
+        if (Array.isArray(certDoc.products_covered)) {
+          const origLen = certDoc.products_covered.length;
+          certDoc.products_covered = certDoc.products_covered.filter(pCovered => {
+            const trimmed = String(pCovered || '').trim().toLowerCase();
+            return !selectedProducts.some(sp => {
+              const targetName = String(typeof sp === 'object' ? (sp.name || sp.original_name) : sp).trim().toLowerCase();
+              return trimmed === targetName || trimmed.startsWith(`${targetName} (`) || trimmed.startsWith(`${targetName} -`);
+            });
+          });
+          if (certDoc.products_covered.length !== origLen) certChanged = true;
+        }
+
+        // Scrub from product_details
+        if (Array.isArray(certDoc.product_details)) {
+          const origLen = certDoc.product_details.length;
+          certDoc.product_details = certDoc.product_details.filter(pd => {
+            const pdName = String(pd.name || '').trim().toLowerCase();
+            const pdCode = String(pd.code || '').trim().toLowerCase();
+            return !selectedProducts.some(sp => {
+              const targetName = String(typeof sp === 'object' ? (sp.name || sp.original_name) : sp).trim().toLowerCase();
+              const targetCode = String(typeof sp === 'object' ? sp.code : '').trim().toLowerCase();
+              if (pdName === targetName) return true;
+              if (targetCode && pdCode === targetCode) return true;
+              return false;
+            });
+          });
+          if (certDoc.product_details.length !== origLen) certChanged = true;
+        }
+
+        if (certChanged) {
+          certDoc.updated_at = new Date();
+          await certDoc.save();
+          try {
+            regenerateCertPdf(certDoc);
+          } catch (_) {}
+        }
+      }
+    } catch (certErr) {
+      console.warn('[AddOn] Failed to scrub removed products from certificates:', certErr.message);
     }
 
     // Advance application status to ready_for_certificate
