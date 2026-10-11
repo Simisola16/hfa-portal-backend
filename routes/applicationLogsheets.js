@@ -7,7 +7,7 @@ import Audit from '../models/Audit.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import SurveillanceSchedule from '../models/SurveillanceSchedule.js';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, userHasRole } from '../middleware/auth.js';
 import { emitApplicationUpdate } from '../lib/socket.js';
 import { createNotification } from '../lib/notifications.js';
 import { generateHfaId, normalizeHfaTypeCode, generateLogsheetNumber, getLogsheetEffectiveRef } from '../lib/idGenerator.js';
@@ -156,6 +156,11 @@ router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) 
 // POST /api/application-logsheets/direct (Admin only - creates direct logsheet without application)
 router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    if (!isSuperAdmin && !req.user.can_create_direct_logsheet) {
+      return res.status(403).json({ error: 'Access denied. You do not have the Direct Logsheet Privilege required to create direct logsheets.' });
+    }
+
     const {
       logsheet_type = 'application',
       existing_certificate_number,
@@ -469,7 +474,7 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
     if (!isSuperAdmin && !req.user.can_create_kfc_logsheet) {
-      return res.status(403).json({ error: 'Access denied. You do not have the KFC Logsheet Privilege required to create KFC logsheets.' });
+      return res.status(403).json({ error: 'Access denied. You do not have the KFC Logsheet Privilege required to create or edit KFC logsheets.' });
     }
 
     const {
@@ -1020,6 +1025,7 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const logsheet = await ApplicationLogsheet.findById(req.params.id)
       .populate('application_id')
+      .populate('addon_application_id')
       .populate('client_id', 'full_name company_name email phone address')
       .populate('site_id', 'name address')
       .populate('created_by', 'full_name email role username');
@@ -1340,75 +1346,81 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       // Handle add-on application logsheets separately
       const addonAppId = logsheet.addon_application_id || (logsheet.source_type === 'addon_application' ? logsheet.application_id : null);
       if (addonAppId) {
+        if (!userHasRole(req.user, 'food_tech', 'food_tech_manager', 'admin', 'superadmin')) {
+          return res.status(403).json({
+            error: 'Access denied. Food Tech Manager or Admin role required.'
+          });
+        }
+
         try {
           const { default: AddOnApplication } = await import('../models/AddOnApplication.js');
           const { default: Product } = await import('../models/Product.js');
           const addonApp = await AddOnApplication.findById(addonAppId);
           if (addonApp) {
-            const approvedList = Array.isArray(approved_products) && approved_products.length > 0
-              ? approved_products
-              : addonApp.products || [];
+            // For remove_product, change_ingredients, or change_supplier applications, do not auto-advance or mutate products here;
+            // they are handled by their dedicated endpoints (/remove-products and /accept-ingredients)
+            const isRemoveOrChange = ['remove_product', 'change_ingredients', 'change_supplier'].includes(addonApp.action_type || addonApp.addon_type);
+            if (!isRemoveOrChange) {
+              const approvedList = Array.isArray(approved_products) && approved_products.length > 0
+                ? approved_products
+                : addonApp.products || [];
 
-            addonApp.status = 'product_form_approved';
-            addonApp.statusHistory.push({
-              status: 'product_form_approved',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: `Committee signatures verified (${sigCount}/4). ${approvedList.length} product(s) approved.`
-            });
-            addonApp.status = 'ready_for_certificate';
-            addonApp.statusHistory.push({
-              status: 'ready_for_certificate',
-              changedAt: new Date(),
-              changedBy: req.user._id,
-              note: 'Ready for Certificate — product approval complete.'
-            });
-            await addonApp.save();
+              addonApp.status = 'product_form_approved';
+              addonApp.statusHistory.push({
+                status: 'product_form_approved',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: `Committee signatures verified (${sigCount}/4). ${approvedList.length} product(s) approved.`
+              });
+              addonApp.status = 'ready_for_certificate';
+              addonApp.statusHistory.push({
+                status: 'ready_for_certificate',
+                changedAt: new Date(),
+                changedBy: req.user._id,
+                note: 'Ready for Certificate — product approval complete.'
+              });
+              await addonApp.save();
 
-            // Sync approved products to Product collection for client dashboard visibility
-            const clientId = addonApp.client_id?._id || addonApp.client_id;
-            const siteId = addonApp.site_id?._id || addonApp.site_id;
-            const certId = addonApp.certificate_id?._id || addonApp.certificate_id;
+              // Sync approved products to Product collection for client dashboard visibility
+              const clientId = addonApp.client_id?._id || addonApp.client_id;
+              const siteId = addonApp.site_id?._id || addonApp.site_id;
+              const certId = addonApp.certificate_id?._id || addonApp.certificate_id;
 
-            for (const prod of approvedList) {
-              const pName = prod.new_name || prod.name;
-              const pCode = prod.new_code || prod.code || '';
-              const pType = prod.type || 'Add product';
-              if (pType === 'Add product' || pType === 'Change name/code') {
-                const pQuery = { client_id: clientId, name: pName };
-                if (pCode) pQuery.code = pCode;
-                if (siteId) pQuery.site_id = siteId;
+              for (const prod of approvedList) {
+                const pName = prod.new_name || prod.name;
+                const pCode = prod.new_code || prod.code || '';
+                const pType = prod.type || 'Add product';
+                if (pType === 'Add product' || pType === 'Change name/code') {
+                  const pQuery = { client_id: clientId, name: pName };
+                  if (pCode) pQuery.code = pCode;
+                  if (siteId) pQuery.site_id = siteId;
 
-                await Product.findOneAndUpdate(
-                  pQuery,
-                  {
-                    client_id: clientId,
-                    name: pName,
-                    code: pCode,
-                    site_id: siteId,
-                    certificate_id: certId ? String(certId) : undefined,
-                    status: 'approved',
-                    category: addonApp.category || 'Halal Certified',
-                    updated_at: new Date()
-                  },
-                  { upsert: true, new: true }
-                );
-              } else if (pType === 'Remove product') {
-                await Product.findOneAndUpdate(
-                  { client_id: clientId, name: prod.name },
-                  { status: 'inactive', updated_at: new Date() }
-                );
+                  await Product.findOneAndUpdate(
+                    pQuery,
+                    {
+                      client_id: clientId,
+                      name: pName,
+                      code: pCode,
+                      site_id: siteId,
+                      certificate_id: certId ? String(certId) : undefined,
+                      status: 'approved',
+                      category: addonApp.category || 'Halal Certified',
+                      updated_at: new Date()
+                    },
+                    { upsert: true, new: true }
+                  );
+                }
               }
+
+              try {
+                const { getIO } = await import('../lib/socket.js');
+                const io = getIO();
+                if (io) {
+                  io.emit('addon_updated', { addOnId: addonApp._id, status: 'ready_for_certificate' });
+                  io.emit('product_updated', { client_id: clientId });
+                }
+              } catch (sockErr) {}
             }
-
-            try {
-              const { getIO } = await import('../lib/socket.js');
-              const io = getIO();
-              if (io) {
-                io.emit('addon_updated', { addOnId: addonApp._id, status: 'ready_for_certificate' });
-                io.emit('product_updated', { client_id: clientId });
-              }
-            } catch (sockErr) {}
           }
         } catch (addonErr) {
           console.error('[Logsheet] Failed to update add-on application after sign-off:', addonErr.message);

@@ -381,7 +381,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const catLower = String(data.category || '').toLowerCase();
         const typeLower = String(data.application_type || '').toLowerCase();
         const schemeLower = String(data.scheme || '').toLowerCase();
-        const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+        const isSurveillance = typeLower.includes('surv') || catLower.includes('surv') || schemeLower.includes('surv') || data.is_surveillance || (data.surveillance_year && data.surveillance_year > 0);
+        const isDualStage = !isSurveillance && (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso'));
         const isSeededApp = Boolean(data.notes && /imported|legacy/i.test(data.notes));
 
         if (isDualStage && !isSeededApp) {
@@ -834,7 +835,8 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
 
       const pdfBuffer = await generateSurveillanceLetter({
         letter_number: resolvedLetterNumber,
-        audit_date: audit_date || app.audit_date || issue_date || new Date(),
+        audit_date: audit_date || req.body?.audit_date || req.body?.certification_start_date || app.audit_date || issue_date || new Date(),
+        certification_start_date: req.body?.certification_start_date,
         issue_date: issue_date || new Date(),
         expiry_date: expiry_date || next_due_date || new Date(),
         recipient_name: company,

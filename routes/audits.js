@@ -1200,7 +1200,8 @@ router.post('/complete-clean', authenticateToken, requireAuditorOrManager, async
     const catLower = String(app?.category || '').toLowerCase();
     const typeLower = String(app?.application_type || '').toLowerCase();
     const schemeLower = String(app?.scheme || '').toLowerCase();
-    const isDualStage = catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso');
+    const isSurveillance = typeLower.includes('surv') || catLower.includes('surv') || schemeLower.includes('surv') || app?.is_surveillance || (app?.surveillance_year && app?.surveillance_year > 0);
+    const isDualStage = !isSurveillance && (catLower.includes('gso') || catLower.includes('uae') || catLower.includes('dual') || typeLower.includes('gso') || schemeLower.includes('gso'));
     const isFinalStage = !isDualStage || (audit?.stage === 2) || !audit;
 
     if (isFinalStage && app) {

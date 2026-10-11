@@ -715,6 +715,8 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       const survPdfBuffer = await generateSurveillanceLetter({
         letter_number: certNo,
         issue_date: issue_date ? new Date(issue_date) : new Date(),
+        audit_date: req.body.audit_date || req.body.certification_start_date || (issue_date ? new Date(issue_date) : new Date()),
+        certification_start_date: req.body.certification_start_date,
         recipient_name: company_name || '',
         recipient_address: company_address || manufacturing_address || '',
         recipient_attention: req.body.recipient_attention || '',
@@ -1257,6 +1259,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       product_category,
       issue_date,
       expiry_date,
+      audit_date,
       certification_start_date,
       current_cycle_start_date,
       original_cycle_start_date,
@@ -1506,6 +1509,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
           productTableColumns: resolvedTableCols,
           issueDate: issue_date || new Date(),
           expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          auditDate: audit_date || certification_start_date || issue_date || new Date(),
           certificationStartDate: certification_start_date || issue_date || new Date(),
           currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
           originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
@@ -1568,6 +1572,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.product_category = resolvedProductCategory;
       certificate.issue_date = issue_date || certificate.issue_date;
       certificate.expiry_date = expiry_date || certificate.expiry_date;
+      certificate.audit_date = audit_date || certification_start_date || certificate.audit_date || certificate.certification_start_date;
       certificate.certification_start_date = certification_start_date || certificate.certification_start_date;
       certificate.current_cycle_start_date = current_cycle_start_date || certificate.current_cycle_start_date;
       certificate.original_cycle_start_date = original_cycle_start_date || certificate.original_cycle_start_date;
@@ -1598,6 +1603,7 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         product_category: resolvedProductCategory,
         issue_date: issue_date || new Date(),
         expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        audit_date: audit_date || certification_start_date || issue_date || new Date(),
         certification_start_date: certification_start_date || issue_date || new Date(),
         current_cycle_start_date: current_cycle_start_date || issue_date || new Date(),
         original_cycle_start_date: original_cycle_start_date || issue_date || new Date(),
@@ -1926,6 +1932,8 @@ router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.
     if (scope) cert.scope = scope;
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (req.body.audit_date !== undefined) cert.audit_date = req.body.audit_date;
+    else if (certification_start_date) cert.audit_date = certification_start_date;
     if (certification_start_date) cert.certification_start_date = certification_start_date;
     if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
@@ -1991,6 +1999,7 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       product_category,
       issue_date,
       expiry_date,
+      audit_date,
       certification_start_date,
       current_cycle_start_date,
       original_cycle_start_date,
@@ -2013,6 +2022,8 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
     }
     if (issue_date) cert.issue_date = issue_date;
     if (expiry_date) cert.expiry_date = expiry_date;
+    if (audit_date !== undefined) cert.audit_date = audit_date;
+    else if (certification_start_date) cert.audit_date = certification_start_date;
     if (certification_start_date) cert.certification_start_date = certification_start_date;
     if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
@@ -2061,6 +2072,7 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       productTableColumns: regenTableCols,
       issueDate: cert.issue_date || new Date(),
       expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      auditDate: cert.audit_date || cert.certification_start_date || cert.issue_date || new Date(),
       certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
       currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
       originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
@@ -2822,6 +2834,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           productTableColumns: resolvedTableCols,
           issueDate: parsedIssueDate,
           expiryDate: parsedExpiryDate,
+          auditDate: req.body.audit_date || parsedCertStartDate || parsedIssueDate,
           certificationStartDate: parsedCertStartDate,
           currentCycleStartDate: parsedCurrentCycle,
           originalCycleStartDate: parsedOrigCycle,
@@ -2848,6 +2861,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       scope: effectiveScope,
       issue_date: parsedIssueDate,
       expiry_date: parsedExpiryDate,
+      audit_date: req.body.audit_date || parsedCertStartDate || parsedIssueDate,
       certification_start_date: parsedCertStartDate,
       current_cycle_start_date: parsedCurrentCycle,
       original_cycle_start_date: parsedOrigCycle,

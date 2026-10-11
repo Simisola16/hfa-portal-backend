@@ -5,9 +5,23 @@ const addOnProductSchema = new mongoose.Schema({
   sn: { type: Number }, // auto-numbered on save
   name: { type: String, required: true },
   code: { type: String },
+  original_name: { type: String },
+  new_name: { type: String },
+  new_code: { type: String },
+  description: { type: String },
+  notes: { type: String },
   type: {
     type: String,
-    enum: ['Add product', 'Remove product', 'Change name/code', 'Change ingredients', 'Change ingredient'],
+    enum: [
+      'Add product',
+      'Remove product',
+      'Change name/code',
+      'Change ingredients',
+      'Change ingredient',
+      'Change supplier/manufacturer',
+      'Change supplier',
+      'Change manufacturer'
+    ],
     required: true
   }
 }, { _id: false });
@@ -36,6 +50,21 @@ const addOnApplicationSchema = new mongoose.Schema({
 
   // Optional message from the client
   message: { type: String },
+
+  // Add-on Application Type: 'add_product' | 'remove_product' | 'change_ingredients' | 'change_supplier'
+  addon_type: {
+    type: String,
+    enum: ['add_product', 'remove_product', 'change_ingredients', 'change_supplier', 'change_supplier_manufacturer'],
+    default: 'add_product'
+  },
+
+  // Supporting document attachments uploaded by client
+  supporting_documents: [{
+    file_name: String,
+    file_url: String,
+    file_size: Number,
+    uploaded_at: { type: Date, default: Date.now }
+  }],
 
   // Multi-product table (one application can cover many products)
   products: { type: [addOnProductSchema], default: [] },
@@ -75,6 +104,8 @@ const addOnApplicationSchema = new mongoose.Schema({
     status: String,
     changedAt: { type: Date, default: Date.now },
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    changedByName: String,
+    changedByRole: String,
     note: String
   }],
 
@@ -111,6 +142,37 @@ const addOnApplicationSchema = new mongoose.Schema({
     client_reply_file_url: String,
     client_replied_at: Date
   },
+
+  // Document Requests for Remove Product & Change Ingredients flows
+  document_requests: [{
+    requested_at: { type: Date, default: Date.now },
+    requested_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    note: { type: String, required: true },
+    attachment_url: String,
+    attachment_name: String,
+    replied_at: Date,
+    reply_note: String,
+    reply_attachments: [{
+      file_name: String,
+      file_url: String,
+      file_size: Number
+    }],
+    status: { type: String, enum: ['pending', 'replied'], default: 'pending' }
+  }],
+
+  // History of products removed via Remove Product flow
+  removed_products_history: [{
+    name: String,
+    code: String,
+    removed_at: { type: Date, default: Date.now },
+    removed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
+  }],
+
+  // Change Ingredients & Supplier completion tracking
+  ingredients_accepted_at: Date,
+  ingredients_accepted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+  supplier_accepted_at: Date,
+  supplier_accepted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
 
   // Linked logsheet (once admin creates it in the "Create Logsheet" step)
   logsheet_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ApplicationLogsheet' }
