@@ -31,6 +31,8 @@ const adminSchema = new mongoose.Schema({
   roles: [{ type: String, enum: ADMIN_ROLES }],
   // Granular permissions
   can_issue_direct_certificate: { type: Boolean, default: false },
+  can_create_direct_logsheet:   { type: Boolean, default: false },
+  can_manage_products:          { type: Boolean, default: false },
   can_sign_logsheet:            { type: Boolean, default: false },
   can_review_certificate:       { type: Boolean, default: false },
   can_mark_done:                { type: Boolean, default: false },
