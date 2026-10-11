@@ -885,28 +885,46 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
       return res.status(400).json({ error: 'All Product Approval Forms must be received before creating a logsheet.' });
     }
 
-    const { ...logsheetData } = req.body;
+    const { _id, id, __v, createdAt, updatedAt, created_at, updated_at, ...logsheetData } = req.body;
+    delete logsheetData.__v;
+    delete logsheetData._id;
+    delete logsheetData.id;
+    delete logsheetData.createdAt;
+    delete logsheetData.updatedAt;
+    delete logsheetData.created_at;
+    delete logsheetData.updated_at;
+
     let logsheet = await ApplicationLogsheet.findOne({ addon_application_id: app._id });
     if (logsheet) {
-      Object.assign(logsheet, logsheetData);
+      const updatePayload = {
+        ...logsheetData,
+        source_type: 'addon_application',
+        addon_application_id: app._id,
+        updated_at: new Date()
+      };
       if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
-        logsheet.mufti_signature = null;
-        logsheet.mufti_sign_name = null;
-        logsheet.mufti_sign_date = null;
-        logsheet.ceo_signature = null;
-        logsheet.ceo_sign_name = null;
-        logsheet.ceo_sign_date = null;
-        logsheet.manager_signature = null;
-        logsheet.manager_sign_name = null;
-        logsheet.manager_sign_date = null;
-        logsheet.mufti2_signature = null;
-        logsheet.mufti2_sign_name = null;
-        logsheet.mufti2_sign_date = null;
-        logsheet.status = 'Waiting for Signature';
+        updatePayload.mufti_signature = null;
+        updatePayload.mufti_sign_name = null;
+        updatePayload.mufti_sign_date = null;
+        updatePayload.ceo_signature = null;
+        updatePayload.ceo_sign_name = null;
+        updatePayload.ceo_sign_date = null;
+        updatePayload.manager_signature = null;
+        updatePayload.manager_sign_name = null;
+        updatePayload.manager_sign_date = null;
+        updatePayload.mufti2_signature = null;
+        updatePayload.mufti2_sign_name = null;
+        updatePayload.mufti2_sign_date = null;
+        updatePayload.status = 'Waiting for Signature';
       } else if (!logsheet.status) {
-        logsheet.status = 'Waiting for Signature';
+        updatePayload.status = 'Waiting for Signature';
       }
-      logsheet.updated_at = new Date();
+
+      logsheet = await ApplicationLogsheet.findByIdAndUpdate(
+        logsheet._id,
+        { $set: updatePayload },
+        { new: true, runValidators: false }
+      );
     } else {
       logsheet = new ApplicationLogsheet({
         source_type: 'addon_application',
@@ -919,9 +937,8 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
         ...logsheetData,
         status: 'Waiting for Signature'
       });
+      await logsheet.save();
     }
-
-    await logsheet.save();
 
     app.logsheet_id = logsheet._id;
     app.status = 'logsheet_created';
