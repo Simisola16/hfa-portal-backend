@@ -156,6 +156,8 @@ router.post('/', authenticateToken, upload.any(), async (req, res) => {
     }
 
     // Validate required fields
+    if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact Person Name is required.' });
+    if (!contact_phone?.trim()) return res.status(400).json({ error: 'Contact Person Phone Number is required.' });
     if (!contact_email?.trim()) return res.status(400).json({ error: 'Contact Person Email is required.' });
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product entry is required.' });
