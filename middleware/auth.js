@@ -110,6 +110,7 @@ export const isStaffUser = (user, userModelType) => {
   if (!user) return false;
   if (userModelType === 'Admin' || user.constructor?.modelName === 'Admin') return true;
   if (user.is_admin || user.isAdmin) return true;
+  if (user.can_issue_direct_certificate || user.can_create_direct_logsheet || user.can_manage_products || user.can_create_kfc_logsheet || user.can_sign_logsheet) return true;
   if (user.role && user.role !== 'client') return true;
   if (Array.isArray(user.roles) && user.roles.some(r => r && r !== 'client')) return true;
   return userHasRole(
@@ -135,6 +136,29 @@ export const requireDirectCertificatePermission = (req, res, next) => {
     req.user.can_issue_direct_certificate === true;
   if (!hasPermission) {
     return res.status(403).json({ error: 'Direct certificate issuance privilege required. Contact Superadmin for access.' });
+  }
+  next();
+};
+
+export const requireDirectLogsheetPermission = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const hasPermission =
+    userHasRole(req.user, 'superadmin') ||
+    req.user.can_create_direct_logsheet === true;
+  if (!hasPermission) {
+    return res.status(403).json({ error: 'Direct logsheet creation privilege required. Contact Superadmin for access.' });
+  }
+  next();
+};
+
+export const requireManageProductPermission = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const hasPermission =
+    userHasRole(req.user, 'superadmin') ||
+    req.user.can_manage_products === true ||
+    req.user.can_manage_direct_products === true;
+  if (!hasPermission) {
+    return res.status(403).json({ error: 'Manage products privilege required. Contact Superadmin for access.' });
   }
   next();
 };

@@ -351,7 +351,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   const {
     email, password, full_name, role, roles, username, company_name, phone,
     address, postcode, country,
-    can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
+    can_issue_direct_certificate, can_create_direct_logsheet, can_manage_products, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done,
     can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate
   } = req.body;
 
@@ -396,6 +396,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       role:      primaryRole,
       roles:     assignedRoles,
       can_issue_direct_certificate: Boolean(can_issue_direct_certificate || isSuperAdmin),
+      can_create_direct_logsheet:   Boolean(can_create_direct_logsheet || isSuperAdmin),
+      can_manage_products:          Boolean(can_manage_products || isSuperAdmin),
       is_support_manager:           Boolean(is_support_manager || isSuperAdmin || isSupportManager),
       can_sign_logsheet:            Boolean(can_sign_logsheet  || isSuperAdmin),
       can_review_certificate:       Boolean(can_review_certificate || isSuperAdmin),
@@ -799,7 +801,7 @@ router.put('/:id/password', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/users/:id/role — Update STAFF member role (Admin collection)
 router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { role, roles, can_issue_direct_certificate, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done, can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate } = req.body;
+    const { role, roles, can_issue_direct_certificate, can_create_direct_logsheet, can_manage_products, is_support_manager, can_sign_logsheet, can_review_certificate, can_mark_done, can_change_application_status, can_create_kfc_logsheet, can_activate_deactivate_certificate } = req.body;
     let assignedRoles = [];
     if (Array.isArray(roles) && roles.length > 0) {
       assignedRoles = roles.filter(r => Boolean(r) && r !== 'client');
@@ -815,6 +817,8 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     const updateObj = { role: primaryRole, roles: assignedRoles };
     if (isSuperAdmin) {
       updateObj.can_issue_direct_certificate = true;
+      updateObj.can_create_direct_logsheet   = true;
+      updateObj.can_manage_products          = true;
       updateObj.is_support_manager           = true;
       updateObj.can_sign_logsheet            = true;
       updateObj.can_review_certificate       = true;
@@ -824,6 +828,8 @@ router.put('/:id/role', authenticateToken, requireAdmin, async (req, res) => {
       updateObj.can_activate_deactivate_certificate = true;
     } else {
       if (can_issue_direct_certificate !== undefined) updateObj.can_issue_direct_certificate = Boolean(can_issue_direct_certificate);
+      if (can_create_direct_logsheet !== undefined)   updateObj.can_create_direct_logsheet   = Boolean(can_create_direct_logsheet);
+      if (can_manage_products !== undefined)          updateObj.can_manage_products          = Boolean(can_manage_products);
       if (is_support_manager !== undefined)            updateObj.is_support_manager           = Boolean(is_support_manager);
       else if (primaryRole === 'support_manager' || assignedRoles.includes('support_manager')) updateObj.is_support_manager = true;
       if (can_sign_logsheet    !== undefined) updateObj.can_sign_logsheet    = Boolean(can_sign_logsheet);
@@ -867,6 +873,66 @@ router.put('/:id/direct-cert-permission', authenticateToken, requireSuperAdmin, 
     const resData = admin.toJSON();
     delete resData.password;
     res.json({ data: resData, message: `Direct Certificate privilege ${admin.can_issue_direct_certificate ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/direct-logsheet-permission — Superadmin toggles Direct Logsheet privilege (Admin)
+router.put('/:id/direct-logsheet-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_create_direct_logsheet } = req.body;
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
+
+    admin.can_create_direct_logsheet = Boolean(can_create_direct_logsheet);
+    await admin.save();
+
+    await createNotification(
+      admin._id,
+      admin.can_create_direct_logsheet
+        ? 'Privilege Granted: Direct Logsheet ⚡'
+        : 'Privilege Revoked: Direct Logsheet',
+      admin.can_create_direct_logsheet
+        ? 'Superadmin has granted you permission to directly create and issue Direct Logsheets.'
+        : 'Your Direct Logsheet creation permission has been revoked by Superadmin.',
+      admin.can_create_direct_logsheet ? 'success' : 'warning',
+      admin.can_create_direct_logsheet ? '/superadmin/direct-logsheet' : '/dashboard'
+    );
+
+    const resData = admin.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Direct Logsheet privilege ${admin.can_create_direct_logsheet ? 'granted' : 'revoked'} successfully` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id/manage-product-permission — Superadmin toggles Manage Product privilege (Admin)
+router.put('/:id/manage-product-permission', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { can_manage_products } = req.body;
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Staff member not found' });
+
+    admin.can_manage_products = Boolean(can_manage_products);
+    await admin.save();
+
+    await createNotification(
+      admin._id,
+      admin.can_manage_products
+        ? 'Privilege Granted: Manage Products 📦'
+        : 'Privilege Revoked: Manage Products',
+      admin.can_manage_products
+        ? 'Superadmin has granted you permission to manage and batch-register products.'
+        : 'Your product management permission has been revoked by Superadmin.',
+      admin.can_manage_products ? 'success' : 'warning',
+      admin.can_manage_products ? '/superadmin/direct-product' : '/dashboard'
+    );
+
+    const resData = admin.toJSON();
+    delete resData.password;
+    res.json({ data: resData, message: `Manage Product privilege ${admin.can_manage_products ? 'granted' : 'revoked'} successfully` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

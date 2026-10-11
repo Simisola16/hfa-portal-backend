@@ -242,7 +242,12 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
     const allowedRoles = ['admin', 'superadmin', 'food_tech_manager', 'food_tech', 'scheme_manager', 'certificate_officer', 'audit_manager'];
     const userRole = req.user.role;
     const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [userRole].filter(Boolean);
-    const hasAccess = userRole === 'superadmin' || userRoles.includes('superadmin') || userRoles.some(r => allowedRoles.includes(r));
+    const hasAccess = req.userModelType === 'Admin' ||
+      userRole === 'superadmin' ||
+      userRoles.includes('superadmin') ||
+      req.user.can_manage_products === true ||
+      req.user.can_issue_direct_certificate === true ||
+      userRoles.some(r => allowedRoles.includes(r));
     if (!hasAccess) {
       return res.status(403).json({ error: 'Unauthorized: Only admins and authorized staff can directly create products.' });
     }
@@ -342,7 +347,10 @@ router.post('/', authenticateToken, async (req, res) => {
       barcode, product_type, contact_name, contact_number, contact_email, subject, message
     } = req.body;
 
-    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    const isAdmin = req.userModelType === 'Admin' ||
+      ['admin', 'superadmin'].includes(req.user.role) ||
+      req.user.can_manage_products === true ||
+      req.user.can_issue_direct_certificate === true;
 
     // If added by admin directly, create as active product
     if (isAdmin) {

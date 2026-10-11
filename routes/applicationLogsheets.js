@@ -156,6 +156,11 @@ router.get('/direct-history', authenticateToken, requireAdmin, async (req, res) 
 // POST /api/application-logsheets/direct (Admin only - creates direct logsheet without application)
 router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
+    if (!isSuperAdmin && !req.user.can_create_direct_logsheet) {
+      return res.status(403).json({ error: 'Access denied. You do not have the Direct Logsheet Privilege required to create direct logsheets.' });
+    }
+
     const {
       logsheet_type = 'application',
       existing_certificate_number,
@@ -469,7 +474,7 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const isSuperAdmin = req.user.role === 'superadmin' || (Array.isArray(req.user.roles) && req.user.roles.includes('superadmin'));
     if (!isSuperAdmin && !req.user.can_create_kfc_logsheet) {
-      return res.status(403).json({ error: 'Access denied. You do not have the KFC Logsheet Privilege required to create KFC logsheets.' });
+      return res.status(403).json({ error: 'Access denied. You do not have the KFC Logsheet Privilege required to create or edit KFC logsheets.' });
     }
 
     const {
