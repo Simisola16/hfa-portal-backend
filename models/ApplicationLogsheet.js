@@ -136,7 +136,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now }
-});
+}, { versionKey: false });
 
 applicationLogsheetSchema.pre('save', function(next) {
   this.updated_at = Date.now();

@@ -180,6 +180,8 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       contact_person,
       contact_email,
       certificate_standard,
+      certificate_type,
+      suggested_certificate_type,
       scope,
       nature_of_business,
       product_category,
@@ -256,7 +258,9 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
     if (logsheet) {
       logsheet.direct_ref = directRef;
       logsheet.logsheet_number = directRef;
-      logsheet.certificate_standard = certificate_standard || logsheet.certificate_standard || 'GSO MEAT';
+      logsheet.certificate_standard = certificate_standard || certificate_type || logsheet.certificate_standard || 'GSO MEAT';
+      logsheet.certificate_type = certificate_type || certificate_standard || logsheet.certificate_type || logsheet.certificate_standard || 'GSO MEAT';
+      logsheet.suggested_certificate_type = suggested_certificate_type || logsheet.certificate_type || logsheet.certificate_standard;
       logsheet.scope = scope !== undefined ? scope : logsheet.scope;
       if (resolvedClientId) logsheet.client_id = resolvedClientId;
       if (site_id) logsheet.site_id = site_id;
@@ -330,7 +334,9 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         logsheet_type: logsheet_type || 'application',
         direct_ref: directRef,
         logsheet_number: directRef,
-        certificate_standard: certificate_standard || 'GSO MEAT',
+        certificate_standard: certificate_standard || certificate_type || 'GSO MEAT',
+        certificate_type: certificate_type || certificate_standard || 'GSO MEAT',
+        suggested_certificate_type: suggested_certificate_type || certificate_type || certificate_standard || 'GSO MEAT',
         scope: scope || 'Halal Certification Operations',
         client_id: resolvedClientId || undefined,
         site_id: site_id || undefined,
@@ -786,36 +792,63 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     if (logsheet) {
-      Object.assign(logsheet, logsheetData);
+      delete logsheetData.__v;
+      delete logsheetData._id;
+      delete logsheetData.id;
+      delete logsheetData.createdAt;
+      delete logsheetData.updatedAt;
+      delete logsheetData.created_at;
+      delete logsheetData.updated_at;
+
+      const updatePayload = {
+        ...logsheetData,
+        source_type: 'application',
+        initial_product_application_id: undefined,
+        addon_application_id: undefined,
+        updated_at: new Date()
+      };
+
       if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
-        logsheet.mufti_signature = null;
-        logsheet.mufti_sign_name = null;
-        logsheet.mufti_sign_date = null;
-        logsheet.ceo_signature = null;
-        logsheet.ceo_sign_name = null;
-        logsheet.ceo_sign_date = null;
-        logsheet.manager_signature = null;
-        logsheet.manager_sign_name = null;
-        logsheet.manager_sign_date = null;
-        logsheet.mufti2_signature = null;
-        logsheet.mufti2_sign_name = null;
-        logsheet.mufti2_sign_date = null;
-        logsheet.status = 'Waiting for Signature';
+        updatePayload.mufti_signature = null;
+        updatePayload.mufti_sign_name = null;
+        updatePayload.mufti_sign_date = null;
+        updatePayload.ceo_signature = null;
+        updatePayload.ceo_sign_name = null;
+        updatePayload.ceo_sign_date = null;
+        updatePayload.manager_signature = null;
+        updatePayload.manager_sign_name = null;
+        updatePayload.manager_sign_date = null;
+        updatePayload.mufti2_signature = null;
+        updatePayload.mufti2_sign_name = null;
+        updatePayload.mufti2_sign_date = null;
+        updatePayload.status = 'Waiting for Signature';
       }
-      logsheet.source_type = 'application';
-      logsheet.initial_product_application_id = undefined;
-      logsheet.addon_application_id = undefined;
-      if (clientIdVal) logsheet.client_id = clientIdVal;
-      if (siteIdVal) logsheet.site_id = siteIdVal;
-      if (!logsheet.created_by) logsheet.created_by = req.user._id;
+
+      if (clientIdVal) updatePayload.client_id = clientIdVal;
+      if (siteIdVal) updatePayload.site_id = siteIdVal;
+      if (!logsheet.created_by) updatePayload.created_by = req.user._id;
+
       if (!logsheet.logsheet_number) {
-        logsheet.logsheet_number = logsheet.direct_ref || (logsheet.legacy_id ? (String(logsheet.legacy_id).toUpperCase().startsWith('LOG-') ? logsheet.legacy_id : `LOG-${logsheet.legacy_id}`) : `LOG-${String(logsheet._id).slice(-6).toUpperCase()}`);
+        updatePayload.logsheet_number = logsheet.direct_ref || (logsheet.legacy_id ? (String(logsheet.legacy_id).toUpperCase().startsWith('LOG-') ? logsheet.legacy_id : `LOG-${logsheet.legacy_id}`) : `LOG-${String(logsheet._id).slice(-6).toUpperCase()}`);
       }
       if (!logsheet.direct_ref) {
-        logsheet.direct_ref = logsheet.logsheet_number;
+        updatePayload.direct_ref = updatePayload.logsheet_number || logsheet.logsheet_number;
       }
-      logsheet.updated_at = new Date();
+
+      logsheet = await ApplicationLogsheet.findByIdAndUpdate(
+        logsheet._id,
+        { $set: updatePayload },
+        { new: true, runValidators: false }
+      );
     } else {
+      delete logsheetData.__v;
+      delete logsheetData._id;
+      delete logsheetData.id;
+      delete logsheetData.createdAt;
+      delete logsheetData.updatedAt;
+      delete logsheetData.created_at;
+      delete logsheetData.updated_at;
+
       const generatedRef = logsheetData.direct_ref || logsheetData.logsheet_number || `LOG-${Date.now().toString().slice(-6)}`;
       logsheet = new ApplicationLogsheet({
         application_id,
@@ -830,9 +863,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
       if (!logsheet.created_by) logsheet.created_by = req.user._id;
       logsheet.initial_product_application_id = undefined;
       logsheet.addon_application_id = undefined;
+      await logsheet.save();
     }
-    
-    await logsheet.save();
 
     // Clean up any duplicate main application logsheets
     if (application_id) {
@@ -1035,29 +1067,41 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     const logsheet = await ApplicationLogsheet.findById(req.params.id);
     if (!logsheet) return res.status(404).json({ error: 'Logsheet not found' });
 
-    const { _id, id, ...updates } = req.body;
+    const { _id, id, __v, createdAt, updatedAt, created_at, updated_at, ...updates } = req.body;
+    delete updates.__v;
+    delete updates._id;
+    delete updates.id;
+    delete updates.createdAt;
+    delete updates.updatedAt;
+    delete updates.created_at;
+    delete updates.updated_at;
+
     if (updates.clear_signatures || updates.is_redo || req.body.clear_signatures || req.body.is_redo) {
-      logsheet.mufti_signature = null;
-      logsheet.mufti_sign_name = null;
-      logsheet.mufti_sign_date = null;
-      logsheet.ceo_signature = null;
-      logsheet.ceo_sign_name = null;
-      logsheet.ceo_sign_date = null;
-      logsheet.manager_signature = null;
-      logsheet.manager_sign_name = null;
-      logsheet.manager_sign_date = null;
-      logsheet.mufti2_signature = null;
-      logsheet.mufti2_sign_name = null;
-      logsheet.mufti2_sign_date = null;
-      logsheet.status = 'Waiting for Signature';
+      updates.mufti_signature = null;
+      updates.mufti_sign_name = null;
+      updates.mufti_sign_date = null;
+      updates.ceo_signature = null;
+      updates.ceo_sign_name = null;
+      updates.ceo_sign_date = null;
+      updates.manager_signature = null;
+      updates.manager_sign_name = null;
+      updates.manager_sign_date = null;
+      updates.mufti2_signature = null;
+      updates.mufti2_sign_name = null;
+      updates.mufti2_sign_date = null;
+      updates.status = 'Waiting for Signature';
       delete updates.clear_signatures;
       delete updates.is_redo;
     }
-    Object.assign(logsheet, updates);
-    logsheet.updated_at = new Date();
-    await logsheet.save();
+    updates.updated_at = new Date();
 
-    res.json({ data: logsheet, message: 'Logsheet updated successfully' });
+    const updatedLogsheet = await ApplicationLogsheet.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true, runValidators: false }
+    );
+
+    res.json({ data: updatedLogsheet, message: 'Logsheet updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
