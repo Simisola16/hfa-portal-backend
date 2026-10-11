@@ -803,7 +803,9 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
     let letterUrl = app.documents?.surveillance_letter || '';
     const {
       letter_number,
+      audit_date,
       issue_date,
+      expiry_date,
       next_due_date,
       letter_mode = 'compose',
       recipient_name,
@@ -833,9 +835,10 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
 
       const pdfBuffer = await generateSurveillanceLetter({
         letter_number: resolvedLetterNumber,
+        audit_date: audit_date || req.body?.audit_date || req.body?.certification_start_date || app.audit_date || issue_date || new Date(),
+        certification_start_date: req.body?.certification_start_date,
         issue_date: issue_date || new Date(),
-        audit_date: req.body.audit_date || req.body.certification_start_date || app.audit_date || issue_date || new Date(),
-        certification_start_date: req.body.certification_start_date,
+        expiry_date: expiry_date || next_due_date || new Date(),
         recipient_name: company,
         recipient_address: address,
         recipient_attention: recipient_attention || '',
@@ -859,8 +862,10 @@ router.post('/:id/issue-surveillance-letter', authenticateToken, requireAdmin, u
 
     const letterData = {
       letter_number: letter_number || `HFA-SURV-${Date.now().toString().slice(-6)}`,
+      audit_date: audit_date || app.audit_date || issue_date || new Date(),
       issue_date: issue_date || new Date(),
-      next_due_date: next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      expiry_date: expiry_date || next_due_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      next_due_date: next_due_date || expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       letter_mode: req.file ? 'upload' : 'compose',
       recipient_name: recipient_name || app.establishment_name,
       recipient_address: recipient_address || app.establishment_address,

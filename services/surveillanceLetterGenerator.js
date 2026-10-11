@@ -85,9 +85,10 @@ function getTemplatePath() {
 export async function generateSurveillanceLetter(letterData = {}) {
   const {
     letter_number,
-    issue_date = new Date(),
     audit_date,
     certification_start_date,
+    issue_date = new Date(),
+    expiry_date,
     recipient_name = '',
     recipient_address = '',
     recipient_attention = '',
