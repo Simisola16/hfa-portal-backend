@@ -153,7 +153,10 @@ router.put('/company/subusers/:id', authenticateToken, async (req, res) => {
     if (!targetUser) return res.status(404).json({ error: 'User not found or access denied' });
 
     const { full_name, is_active, password } = req.body;
-    if (full_name?.trim()) targetUser.full_name = full_name.trim();
+    // Primary client account holder full_name cannot be modified from client portal
+    if (!isTargetPrimary && full_name?.trim()) {
+      targetUser.full_name = full_name.trim();
+    }
     if (typeof is_active === 'boolean') targetUser.is_active = is_active;
     if (password?.trim()) targetUser.password = password.trim();
 
