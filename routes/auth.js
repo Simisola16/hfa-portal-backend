@@ -571,14 +571,24 @@ router.put('/profile', authenticateToken, async (req, res) => {
   }
 
   try {
-    const { full_name, company_name, phone, address, postcode, country } = req.body;
+    const { phone, address, postcode, country } = req.body;
+    const isClient = req.userModelType !== 'Admin' && (!req.user.role || req.user.role === 'client');
+
+    const updateFields = { phone, address, postcode, country, updated_at: new Date() };
+
+    // Compliance: Clients cannot edit their legal company_name or full_name directly
+    if (!isClient) {
+      if (req.body.full_name !== undefined) updateFields.full_name = req.body.full_name;
+      if (req.body.company_name !== undefined) updateFields.company_name = req.body.company_name;
+    }
+
     const Model = req.userModelType === 'Admin' ? Admin : User;
     const user = await Model.findByIdAndUpdate(
       req.user._id,
-      { full_name, company_name, phone, address, postcode, country, updated_at: new Date() },
+      updateFields,
       { new: true }
     );
-    res.json({ user });
+    res.json({ user, profile: user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
