@@ -18,6 +18,12 @@ const productSchema = new mongoose.Schema({
   last_modified_by_name: { type: String },
   last_modified_at: { type: Date },
   status: { type: String, enum: ['active', 'inactive', 'pending', 'approved', 'rejected'], default: 'pending' },
+  is_invoiced: { type: Boolean, default: false },
+  invoiced_at: { type: Date, default: null },
+  invoiced_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+  invoiced_by_name: { type: String, default: '' },
+  invoice_number: { type: String, default: '' },
+  invoice_notes: { type: String, default: '' },
   ingredients: [String],
   notes: String,
   created_at: { type: Date, default: Date.now },
@@ -37,6 +43,8 @@ productSchema.index({ client_id: 1, certificate_id: 1 });
 productSchema.index({ created_at: -1 });
 productSchema.index({ status: 1, created_at: -1 });
 productSchema.index({ name: 1 });
+productSchema.index({ is_invoiced: 1 });
+productSchema.index({ client_id: 1, site_id: 1, is_invoiced: 1 });
 
 export default mongoose.model('Product', productSchema);
 
