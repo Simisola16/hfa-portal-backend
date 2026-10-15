@@ -48,28 +48,26 @@ router.get('/', authenticateToken, async (req, res) => {
       .populate('inspectors')
       .sort({ created_at: -1, createdAt: -1 });
 
-    // Collect site_ids and client_ids for missing site_name resolution
-    const missingSiteIds = [];
-    const missingClientIds = [];
+    // Collect all valid site_ids and client_ids for site_name resolution
+    const siteIdsToResolve = [];
+    const clientIdsToResolve = [];
     for (const doc of data) {
-      if (!doc.site_name) {
-        if (doc.site_id && mongoose.Types.ObjectId.isValid(doc.site_id)) {
-          missingSiteIds.push(new mongoose.Types.ObjectId(doc.site_id.toString()));
-        }
-        if (doc.client_id) {
-          const cId = (doc.client_id && typeof doc.client_id === 'object' && doc.client_id._id)
-            ? doc.client_id._id
-            : doc.client_id;
-          if (cId && mongoose.Types.ObjectId.isValid(cId.toString())) {
-            missingClientIds.push(new mongoose.Types.ObjectId(cId.toString()));
-          }
+      if (doc.site_id && mongoose.Types.ObjectId.isValid(doc.site_id)) {
+        siteIdsToResolve.push(new mongoose.Types.ObjectId(doc.site_id.toString()));
+      }
+      if (doc.client_id) {
+        const cId = (doc.client_id && typeof doc.client_id === 'object' && doc.client_id._id)
+          ? doc.client_id._id
+          : doc.client_id;
+        if (cId && mongoose.Types.ObjectId.isValid(cId.toString())) {
+          clientIdsToResolve.push(new mongoose.Types.ObjectId(cId.toString()));
         }
       }
     }
 
     const [sitesByIdList, sitesByClientList] = await Promise.all([
-      missingSiteIds.length > 0 ? Site.find({ _id: { $in: missingSiteIds } }, 'name est_name client_id').lean() : [],
-      missingClientIds.length > 0 ? Site.find({ client_id: { $in: missingClientIds } }, 'name est_name client_id').lean() : []
+      siteIdsToResolve.length > 0 ? Site.find({ _id: { $in: siteIdsToResolve } }, 'name est_name client_id').lean() : [],
+      clientIdsToResolve.length > 0 ? Site.find({ client_id: { $in: clientIdsToResolve } }, 'name est_name client_id').lean() : []
     ]);
 
     const siteMap = new Map(sitesByIdList.map(s => [String(s._id), s.name || s.est_name]));
@@ -87,11 +85,16 @@ router.get('/', authenticateToken, async (req, res) => {
       if (client?.company_name) {
         item.company_name = client.company_name;
       }
-      if (!item.site_name) {
-        const resolvedName = (item.site_id && siteMap.get(String(item.site_id)))
-          || (item.client_id && clientSiteMap.get(String(item.client_id?._id || item.client_id)))
+      const authoritativeSiteName = item.site_id ? siteMap.get(String(item.site_id)) : null;
+      if (authoritativeSiteName) {
+        // For renewals or apps missing site_name, ensure the site matches the linked site_id
+        if (!item.site_name || item.application_type === 'renewal' || item.type === 'renewal') {
+          item.site_name = authoritativeSiteName;
+        }
+      } else if (!item.site_name) {
+        const fallbackName = (item.client_id && clientSiteMap.get(String(item.client_id?._id || item.client_id)))
           || (item.company_name ? `${item.company_name} Main Site` : '');
-        if (resolvedName) item.site_name = resolvedName;
+        if (fallbackName) item.site_name = fallbackName;
       }
       return item;
     });
@@ -196,7 +199,9 @@ router.get('/:id/processing-details', authenticateToken, async (req, res) => {
     let finalApp = { ...appDoc };
     if (site) {
       finalApp.site = site;
-      if (!finalApp.site_name) finalApp.site_name = site.name || site.est_name;
+      if (!finalApp.site_name || finalApp.application_type === 'renewal' || finalApp.type === 'renewal') {
+        finalApp.site_name = site.name || site.est_name || finalApp.site_name;
+      }
     }
 
     // Filter main logsheet
@@ -271,7 +276,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const Site = mongoose.model('Site');
         if (mongoose.Types.ObjectId.isValid(finalData.site_id)) {
           const s = await Site.findById(finalData.site_id).lean();
-          if (s) finalData.site = s;
+          if (s) {
+            finalData.site = s;
+            if (!finalData.site_name || finalData.application_type === 'renewal' || finalData.type === 'renewal') {
+              finalData.site_name = s.name || s.est_name || finalData.site_name;
+            }
+          }
         }
       } catch (sErr) {}
     }
@@ -1178,6 +1188,17 @@ router.post('/renew', authenticateToken, upload.fields([
       originalApp = await Application.findOne({ site_id: cert.site_id, client_id: { $in: [req.user._id, req.user.parent_client_id].filter(Boolean) } }).sort({ created_at: -1 });
     }
 
+    // Resolve the actual Site for this certificate (giving priority to the certificate's site_id)
+    const targetSiteId = cert.site_id || req.body.site_id || originalApp?.site_id || null;
+    let certSite = null;
+    if (targetSiteId && mongoose.isValidObjectId(targetSiteId)) {
+      certSite = await Site.findById(targetSiteId);
+    }
+
+    const resolvedSiteName = certSite?.name || certSite?.site_name || cert.site_name || req.body.site_name || originalApp?.site_name || '';
+    const resolvedSiteAddress = certSite?.address_1 || certSite?.address || originalApp?.establishment_address || '';
+    const resolvedEstName = certSite?.est_name || originalApp?.establishment_name || req.user.company_name || '';
+
     // Upload supporting documents
     const uploadedDocs = [];
     if (req.files?.supporting_docs) {
@@ -1196,7 +1217,7 @@ router.post('/renew', authenticateToken, upload.fields([
       supporting_docs: [...uploadedDocs, ...pastSupporting]
     };
 
-    const companyForId = originalApp?.establishment_name || req.user.company_name || req.user.full_name || 'HFA';
+    const companyForId = originalApp?.establishment_name || certSite?.name || req.user.company_name || req.user.full_name || 'HFA';
     const appNumber = generateHfaId(companyForId, 'RE');
     const emailVal = (contact_email && contact_email.trim()) || originalApp?.primary_email || originalApp?.company_email || req.user.email || '';
     const phoneVal = (contact_phone && contact_phone.trim()) || originalApp?.primary_work_tel || originalApp?.primary_mobile || req.user.phone || '';
@@ -1207,10 +1228,11 @@ router.post('/renew', authenticateToken, upload.fields([
       application_type: 'renewal',
       renewed_certificate_id: cert._id,
       category: originalApp?.category || cert.certificate_type || 'Annual Certification – Food and General processing',
-      site_id: cert.site_id,
-      site_name: originalApp?.site_name || '',
-      establishment_name: originalApp?.establishment_name || req.user.company_name || '',
-      establishment_address: originalApp?.establishment_address || '',
+      site_id: targetSiteId ? String(targetSiteId) : '',
+      site_name: resolvedSiteName,
+      establishment_name: resolvedEstName,
+      establishment_address: resolvedSiteAddress,
+      site_address: resolvedSiteAddress,
       managing_director: contact_person.trim(),
       primary_contact_name: contact_person.trim(),
       primary_email: emailVal,
