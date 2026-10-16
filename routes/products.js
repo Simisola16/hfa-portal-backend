@@ -258,6 +258,355 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/products/accountant-approved
+// Dedicated high-visibility endpoint for Accountants & Admins to view newly added & approved products per company & site
+router.get('/accountant-approved', authenticateToken, async (req, res) => {
+  try {
+    const isStaff = isStaffUser(req.user, req.userModelType) ||
+      req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
+
+    if (!isStaff) {
+      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can access this page.' });
+    }
+
+    const {
+      invoiced_status = 'pending',
+      client_id,
+      site_id,
+      search,
+      period,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 100
+    } = req.query;
+
+    const baseQuery = {
+      status: { $in: ['approved', 'active'] }
+    };
+
+    // 1. Invoiced status filter
+    if (invoiced_status === 'pending') {
+      baseQuery.$and = baseQuery.$and || [];
+      baseQuery.$and.push({
+        $or: [
+          { is_invoiced: false },
+          { is_invoiced: { $exists: false } },
+          { is_invoiced: null }
+        ]
+      });
+    } else if (invoiced_status === 'invoiced' || invoiced_status === 'done') {
+      baseQuery.is_invoiced = true;
+    }
+
+    // 2. Client / Company filter
+    if (client_id && client_id !== 'all' && mongoose.isValidObjectId(client_id)) {
+      baseQuery.client_id = new mongoose.Types.ObjectId(client_id);
+    }
+
+    // 3. Site filter
+    if (site_id && site_id !== 'all' && mongoose.isValidObjectId(site_id)) {
+      baseQuery.site_id = new mongoose.Types.ObjectId(site_id);
+    }
+
+    // 4. Date filtering
+    let dateFilterStart = null;
+    let dateFilterEnd = null;
+
+    const now = new Date();
+    if (period === 'today') {
+      dateFilterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      dateFilterEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (period === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      dateFilterStart = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0, 0, 0, 0);
+      dateFilterEnd = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59, 59, 999);
+    } else if (period === 'this_week') {
+      const day = now.getDay() || 7;
+      const mon = new Date(now);
+      mon.setDate(now.getDate() - day + 1);
+      mon.setHours(0, 0, 0, 0);
+      dateFilterStart = mon;
+      dateFilterEnd = new Date();
+    } else if (period === 'this_month') {
+      dateFilterStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      dateFilterEnd = new Date();
+    } else if (startDate || endDate) {
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        dateFilterStart = s;
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        dateFilterEnd = e;
+      }
+    }
+
+    if (dateFilterStart || dateFilterEnd) {
+      const dateSubQuery = {};
+      if (dateFilterStart) dateSubQuery.$gte = dateFilterStart;
+      if (dateFilterEnd) dateSubQuery.$lte = dateFilterEnd;
+      baseQuery.$and = baseQuery.$and || [];
+      baseQuery.$and.push({
+        $or: [
+          { created_at: dateSubQuery },
+          { updated_at: dateSubQuery }
+        ]
+      });
+    }
+
+    // 5. Search filter (product name, barcode, code, or client company name)
+    if (search && String(search).trim()) {
+      const term = String(search).trim();
+      const regex = new RegExp(term, 'i');
+
+      const matchingUsers = await User.find({
+        $or: [
+          { company_name: regex },
+          { full_name: regex },
+          { email: regex }
+        ]
+      }, '_id').lean();
+      const userIds = matchingUsers.map(u => u._id);
+
+      const matchingSites = await Site.find({
+        $or: [
+          { name: regex },
+          { address: regex },
+          { city: regex }
+        ]
+      }, '_id').lean();
+      const siteIds = matchingSites.map(s => s._id);
+
+      const searchOr = [
+        { name: regex },
+        { code: regex },
+        { barcode: regex },
+        { category: regex }
+      ];
+      if (userIds.length > 0) searchOr.push({ client_id: { $in: userIds } });
+      if (siteIds.length > 0) searchOr.push({ site_id: { $in: siteIds } });
+
+      baseQuery.$and = baseQuery.$and || [];
+      baseQuery.$and.push({ $or: searchOr });
+    }
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = parseInt(limit, 10) === 0 ? 0 : Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+    const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
+
+    const totalMatching = await Product.countDocuments(baseQuery);
+
+    let queryBuilder = Product.find(baseQuery)
+      .populate('client_id', 'company_name full_name email phone')
+      .populate('site_id', 'name address city postal_code country')
+      .populate('invoiced_by', 'full_name username email')
+      .sort({ is_invoiced: 1, created_at: -1, updated_at: -1 });
+
+    if (limitNum > 0) {
+      queryBuilder = queryBuilder.skip(skip).limit(limitNum);
+    }
+
+    const products = await queryBuilder.lean();
+
+    // High-level KPI Stats
+    const statsQuery = { status: { $in: ['approved', 'active'] } };
+    if (client_id && client_id !== 'all' && mongoose.isValidObjectId(client_id)) {
+      statsQuery.client_id = new mongoose.Types.ObjectId(client_id);
+    }
+    if (site_id && site_id !== 'all' && mongoose.isValidObjectId(site_id)) {
+      statsQuery.site_id = new mongoose.Types.ObjectId(site_id);
+    }
+    if (dateFilterStart || dateFilterEnd) {
+      const dateSubQuery = {};
+      if (dateFilterStart) dateSubQuery.$gte = dateFilterStart;
+      if (dateFilterEnd) dateSubQuery.$lte = dateFilterEnd;
+      statsQuery.$or = [
+        { created_at: dateSubQuery },
+        { updated_at: dateSubQuery }
+      ];
+    }
+
+    const [pendingCount, invoicedCount, totalApproved] = await Promise.all([
+      Product.countDocuments({
+        ...statsQuery,
+        $or: [
+          { is_invoiced: false },
+          { is_invoiced: { $exists: false } },
+          { is_invoiced: null }
+        ]
+      }),
+      Product.countDocuments({
+        ...statsQuery,
+        is_invoiced: true
+      }),
+      Product.countDocuments(statsQuery)
+    ]);
+
+    // Unique Companies & Sites for quick filters
+    const [clientsList, sitesList] = await Promise.all([
+      User.find({ role: 'client' }, 'company_name full_name').sort({ company_name: 1 }).lean(),
+      Site.find({}, 'name client_id address city').sort({ name: 1 }).lean()
+    ]);
+
+    return res.json({
+      data: products,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalMatching,
+        totalPages: limitNum > 0 ? Math.ceil(totalMatching / limitNum) : 1
+      },
+      stats: {
+        pendingCount,
+        invoicedCount,
+        totalApproved
+      },
+      filterOptions: {
+        companies: clientsList.map(c => ({ id: c._id.toString(), name: c.company_name || c.full_name || 'Unnamed Company' })),
+        sites: sitesList.map(s => ({
+          id: s._id.toString(),
+          name: s.name || 'Main Facility',
+          company_id: s.client_id ? s.client_id.toString() : null,
+          city: s.city || ''
+        }))
+      }
+    });
+  } catch (err) {
+    console.error('Error in GET /api/products/accountant-approved:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/products/:id/toggle-invoiced
+// Single product toggle invoiced / done
+router.patch('/:id/toggle-invoiced', authenticateToken, async (req, res) => {
+  try {
+    const isStaff = isStaffUser(req.user, req.userModelType) ||
+      req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
+
+    if (!isStaff) {
+      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can update invoice status.' });
+    }
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid product ID' });
+    }
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const newInvoiced = typeof req.body.is_invoiced === 'boolean'
+      ? req.body.is_invoiced
+      : !product.is_invoiced;
+
+    const adminName = req.user.full_name || req.user.username || req.user.company_name || 'Accountant';
+
+    product.is_invoiced = newInvoiced;
+    if (newInvoiced) {
+      product.invoiced_at = new Date();
+      product.invoiced_by = req.user._id;
+      product.invoiced_by_name = adminName;
+      if (req.body.invoice_number !== undefined) product.invoice_number = String(req.body.invoice_number).trim();
+      if (req.body.invoice_notes !== undefined) product.invoice_notes = String(req.body.invoice_notes).trim();
+    } else {
+      product.invoiced_at = null;
+      product.invoiced_by = null;
+      product.invoiced_by_name = '';
+      product.invoice_number = '';
+      product.invoice_notes = '';
+    }
+    product.updated_at = new Date();
+
+    await product.save();
+
+    const populated = await Product.findById(id)
+      .populate('client_id', 'company_name full_name email phone')
+      .populate('site_id', 'name address city postal_code country')
+      .populate('invoiced_by', 'full_name username email')
+      .lean();
+
+    res.json({
+      success: true,
+      data: populated,
+      message: newInvoiced ? 'Product marked as Invoiced / Done.' : 'Product reverted to Pending Invoice.'
+    });
+  } catch (err) {
+    console.error('Error in PATCH /api/products/:id/toggle-invoiced:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/products/bulk-toggle-invoiced
+// Bulk toggle multiple products as invoiced / done (e.g. for an entire site or selection)
+router.post('/bulk-toggle-invoiced', authenticateToken, async (req, res) => {
+  try {
+    const isStaff = isStaffUser(req.user, req.userModelType) ||
+      req.userModelType === 'Admin' ||
+      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
+      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
+
+    if (!isStaff) {
+      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can update invoice status.' });
+    }
+
+    const { product_ids, is_invoiced = true, invoice_number = '', invoice_notes = '' } = req.body;
+    if (!Array.isArray(product_ids) || product_ids.length === 0) {
+      return res.status(400).json({ error: 'Please provide a list of product IDs.' });
+    }
+
+    const validIds = product_ids.filter(id => mongoose.isValidObjectId(id));
+    if (validIds.length === 0) {
+      return res.status(400).json({ error: 'No valid product IDs provided.' });
+    }
+
+    const adminName = req.user.full_name || req.user.username || req.user.company_name || 'Accountant';
+
+    const updatePayload = is_invoiced ? {
+      is_invoiced: true,
+      invoiced_at: new Date(),
+      invoiced_by: req.user._id,
+      invoiced_by_name: adminName,
+      invoice_number: String(invoice_number).trim(),
+      invoice_notes: String(invoice_notes).trim(),
+      updated_at: new Date()
+    } : {
+      is_invoiced: false,
+      invoiced_at: null,
+      invoiced_by: null,
+      invoiced_by_name: '',
+      invoice_number: '',
+      invoice_notes: '',
+      updated_at: new Date()
+    };
+
+    const result = await Product.updateMany(
+      { _id: { $in: validIds } },
+      { $set: updatePayload }
+    );
+
+    res.json({
+      success: true,
+      updatedCount: result.modifiedCount,
+      message: `Successfully updated ${result.modifiedCount} product(s) to ${is_invoiced ? 'Invoiced / Done' : 'Pending Invoice'}.`
+    });
+  } catch (err) {
+    console.error('Error in POST /api/products/bulk-toggle-invoiced:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Direct Batch Product Creation (Admin / Superadmin)
 router.post('/direct-batch', authenticateToken, async (req, res) => {
   try {
