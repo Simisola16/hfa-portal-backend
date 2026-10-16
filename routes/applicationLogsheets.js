@@ -710,7 +710,8 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       $or: [
         { application_id: appId },
         ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : []),
-        ...(app?.logsheet_id ? [{ _id: app.logsheet_id }] : [])
+        ...(app?.logsheet_id && mongoose.Types.ObjectId.isValid(app.logsheet_id) ? [{ _id: new mongoose.Types.ObjectId(app.logsheet_id) }] : []),
+        ...(app?.logsheet_id ? [{ logsheet_number: app.logsheet_id }, { legacy_id: app.logsheet_id }] : [])
       ]
     })
       .populate('client_id', 'full_name company_name email')
