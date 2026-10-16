@@ -303,7 +303,7 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       client_id,
       site_id,
       search,
-      period,
+      period = 'today',
       startDate,
       endDate,
       page = 1,
