@@ -258,6 +258,31 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Cache for accountant filter dropdowns (companies and sites) to avoid querying collections on every pagination click
+let cachedAccountantFilterOptions = null;
+let cachedAccountantFilterOptionsTime = 0;
+
+async function getAccountantFilterOptions(forceRefresh = false) {
+  if (!forceRefresh && cachedAccountantFilterOptions && (Date.now() - cachedAccountantFilterOptionsTime < 300000)) {
+    return cachedAccountantFilterOptions;
+  }
+  const [clientsList, sitesList] = await Promise.all([
+    User.find({ role: 'client' }, 'company_name full_name').sort({ company_name: 1 }).lean(),
+    Site.find({}, 'name client_id address city').sort({ name: 1 }).lean()
+  ]);
+  cachedAccountantFilterOptions = {
+    companies: clientsList.map(c => ({ id: c._id.toString(), name: c.company_name || c.full_name || 'Unnamed Company' })),
+    sites: sitesList.map(s => ({
+      id: s._id.toString(),
+      name: s.name || 'Main Facility',
+      company_id: s.client_id ? s.client_id.toString() : null,
+      city: s.city || ''
+    }))
+  };
+  cachedAccountantFilterOptionsTime = Date.now();
+  return cachedAccountantFilterOptions;
+}
+
 // GET /api/products/accountant-approved
 // Dedicated high-visibility endpoint for Accountants & Admins to view newly added & approved products per company & site
 router.get('/accountant-approved', authenticateToken, async (req, res) => {
@@ -280,7 +305,7 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 100
+      limit = 25
     } = req.query;
 
     const baseQuery = {
@@ -396,26 +421,12 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       baseQuery.$and.push({ $or: searchOr });
     }
 
-    // Pagination
+    // Pagination configuration
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = parseInt(limit, 10) === 0 ? 0 : Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+    const limitNum = parseInt(limit, 10) === 0 ? 0 : Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
     const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
 
-    const totalMatching = await Product.countDocuments(baseQuery);
-
-    let queryBuilder = Product.find(baseQuery)
-      .populate('client_id', 'company_name full_name email phone')
-      .populate('site_id', 'name address city postal_code country')
-      .populate('invoiced_by', 'full_name username email')
-      .sort({ is_invoiced: 1, created_at: -1, updated_at: -1 });
-
-    if (limitNum > 0) {
-      queryBuilder = queryBuilder.skip(skip).limit(limitNum);
-    }
-
-    const products = await queryBuilder.lean();
-
-    // High-level KPI Stats
+    // High-level KPI Stats Query
     const statsQuery = { status: { $in: ['approved', 'active'] } };
     if (client_id && client_id !== 'all' && mongoose.isValidObjectId(client_id)) {
       statsQuery.client_id = new mongoose.Types.ObjectId(client_id);
@@ -433,27 +444,36 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       ];
     }
 
-    const [pendingCount, invoicedCount, totalApproved] = await Promise.all([
-      Product.countDocuments({
-        ...statsQuery,
-        $or: [
-          { is_invoiced: false },
-          { is_invoiced: { $exists: false } },
-          { is_invoiced: null }
-        ]
-      }),
-      Product.countDocuments({
-        ...statsQuery,
-        is_invoiced: true
-      }),
-      Product.countDocuments(statsQuery)
+    // Run matching count, paginated product query, KPI stats, and cached options concurrently
+    const [totalMatching, products, kpiCounts, filterOptions] = await Promise.all([
+      Product.countDocuments(baseQuery),
+      (limitNum > 0
+        ? Product.find(baseQuery).skip(skip).limit(limitNum)
+        : Product.find(baseQuery)
+      )
+        .populate('client_id', 'company_name full_name email phone')
+        .populate('site_id', 'name address city postal_code country')
+        .populate('invoiced_by', 'full_name username email')
+        .sort({ is_invoiced: 1, created_at: -1, updated_at: -1 })
+        .lean(),
+      Promise.all([
+        Product.countDocuments({
+          ...statsQuery,
+          $or: [
+            { is_invoiced: false },
+            { is_invoiced: { $exists: false } },
+            { is_invoiced: null }
+          ]
+        }),
+        Product.countDocuments({
+          ...statsQuery,
+          is_invoiced: true
+        })
+      ]),
+      getAccountantFilterOptions()
     ]);
 
-    // Unique Companies & Sites for quick filters
-    const [clientsList, sitesList] = await Promise.all([
-      User.find({ role: 'client' }, 'company_name full_name').sort({ company_name: 1 }).lean(),
-      Site.find({}, 'name client_id address city').sort({ name: 1 }).lean()
-    ]);
+    const [pendingCount, invoicedCount] = kpiCounts;
 
     return res.json({
       data: products,
@@ -466,17 +486,9 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       stats: {
         pendingCount,
         invoicedCount,
-        totalApproved
+        totalApproved: pendingCount + invoicedCount
       },
-      filterOptions: {
-        companies: clientsList.map(c => ({ id: c._id.toString(), name: c.company_name || c.full_name || 'Unnamed Company' })),
-        sites: sitesList.map(s => ({
-          id: s._id.toString(),
-          name: s.name || 'Main Facility',
-          company_id: s.client_id ? s.client_id.toString() : null,
-          city: s.city || ''
-        }))
-      }
+      filterOptions
     });
   } catch (err) {
     console.error('Error in GET /api/products/accountant-approved:', err);

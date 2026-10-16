@@ -45,6 +45,7 @@ productSchema.index({ status: 1, created_at: -1 });
 productSchema.index({ name: 1 });
 productSchema.index({ is_invoiced: 1 });
 productSchema.index({ client_id: 1, site_id: 1, is_invoiced: 1 });
+productSchema.index({ status: 1, is_invoiced: 1, created_at: -1 });
 
 export default mongoose.model('Product', productSchema);
 
