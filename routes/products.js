@@ -283,17 +283,19 @@ async function getAccountantFilterOptions(forceRefresh = false) {
   return cachedAccountantFilterOptions;
 }
 
+function isAccountantUserOnly(user, userModelType) {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase().trim();
+  const roles = Array.isArray(user.roles) ? user.roles.map(r => String(r).toLowerCase().trim()) : [];
+  return role === 'accountant' || roles.includes('accountant') || role === 'superadmin' || roles.includes('superadmin');
+}
+
 // GET /api/products/accountant-approved
 // Dedicated high-visibility endpoint for Accountants & Admins to view newly added & approved products per company & site
 router.get('/accountant-approved', authenticateToken, async (req, res) => {
   try {
-    const isStaff = isStaffUser(req.user, req.userModelType) ||
-      req.userModelType === 'Admin' ||
-      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
-      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
-
-    if (!isStaff) {
-      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can access this page.' });
+    if (!isAccountantUserOnly(req.user, req.userModelType)) {
+      return res.status(403).json({ error: 'Unauthorized: This page is restricted strictly to accountants.' });
     }
 
     const {
@@ -500,13 +502,8 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
 // Single product toggle invoiced / done
 router.patch('/:id/toggle-invoiced', authenticateToken, async (req, res) => {
   try {
-    const isStaff = isStaffUser(req.user, req.userModelType) ||
-      req.userModelType === 'Admin' ||
-      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
-      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
-
-    if (!isStaff) {
-      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can update invoice status.' });
+    if (!isAccountantUserOnly(req.user, req.userModelType)) {
+      return res.status(403).json({ error: 'Unauthorized: Only accountants can update invoice status.' });
     }
 
     const { id } = req.params;
@@ -564,13 +561,8 @@ router.patch('/:id/toggle-invoiced', authenticateToken, async (req, res) => {
 // Bulk toggle multiple products as invoiced / done (e.g. for an entire site or selection)
 router.post('/bulk-toggle-invoiced', authenticateToken, async (req, res) => {
   try {
-    const isStaff = isStaffUser(req.user, req.userModelType) ||
-      req.userModelType === 'Admin' ||
-      ['admin', 'superadmin', 'accountant'].includes(req.user?.role) ||
-      (Array.isArray(req.user?.roles) && req.user.roles.some(r => ['admin', 'superadmin', 'accountant'].includes(r)));
-
-    if (!isStaff) {
-      return res.status(403).json({ error: 'Unauthorized: Only accountants and admins can update invoice status.' });
+    if (!isAccountantUserOnly(req.user, req.userModelType)) {
+      return res.status(403).json({ error: 'Unauthorized: Only accountants can update invoice status.' });
     }
 
     const { product_ids, is_invoiced = true, invoice_number = '', invoice_notes = '' } = req.body;
