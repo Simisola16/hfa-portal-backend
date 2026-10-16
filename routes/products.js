@@ -338,7 +338,10 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       baseQuery.site_id = new mongoose.Types.ObjectId(site_id);
     }
 
-    // 4. Date filtering
+    // 4. Date filtering & Feature Inception Cutoff
+    // All legacy products added before this accountant tracking page was created (Oct 16, 2026) are strictly excluded.
+    const ACCOUNTANT_FEATURE_LAUNCH_DATE = new Date('2026-10-16T00:00:00.000Z');
+
     let dateFilterStart = null;
     let dateFilterEnd = null;
 
@@ -374,18 +377,17 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
       }
     }
 
-    if (dateFilterStart || dateFilterEnd) {
-      const dateSubQuery = {};
-      if (dateFilterStart) dateSubQuery.$gte = dateFilterStart;
-      if (dateFilterEnd) dateSubQuery.$lte = dateFilterEnd;
-      baseQuery.$and = baseQuery.$and || [];
-      baseQuery.$and.push({
-        $or: [
-          { created_at: dateSubQuery },
-          { updated_at: dateSubQuery }
-        ]
-      });
+    // Always enforce that products must have been created on or after the accountant page inception
+    const effectiveStart = dateFilterStart
+      ? new Date(Math.max(dateFilterStart.getTime(), ACCOUNTANT_FEATURE_LAUNCH_DATE.getTime()))
+      : ACCOUNTANT_FEATURE_LAUNCH_DATE;
+
+    const dateSubQuery = { $gte: effectiveStart };
+    if (dateFilterEnd) {
+      dateSubQuery.$lte = dateFilterEnd;
     }
+
+    baseQuery.created_at = dateSubQuery;
 
     // 5. Search filter (product name, barcode, code, or client company name)
     if (search && String(search).trim()) {
@@ -436,15 +438,7 @@ router.get('/accountant-approved', authenticateToken, async (req, res) => {
     if (site_id && site_id !== 'all' && mongoose.isValidObjectId(site_id)) {
       statsQuery.site_id = new mongoose.Types.ObjectId(site_id);
     }
-    if (dateFilterStart || dateFilterEnd) {
-      const dateSubQuery = {};
-      if (dateFilterStart) dateSubQuery.$gte = dateFilterStart;
-      if (dateFilterEnd) dateSubQuery.$lte = dateFilterEnd;
-      statsQuery.$or = [
-        { created_at: dateSubQuery },
-        { updated_at: dateSubQuery }
-      ];
-    }
+    statsQuery.created_at = dateSubQuery;
 
     // Run matching count, paginated product query, KPI stats, and cached options concurrently
     const [totalMatching, products, kpiCounts, filterOptions] = await Promise.all([
