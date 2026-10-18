@@ -26,6 +26,10 @@ const userActivityLogSchema = new mongoose.Schema({
     enum: ['sign_in', 'sign_out', 'connected', 'disconnected']
   },
   ip_address: String,
+  location: String,
+  country: String,
+  city: String,
+  country_code: String,
   user_agent: String,
   created_at: {
     type: Date,

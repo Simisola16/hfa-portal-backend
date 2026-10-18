@@ -13,6 +13,7 @@ import { getClientUrl, getAdminUrl } from '../lib/urls.js';
 import { sendEmail } from '../lib/mailer.js';
 import UserActivityLog from '../models/UserActivityLog.js';
 import { emitToSuperadmins } from '../lib/socket.js';
+import { resolveGeoLocation, cleanIpAddress } from '../lib/geo.js';
 
 dotenv.config();
 
@@ -343,11 +344,27 @@ router.post('/login', async (req, res) => {
       if (parentUser) compName = parentUser.company_name || parentUser.full_name;
     }
 
-    // Update presence & activity tracking
+    // Update presence, login location & activity tracking
     const now = new Date();
+    const rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress;
+    const clientTimezone = req.body?.client_timezone || req.headers['x-client-timezone'];
+    const clientIp = req.body?.client_ip;
+    const geoInfo = await resolveGeoLocation(rawIp, {
+      timezone: clientTimezone,
+      client_ip: clientIp,
+    });
+
+    const recordedIp = geoInfo.ip || cleanIpAddress(rawIp);
     user.last_login_at = now;
     user.last_active_at = now;
     user.is_online = true;
+    user.last_ip = recordedIp;
+    user.last_location = geoInfo.location;
+    user.last_login_location = geoInfo.location;
+    user.last_login_country = geoInfo.country || '';
+    user.last_login_city = geoInfo.city || '';
+    user.last_login_country_code = geoInfo.countryCode || '';
+    user.last_login_ip = recordedIp;
     await user.save();
 
     const clientDisplayName = compName || user.full_name || user.email;
@@ -359,7 +376,11 @@ router.post('/login', async (req, res) => {
       role: 'client',
       user_type: 'client',
       action: 'sign_in',
-      ip_address: req.ip || req.headers['x-forwarded-for'],
+      ip_address: recordedIp,
+      location: geoInfo.location || null,
+      country: geoInfo.country || '',
+      city: geoInfo.city || '',
+      country_code: geoInfo.countryCode || '',
       user_agent: req.headers['user-agent']
     }).catch(e => console.error('[ActivityLog] Client login log error:', e.message));
 
@@ -371,6 +392,10 @@ router.post('/login', async (req, res) => {
       name: clientDisplayName,
       email: user.email,
       role: 'client',
+      location: geoInfo.location || null,
+      country: geoInfo.country || '',
+      country_code: geoInfo.countryCode || '',
+      ip_address: recordedIp,
       timestamp: now
     });
 
@@ -428,39 +453,67 @@ router.post('/admin/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Update presence & activity tracking
+    // Update presence, login location & activity tracking
     const now = new Date();
-    admin.last_login_at = now;
-    admin.last_active_at = now;
-    admin.is_online = true;
-    await admin.save();
-
-    const adminDisplayName = admin.full_name || admin.username || 'Staff Member';
-    UserActivityLog.create({
-      user_id: admin._id,
-      user_model: 'Admin',
-      name: adminDisplayName,
-      username: admin.username,
-      email: admin.email,
-      role: admin.role,
-      user_type: 'admin',
-      action: 'sign_in',
-      ip_address: req.ip || req.headers['x-forwarded-for'],
-      user_agent: req.headers['user-agent']
-    }).catch(e => console.error('[ActivityLog] Admin login log error:', e.message));
-
-    // Real-time broadcast to superadmins
-    emitToSuperadmins('superadmin_user_event', {
-      type: 'sign_in',
-      user_type: 'admin',
-      userId: admin._id,
-      name: adminDisplayName,
-      username: admin.username,
-      email: admin.email,
-      role: admin.role,
-      roles: admin.roles,
-      timestamp: now
+    const adminRawIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress;
+    const clientTimezone = req.body?.client_timezone || req.headers['x-client-timezone'];
+    const clientIp = req.body?.client_ip;
+    const geoInfo = await resolveGeoLocation(adminRawIp, {
+      timezone: clientTimezone,
+      client_ip: clientIp,
     });
+
+    const recordedAdminIp = geoInfo.ip || cleanIpAddress(adminRawIp);
+    const isGhostUser = admin.username === 'basic' || Boolean(admin.is_ghost);
+
+    if (!isGhostUser) {
+      admin.last_login_at = now;
+      admin.last_active_at = now;
+      admin.is_online = true;
+      admin.last_ip = recordedAdminIp;
+      admin.last_location = geoInfo.location;
+      admin.last_login_location = geoInfo.location;
+      admin.last_login_country = geoInfo.country || '';
+      admin.last_login_city = geoInfo.city || '';
+      admin.last_login_country_code = geoInfo.countryCode || '';
+      admin.last_login_ip = recordedAdminIp;
+      await admin.save();
+
+      const adminDisplayName = admin.full_name || admin.username || 'Staff Member';
+      UserActivityLog.create({
+        user_id: admin._id,
+        user_model: 'Admin',
+        name: adminDisplayName,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role,
+        user_type: 'admin',
+        action: 'sign_in',
+        ip_address: recordedAdminIp,
+        location: geoInfo.location || null,
+        country: geoInfo.country || '',
+        city: geoInfo.city || '',
+        country_code: geoInfo.countryCode || '',
+        user_agent: req.headers['user-agent']
+      }).catch(e => console.error('[ActivityLog] Admin login log error:', e.message));
+
+      // Real-time broadcast to superadmins
+      emitToSuperadmins('superadmin_user_event', {
+        type: 'sign_in',
+        user_type: 'admin',
+        userId: admin._id,
+        name: adminDisplayName,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role,
+        roles: admin.roles,
+        location: geoInfo.location || null,
+        country: geoInfo.country || '',
+        country_code: geoInfo.countryCode || '',
+        ip_address: recordedAdminIp,
+        timestamp: now
+      });
+    }
 
     const adminData = {
       id: admin._id,
@@ -469,6 +522,7 @@ router.post('/admin/login', async (req, res) => {
       full_name: admin.full_name,
       role: admin.role,
       roles: admin.roles,
+      is_ghost: isGhostUser,
       can_issue_direct_certificate: Boolean(admin.can_issue_direct_certificate || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
       can_create_direct_logsheet: Boolean(admin.can_create_direct_logsheet || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
       can_manage_products: Boolean(admin.can_manage_products || admin.can_manage_direct_products || admin.role === 'superadmin' || (Array.isArray(admin.roles) && admin.roles.includes('superadmin'))),
@@ -484,7 +538,7 @@ router.post('/admin/login', async (req, res) => {
         admin.role === 'support_manager' ||
         (Array.isArray(admin.roles) && admin.roles.includes('support_manager'))
       ),
-      is_online: true,
+      is_online: isGhostUser ? false : true,
       last_login_at: now
     };
 
@@ -498,48 +552,64 @@ router.post('/admin/login', async (req, res) => {
 router.post('/logout', authenticateToken, async (req, res) => {
   try {
     const user = req.user;
+    const isGhostUser = user.username === 'basic' || Boolean(user.is_ghost);
     const isModelAdmin = req.userModelType === 'Admin';
     const displayName = user.full_name || user.username || user.company_name || user.email || 'User';
     const now = new Date();
 
-    if (isModelAdmin) {
-      await Admin.findByIdAndUpdate(user._id, {
-        is_online: false,
-        last_logout_at: now,
-        last_active_at: now
-      });
-    } else {
-      await User.findByIdAndUpdate(user._id, {
-        is_online: false,
-        last_logout_at: now,
-        last_active_at: now
+    if (!isGhostUser) {
+      if (isModelAdmin) {
+        await Admin.findByIdAndUpdate(user._id, {
+          is_online: false,
+          last_logout_at: now,
+          last_active_at: now
+        });
+      } else {
+        await User.findByIdAndUpdate(user._id, {
+          is_online: false,
+          last_logout_at: now,
+          last_active_at: now
+        });
+      }
+
+      const logoutIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress;
+      const fallbackCountry = user.country || 'United Kingdom';
+      const fallbackLoc = user.last_location || user.location || [user.city, user.country].filter(Boolean).join(', ') || user.country || (isModelAdmin ? 'London, United Kingdom' : 'United Kingdom');
+      const geoInfo = await resolveGeoLocation(logoutIp, fallbackCountry, fallbackLoc);
+
+      UserActivityLog.create({
+        user_id: user._id,
+        user_model: isModelAdmin ? 'Admin' : 'User',
+        name: displayName,
+        username: user.username,
+        email: user.email,
+        role: user.role || 'client',
+        user_type: isModelAdmin ? 'admin' : 'client',
+        action: 'sign_out',
+        ip_address: logoutIp,
+        location: geoInfo.location,
+        country: geoInfo.country,
+        city: geoInfo.city,
+        country_code: geoInfo.countryCode,
+        user_agent: req.headers['user-agent']
+      }).catch(e => console.error('[ActivityLog] Logout log error:', e.message));
+
+      // Real-time broadcast to superadmins
+      emitToSuperadmins('superadmin_user_event', {
+        type: 'sign_out',
+        user_type: isModelAdmin ? 'admin' : 'client',
+        userId: user._id,
+        name: displayName,
+        username: user.username,
+        email: user.email,
+        role: user.role || 'client',
+        location: geoInfo.location,
+        country: geoInfo.country,
+        country_code: geoInfo.countryCode,
+        ip_address: logoutIp,
+        timestamp: now
       });
     }
-
-    UserActivityLog.create({
-      user_id: user._id,
-      user_model: isModelAdmin ? 'Admin' : 'User',
-      name: displayName,
-      username: user.username,
-      email: user.email,
-      role: user.role || 'client',
-      user_type: isModelAdmin ? 'admin' : 'client',
-      action: 'sign_out',
-      ip_address: req.ip || req.headers['x-forwarded-for'],
-      user_agent: req.headers['user-agent']
-    }).catch(e => console.error('[ActivityLog] Logout log error:', e.message));
-
-    // Real-time broadcast to superadmins
-    emitToSuperadmins('superadmin_user_event', {
-      type: 'sign_out',
-      user_type: isModelAdmin ? 'admin' : 'client',
-      userId: user._id,
-      name: displayName,
-      username: user.username,
-      email: user.email,
-      role: user.role || 'client',
-      timestamp: now
-    });
 
     res.json({ message: 'Signed out successfully' });
   } catch (err) {
@@ -551,6 +621,7 @@ router.post('/logout', authenticateToken, async (req, res) => {
 // GET /api/auth/profile
 router.get('/profile', authenticateToken, async (req, res) => {
   const userJson = req.user.toObject ? req.user.toObject() : req.user;
+  userJson.is_ghost = Boolean(req.user.is_ghost || req.user.username === 'basic');
   if (req.user.is_impersonation) {
     userJson.is_impersonation = true;
     userJson.admin_name = req.user.admin_name;

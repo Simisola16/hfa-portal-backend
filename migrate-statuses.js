@@ -1,6 +1,6 @@
 /**
  * migrate-statuses.js
- * One-time migration: maps old free-text status strings to the new 14-value enum.
+ * One-time migration: maps old 
  * Run with: node migrate-statuses.js
  */
 import mongoose from 'mongoose';
@@ -95,6 +95,6 @@ async function migrate() {
 }
 
 migrate().catch(err => {
-  console.error('❌ Migration failed:', err.message);
+  console.error('❌ Migration failed:', err.message);free-text status strings to the new 14-value enum.
   process.exit(1);
 });
