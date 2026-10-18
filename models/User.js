@@ -42,11 +42,19 @@ const userSchema = new mongoose.Schema({
   reset_password_expiry: Date,
   // Profile
   avatar_url:  String,
-  // Live presence & activity tracking
-  is_online:      { type: Boolean, default: false },
-  last_active_at: Date,
-  last_login_at:  Date,
-  last_logout_at: Date,
+  // Live presence, login location & activity tracking
+  city:                    String,
+  last_ip:                 String,
+  last_location:           String,
+  last_login_ip:           String,
+  last_login_location:     String,
+  last_login_country:      String,
+  last_login_city:         String,
+  last_login_country_code: String,
+  is_online:               { type: Boolean, default: false },
+  last_active_at:          Date,
+  last_login_at:           Date,
+  last_logout_at:          Date,
   created_at:  { type: Date, default: Date.now },
   updated_at:  { type: Date, default: Date.now },
 }, {
