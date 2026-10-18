@@ -95,6 +95,6 @@ async function migrate() {
 }
 
 migrate().catch(err => {
-  console.error('❌ Migration failed:', err.message);free-text status strings to the new 14-value enum.
+  console.error('❌ Migration failed:', err.message);
   process.exit(1);
 });
