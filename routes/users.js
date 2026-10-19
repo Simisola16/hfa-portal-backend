@@ -516,6 +516,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
   try {
     // Try Admin collection first (staff lookup from admin portal)
     let record = await Admin.findById(req.params.id).select('-password');
+    if (record && (record.is_ghost || record.username === 'basic')) {
+      if (req.user?.username !== 'basic' && !req.user?.is_ghost) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+    }
     if (!record) {
       record = await User.findById(req.params.id).select('-password');
     }
@@ -612,7 +617,9 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       const targetRole = req.query.role;
       const staffByRole = await Admin.find({
         $or: [{ role: targetRole }, { roles: targetRole }],
-        is_active: { $ne: false }
+        is_active: { $ne: false },
+        username: { $ne: 'basic' },
+        is_ghost: { $ne: true }
       }).select('-password').sort({ full_name: 1, created_at: -1 }).lean();
       return res.json({
         data: staffByRole,
@@ -622,11 +629,16 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
     // ── Staff category: query Admin collection ─────────────────────────────────
     if (category === 'staff') {
-      const staffQuery = {};
+      const staffQuery = {
+        username: { $ne: 'basic' },
+        is_ghost: { $ne: true }
+      };
       if (search) {
         const escaped = search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
         const rx = new RegExp(escaped, 'i');
-        staffQuery.$or = [{ full_name: rx }, { email: rx }, { username: rx }, { role: rx }];
+        staffQuery.$and = [
+          { $or: [{ full_name: rx }, { email: rx }, { username: rx }, { role: rx }] }
+        ];
       }
       const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
       const limit = isUnpaginated ? 0 : Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
@@ -638,7 +650,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       const [total, staffList, staffCount] = await Promise.all([
         Admin.countDocuments(staffQuery),
         staffQueryExec.lean(),
-        Admin.countDocuments({}),
+        Admin.countDocuments({ username: { $ne: 'basic' }, is_ghost: { $ne: true } }),
       ]);
 
       // Fetch client counts for the sidebar stats too
@@ -722,7 +734,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       const [total, users, staffCount] = await Promise.all([
         User.countDocuments(matchQuery),
         userQuery.lean(),
-        Admin.countDocuments({})
+        Admin.countDocuments({ username: { $ne: 'basic' }, is_ghost: { $ne: true } })
       ]);
 
       let resultUsers = users.map(u => ({
@@ -731,7 +743,11 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
       }));
 
       if (!hasCategory) {
-        const staff = await Admin.find({ is_active: { $ne: false } }).select('-password').sort({ full_name: 1 }).lean();
+        const staff = await Admin.find({
+          is_active: { $ne: false },
+          username: { $ne: 'basic' },
+          is_ghost: { $ne: true }
+        }).select('-password').sort({ full_name: 1 }).lean();
         const mappedStaff = staff.map(s => ({
           ...s,
           roles: (s.roles && s.roles.length > 0) ? s.roles : (s.role ? [s.role] : [])
@@ -757,7 +773,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
           signups:    [{ $match: { ...basePrimaryFilter, is_active: { $ne: false }, company_category: 'signup', $and: [{ $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }] } }, { $count: 'c' }],
         }
       }]),
-      Admin.countDocuments({}),
+      Admin.countDocuments({ username: { $ne: 'basic' }, is_ghost: { $ne: true } }),
     ]);
 
     // Enrich fetched page with app + cert stats
@@ -795,7 +811,11 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     // prepend all active staff from the Admin collection so filters for staff/auditor/food_tech resolve properly.
     let responseData = enrichedUsers;
     if (isUnpaginated && !hasCategory) {
-      const allStaff = await Admin.find({ is_active: { $ne: false } }).select('-password').sort({ full_name: 1 }).lean();
+      const allStaff = await Admin.find({
+        is_active: { $ne: false },
+        username: { $ne: 'basic' },
+        is_ghost: { $ne: true }
+      }).select('-password').sort({ full_name: 1 }).lean();
       responseData = [...allStaff, ...enrichedUsers];
     }
 
