@@ -133,7 +133,9 @@ router.get('/activity-logs', authenticateToken, requireSuperAdmin, async (req, r
     const isGhostViewer = req.user?.username === 'basic' || Boolean(req.user?.is_ghost);
     const { user_type, action, limit = 100 } = req.query;
     const query = {
-      username: { $ne: 'basic' } // Never leak ghost user activity
+      username: { $ne: 'basic' },
+      email: { $ne: 'basic@hfa.internal' },
+      name: { $ne: 'Basic Super Admin' }
     };
 
     if (user_type && ['admin', 'client'].includes(user_type)) {

