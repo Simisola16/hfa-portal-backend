@@ -360,56 +360,56 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         extension_reason: logsheet_type === 'extension' ? (extension_reason || '') : undefined,
         extended_expiry_date: logsheet_type === 'extension' ? (extended_expiry_date || undefined) : undefined,
 
-      addon_type: addon_type || 'New Products',
-      raw_materials_approved: raw_materials_approved || 'Yes',
-      cross_contamination_risk: cross_contamination_risk || 'None',
+        addon_type: addon_type || 'New Products',
+        raw_materials_approved: raw_materials_approved || 'Yes',
+        cross_contamination_risk: cross_contamination_risk || 'None',
 
-      formulation_checked: formulation_checked || 'Yes',
-      lab_test_required: lab_test_required || 'No',
-      initial_approval_stage: initial_approval_stage || 'Stage 1 - Desk Review',
-      decision_type: decision_type || 'Approved',
+        formulation_checked: formulation_checked || 'Yes',
+        lab_test_required: lab_test_required || 'No',
+        initial_approval_stage: initial_approval_stage || 'Stage 1 - Desk Review',
+        decision_type: decision_type || 'Approved',
 
-      site_name: site_name || 'Main Manufacturing Site',
-      company_name: company_name || 'Company',
-      company_address: company_address || '',
-      manufacturing_address: manufacturing_address || '',
-      contact_person: contact_person || '',
-      contact_email: contact_email || '',
-      issue_date: issue_date || new Date(),
-      expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      nature_of_business: nature_of_business || 'Halal Food Production',
-      product_category: product_category || 'Halal Certified',
-      product_name: product_name || (Array.isArray(products_list) && products_list.length > 0 ? products_list.map(p => p.name).filter(Boolean).join(', ') : ''),
-      product_code: product_code || '',
-      products_list: Array.isArray(products_list) ? products_list : [],
-      current_cycle_start: current_cycle_start || issue_date || new Date(),
-      original_cycle_start: original_cycle_start || current_cycle_start || issue_date || new Date(),
-      document_urls: Array.isArray(document_urls) ? document_urls : [],
-      audit_reports: Array.isArray(audit_reports) ? audit_reports : [],
-      nc_reports_files: Array.isArray(nc_reports_files) ? nc_reports_files : [],
+        site_name: site_name || 'Main Manufacturing Site',
+        company_name: company_name || 'Company',
+        company_address: company_address || '',
+        manufacturing_address: manufacturing_address || '',
+        contact_person: contact_person || '',
+        contact_email: contact_email || '',
+        issue_date: issue_date || new Date(),
+        expiry_date: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        nature_of_business: nature_of_business || 'Halal Food Production',
+        product_category: product_category || 'Halal Certified',
+        product_name: product_name || (Array.isArray(products_list) && products_list.length > 0 ? products_list.map(p => p.name).filter(Boolean).join(', ') : ''),
+        product_code: product_code || '',
+        products_list: Array.isArray(products_list) ? products_list : [],
+        current_cycle_start: current_cycle_start || issue_date || new Date(),
+        original_cycle_start: original_cycle_start || current_cycle_start || issue_date || new Date(),
+        document_urls: Array.isArray(document_urls) ? document_urls : [],
+        audit_reports: Array.isArray(audit_reports) ? audit_reports : [],
+        nc_reports_files: Array.isArray(nc_reports_files) ? nc_reports_files : [],
 
-      audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : 'Direct Logsheet Review'),
-      audit_date: audit_date || new Date(),
-      auditors: auditors || req.user.full_name || 'HFA Lead Auditor',
-      ncs_close: ncs_close || 'N/A - Direct Logsheet Review',
-      docs_satisfactory: docs_satisfactory || 'Satisfactory - all product specifications and formulations verified',
-      pork_free_statement: pork_free_statement || 'Confirmed - signed pork-free declaration in place',
-      reviewed_by: reviewed_by || req.user.full_name || 'HFA Technical Reviewer',
-      reviewer_name: reviewer_name || req.user.full_name || 'HFA Technical Reviewer',
-      review_date: review_date || new Date(),
+        audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : 'Direct Logsheet Review'),
+        audit_date: audit_date || new Date(),
+        auditors: auditors || req.user.full_name || 'HFA Lead Auditor',
+        ncs_close: ncs_close || 'N/A - Direct Logsheet Review',
+        docs_satisfactory: docs_satisfactory || 'Satisfactory - all product specifications and formulations verified',
+        pork_free_statement: pork_free_statement || 'Confirmed - signed pork-free declaration in place',
+        reviewed_by: reviewed_by || req.user.full_name || 'HFA Technical Reviewer',
+        reviewer_name: reviewer_name || req.user.full_name || 'HFA Technical Reviewer',
+        review_date: review_date || new Date(),
 
-      annual_certificate: annual_certificate || 'Yes',
-      batch_certificate: batch_certificate || 'No',
-      new_products_only: new_products_only || 'No',
-      new_site_line: new_site_line || 'No',
-      new_client: (is_new_client === 'Yes' || is_new_client === true) ? 'Yes' : 'No',
-      agreement_signed: agreement_signed || 'Yes',
-      status_date: status_date || new Date(),
+        annual_certificate: annual_certificate || 'Yes',
+        batch_certificate: batch_certificate || 'No',
+        new_products_only: new_products_only || 'No',
+        new_site_line: new_site_line || 'No',
+        new_client: (is_new_client === 'Yes' || is_new_client === true) ? 'Yes' : 'No',
+        agreement_signed: agreement_signed || 'Yes',
+        status_date: status_date || new Date(),
 
-      comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
-      status: 'Waiting for Signature'
-    });
-  }
+        comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
+        status: 'Waiting for Signature'
+      });
+    }
 
     // Apply immediate role signature if provided and user has signature privilege
     if (role && signature_url) {
@@ -710,8 +710,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
       $or: [
         { application_id: appId },
         ...(isObjId ? [{ application_id: new mongoose.Types.ObjectId(appId) }] : []),
-        ...(app?.logsheet_id && mongoose.Types.ObjectId.isValid(app.logsheet_id) ? [{ _id: new mongoose.Types.ObjectId(app.logsheet_id) }] : []),
-        ...(app?.logsheet_id ? [{ logsheet_number: app.logsheet_id }, { legacy_id: app.logsheet_id }] : [])
+        ...(app?.logsheet_id ? [{ _id: app.logsheet_id }] : [])
       ]
     })
       .populate('client_id', 'full_name company_name email')
@@ -993,7 +992,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     const certIssuedLogs = logsheets.filter(l => !l.is_seed && l.application_id?.status === 'certificate_issued' && l.status !== 'Completed');
     if (certIssuedLogs.length > 0) {
       const idsToComplete = certIssuedLogs.map(l => l._id);
-      ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      ApplicationLogsheet.updateMany({ _id: { $in: idsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => { });
       certIssuedLogs.forEach(l => { l.status = 'Completed'; });
     }
 
@@ -1001,7 +1000,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     const ipLogsToComplete = logsheets.filter(l => !l.is_seed && (l.source_type === 'initial_product_application' || l.initial_product_application_id || l.audit_type === 'Initial Product Evaluation') && l.status === 'Waiting For Certificate');
     if (ipLogsToComplete.length > 0) {
       const ipIdsToComplete = ipLogsToComplete.map(l => l._id);
-      ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => {});
+      ApplicationLogsheet.updateMany({ _id: { $in: ipIdsToComplete } }, { $set: { status: 'Completed', updated_at: new Date() } }).exec().catch(() => { });
       ipLogsToComplete.forEach(l => { l.status = 'Completed'; });
     }
 
@@ -1163,7 +1162,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     if ((status === 'Signed' || status === 'Waiting For Certificate' || status === 'Completed') && logsheet.application_id) {
       const appId = logsheet.application_id._id || logsheet.application_id;
       const sigCount = countLogsheetSignatures(logsheet);
-      
+
       const app = await Application.findById(appId);
       if (app) {
         const isRenewal = app.application_type === 'renewal';
@@ -1231,8 +1230,8 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
               if (!str) return true;
               const s = String(str).trim().toLowerCase();
               return s === String(siteName).trim().toLowerCase() ||
-                     s === String(app.establishment_name || '').trim().toLowerCase() ||
-                     s === String(app.site_name || '').trim().toLowerCase();
+                s === String(app.establishment_name || '').trim().toLowerCase() ||
+                s === String(app.site_name || '').trim().toLowerCase();
             };
 
             let compName = rawComp;
@@ -1242,7 +1241,7 @@ router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
                 const cUser = await User.findById(app.client_id).select('company_name full_name').lean();
                 if (cUser?.company_name) compName = cUser.company_name;
                 else if (cUser?.full_name) compName = cUser.full_name;
-              } catch (e) {}
+              } catch (e) { }
             }
             if (!compName || isSiteColliding(compName)) {
               compName = logsheet.company_name || app.company_name || 'Manufacturing Client';
@@ -1420,7 +1419,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                   io.emit('addon_updated', { addOnId: addonApp._id, status: 'ready_for_certificate' });
                   io.emit('product_updated', { client_id: clientId });
                 }
-              } catch (sockErr) {}
+              } catch (sockErr) { }
             }
           }
         } catch (addonErr) {
@@ -1562,7 +1561,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                 io.emit('initial_product_updated', { id: initialApp._id, status: 'initial_product_approved' });
                 io.emit('product_updated', { client_id: clientId });
               }
-            } catch (sockErr) {}
+            } catch (sockErr) { }
           }
         } catch (initErr) {
           console.error('[Logsheet] Failed to update initial product application after sign-off:', initErr.message);
@@ -1639,8 +1638,8 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                 if (!str) return true;
                 const s = String(str).trim().toLowerCase();
                 return s === String(siteName).trim().toLowerCase() ||
-                       s === String(currentApp.establishment_name || '').trim().toLowerCase() ||
-                       s === String(currentApp.site_name || '').trim().toLowerCase();
+                  s === String(currentApp.establishment_name || '').trim().toLowerCase() ||
+                  s === String(currentApp.site_name || '').trim().toLowerCase();
               };
 
               let compName = rawComp;
@@ -1650,7 +1649,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
                   const cUser = await User.findById(currentApp.client_id).select('company_name full_name').lean();
                   if (cUser?.company_name) compName = cUser.company_name;
                   else if (cUser?.full_name) compName = cUser.full_name;
-                } catch (e) {}
+                } catch (e) { }
               }
               if (!compName || isSiteColliding(compName)) {
                 compName = logsheet.company_name || currentApp.company_name || 'Manufacturing Client';
@@ -1844,7 +1843,7 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
 
     // Keep state in "Waiting for Signature" to allow further role sign-offs one-by-one
     await logsheet.save();
-    
+
     res.json({ data: logsheet, message: `Successfully signed as ${singleRole}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
