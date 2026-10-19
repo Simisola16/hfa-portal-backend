@@ -231,23 +231,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const products = await productQuery.lean();
 
-    // Deduplicate products per site (client_id + site_id + name + code)
-    const uniqueProducts = [];
-    const seenProductKeys = new Set();
-    for (const p of products) {
-      const cIdStr = p.client_id ? (p.client_id._id ? p.client_id._id.toString() : p.client_id.toString()) : 'global';
-      const siteIdStr = p.site_id ? (p.site_id._id ? p.site_id._id.toString() : p.site_id.toString()) : 'no-site';
-      const nameStr = (p.name || '').trim().toLowerCase();
-      const codeStr = (p.code || p.barcode || '').trim().toLowerCase();
-      if (!nameStr) continue;
-      const key = `${cIdStr}:${siteIdStr}:${nameStr}:${codeStr}`;
-      if (!seenProductKeys.has(key)) {
-        seenProductKeys.add(key);
-        uniqueProducts.push(p);
-      }
-    }
-
-    const responseData = await enrichProductsWithClients(uniqueProducts);
+    // Return all matching products without deduplication (allow same name and same code)
+    const validProducts = products.filter(p => p.name && p.name.trim());
+    const responseData = await enrichProductsWithClients(validProducts);
     return res.json({
       data: responseData,
       pagination: null

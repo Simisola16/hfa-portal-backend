@@ -2774,13 +2774,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     const cleanProducts = [];
-    const seenProdNames = new Set();
     for (const p of parsedProducts) {
       const name = typeof p === 'string' ? p.trim() : (p.name || '').trim();
       if (!name) continue;
-      const lowerName = name.toLowerCase();
-      if (seenProdNames.has(lowerName)) continue;
-      seenProdNames.add(lowerName);
 
       cleanProducts.push({
         _sourceId: typeof p === 'object' ? (p._sourceId || p._id || p.id || null) : null,
@@ -2918,23 +2914,6 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       const prodId = prod._sourceId;
       if (prodId && mongoose.isValidObjectId(prodId)) {
         existingProd = await Product.findOne({ _id: prodId, client_id: targetClientId });
-      }
-      if (!existingProd && prod.name) {
-        const queryWithCodeAndSite = {
-          client_id: targetClientId,
-          name: { $regex: new RegExp(`^${prod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
-        };
-        if (prod.code) queryWithCodeAndSite.code = prod.code;
-        if (targetSiteId) queryWithCodeAndSite.site_id = targetSiteId;
-        existingProd = await Product.findOne(queryWithCodeAndSite);
-
-        if (!existingProd && targetSiteId) {
-          existingProd = await Product.findOne({
-            client_id: targetClientId,
-            site_id: targetSiteId,
-            name: { $regex: new RegExp(`^${prod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
-          });
-        }
       }
 
       if (existingProd) {
