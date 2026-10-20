@@ -655,7 +655,6 @@ export async function generateCertificate(certData) {
           ? certData.products_covered
           : [];
 
-  const seenProductNames = new Set();
   const allProducts = [];
   if (rawProducts && rawProducts.length > 0) {
     rawProducts.forEach((p, idx) => {
@@ -681,9 +680,7 @@ export async function generateCertificate(certData) {
         category = 'Halal Certified';
       }
 
-      const key = `${code.toLowerCase()}___${name.toLowerCase()}`;
-      if (name && !seenProductNames.has(key)) {
-        seenProductNames.add(key);
+      if (name) {
         allProducts.push({
           code: sanitizeForPdf(code),
           name: sanitizeForPdf(name),

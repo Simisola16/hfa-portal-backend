@@ -1055,31 +1055,18 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       }
     } catch (_) { }
 
-    // 8. Build unified product catalog (differentiating products with same name and different codes)
+    // 8. Build unified product catalog (preserving all products, allowing duplicate names/codes)
     const productMap = new Map();
 
     const findExistingKey = (p) => {
       const pId = p._id ? p._id.toString() : (p.id ? String(p.id) : '');
-      const name = (p.name || p.title || p.product_name || '').trim().toLowerCase();
-      const code = (p.code || p.barcode || '').trim().toLowerCase();
+      if (!pId) return null;
 
       for (const [k, existing] of productMap.entries()) {
         const existingId = existing.id ? String(existing.id) : '';
-        const existingName = (existing.name || '').trim().toLowerCase();
-        const existingCode = (existing.code || existing.barcode || '').trim().toLowerCase();
-
-        // 1. Exact DB _id match
-        if (pId && existingId && pId === existingId) {
+        // Only deduplicate if exact same database document ID
+        if (existingId && pId === existingId) {
           return k;
-        }
-
-        // 2. Same name AND same code match
-        if (name && existingName && name === existingName) {
-          if (code && existingCode) {
-            if (code === existingCode) return k;
-          } else if (!code && !existingCode) {
-            return k;
-          }
         }
       }
       return null;
