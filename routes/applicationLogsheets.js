@@ -197,6 +197,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       expiry_date,
       current_cycle_start,
       original_cycle_start,
+      next_surveillance_due_date,
       audit_type,
       audit_date,
       auditors,
@@ -303,6 +304,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       if (expiry_date) logsheet.expiry_date = expiry_date;
       if (current_cycle_start) logsheet.current_cycle_start = current_cycle_start;
       if (original_cycle_start) logsheet.original_cycle_start = original_cycle_start;
+      if (next_surveillance_due_date) logsheet.next_surveillance_due_date = next_surveillance_due_date;
       logsheet.audit_type = audit_type !== undefined ? audit_type : logsheet.audit_type;
       if (audit_date) logsheet.audit_date = audit_date;
       logsheet.auditors = auditors !== undefined ? auditors : logsheet.auditors;
@@ -384,11 +386,12 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         products_list: Array.isArray(products_list) ? products_list : [],
         current_cycle_start: current_cycle_start || issue_date || new Date(),
         original_cycle_start: original_cycle_start || current_cycle_start || issue_date || new Date(),
+        next_surveillance_due_date: next_surveillance_due_date || undefined,
         document_urls: Array.isArray(document_urls) ? document_urls : [],
         audit_reports: Array.isArray(audit_reports) ? audit_reports : [],
         nc_reports_files: Array.isArray(nc_reports_files) ? nc_reports_files : [],
 
-        audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : 'Direct Logsheet Review'),
+        audit_type: audit_type || (logsheet_type === 'extension' ? 'Certificate Extension Review' : logsheet_type === 'addon' ? 'Add-on Product / Scope Review' : logsheet_type === 'initial_product' ? 'Initial Product Evaluation' : logsheet_type === 'surveillance' ? 'Surveillance' : 'Direct Logsheet Review'),
         audit_date: audit_date || new Date(),
         auditors: auditors || req.user.full_name || 'HFA Lead Auditor',
         ncs_close: ncs_close || 'N/A - Direct Logsheet Review',
