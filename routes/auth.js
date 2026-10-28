@@ -17,7 +17,6 @@ import {
   buildClientProfileUpdateConfirmationEmail,
   buildClientPasswordChangedStaffEmail,
   buildClientPasswordChangedConfirmationEmail,
-  getAdminUrl as _mailerAdminUrl,
 } from '../lib/mailer.js';
 import UserActivityLog from '../models/UserActivityLog.js';
 import { emitToSuperadmins } from '../lib/socket.js';
@@ -655,14 +654,17 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
     // ── Build changed-fields diff for audit / email notifications ─────────────
     const FIELD_LABELS = {
-      phone:    'Phone Number',
-      address:  'Business Address',
-      postcode: 'Postcode',
-      country:  'Country',
+      company_name: 'Company / Organisation Name',
+      full_name:    'Primary Contact Full Name',
+      phone:        'Phone Number',
+      address:      'Business Address',
+      postcode:     'Postcode',
+      country:      'Country',
     };
     const changedFields = [];
-    if (isClient) {
-      for (const key of ['phone', 'address', 'postcode', 'country']) {
+    const fieldsToTrack = ['company_name', 'full_name', 'phone', 'address', 'postcode', 'country'];
+    for (const key of fieldsToTrack) {
+      if (req.body[key] !== undefined) {
         const newVal = ((req.body[key] ?? '')).toString().trim();
         const oldVal = ((req.user[key] ?? '')).toString().trim();
         if (newVal !== oldVal) {
@@ -678,10 +680,12 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
     const updateFields = { phone, address, postcode, country, updated_at: new Date() };
 
-    // Compliance: Clients cannot edit their legal company_name or full_name directly
-    if (!isClient) {
-      if (req.body.full_name !== undefined) updateFields.full_name = req.body.full_name;
-      if (req.body.company_name !== undefined) updateFields.company_name = req.body.company_name;
+    // Allow editing full_name and company_name
+    if (req.body.full_name !== undefined && req.body.full_name.trim()) {
+      updateFields.full_name = req.body.full_name.trim();
+    }
+    if (req.body.company_name !== undefined && req.body.company_name.trim()) {
+      updateFields.company_name = req.body.company_name.trim();
     }
 
     const Model = req.userModelType === 'Admin' ? Admin : User;
