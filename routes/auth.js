@@ -10,7 +10,15 @@ import crypto from 'crypto';
 import ImpersonationLog from '../models/ImpersonationLog.js';
 import ImpersonationCode from '../models/ImpersonationCode.js';
 import { getClientUrl, getAdminUrl } from '../lib/urls.js';
-import { sendEmail } from '../lib/mailer.js';
+import {
+  sendEmail,
+  getAllStaffEmails,
+  buildClientProfileUpdateEmail,
+  buildClientProfileUpdateConfirmationEmail,
+  buildClientPasswordChangedStaffEmail,
+  buildClientPasswordChangedConfirmationEmail,
+  getAdminUrl as _mailerAdminUrl,
+} from '../lib/mailer.js';
 import UserActivityLog from '../models/UserActivityLog.js';
 import { emitToSuperadmins } from '../lib/socket.js';
 import { resolveGeoLocation, cleanIpAddress } from '../lib/geo.js';
@@ -645,6 +653,29 @@ router.put('/profile', authenticateToken, async (req, res) => {
     const { phone, address, postcode, country } = req.body;
     const isClient = req.userModelType !== 'Admin' && (!req.user.role || req.user.role === 'client');
 
+    // ── Build changed-fields diff for audit / email notifications ─────────────
+    const FIELD_LABELS = {
+      phone:    'Phone Number',
+      address:  'Business Address',
+      postcode: 'Postcode',
+      country:  'Country',
+    };
+    const changedFields = [];
+    if (isClient) {
+      for (const key of ['phone', 'address', 'postcode', 'country']) {
+        const newVal = ((req.body[key] ?? '')).toString().trim();
+        const oldVal = ((req.user[key] ?? '')).toString().trim();
+        if (newVal !== oldVal) {
+          changedFields.push({
+            label:  FIELD_LABELS[key] || key,
+            before: oldVal || 'Not set',
+            after:  newVal || 'Removed',
+          });
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const updateFields = { phone, address, postcode, country, updated_at: new Date() };
 
     // Compliance: Clients cannot edit their legal company_name or full_name directly
@@ -659,7 +690,129 @@ router.put('/profile', authenticateToken, async (req, res) => {
       updateFields,
       { new: true }
     );
+
+    // ── Fire-and-forget: notify ALL staff + confirm to client ─────────────────
+    if (isClient && changedFields.length > 0) {
+      const updatedAt = new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' });
+      const adminPortalUrl = getAdminUrl(req);
+      const clientSnap = {
+        company_name: user.company_name,
+        full_name:    user.full_name,
+        email:        user.email,
+        phone:        user.phone,
+        address:      user.address,
+        postcode:     user.postcode,
+        country:      user.country,
+      };
+
+      (async () => {
+        // 1. Notify all active HFA staff
+        try {
+          const staffEmails = await getAllStaffEmails();
+          if (staffEmails.length > 0) {
+            await sendEmail({
+              to:      staffEmails,
+              subject: `[HFA] Client Profile Updated — ${clientSnap.company_name || clientSnap.full_name || clientSnap.email}`,
+              html:    buildClientProfileUpdateEmail({ client: clientSnap, changedFields, adminUrl: adminPortalUrl, updatedAt }),
+              skipSuperadminBcc: true,
+            });
+          }
+        } catch (e) {
+          console.warn('[Auth] Staff profile-update email error:', e.message);
+        }
+        // 2. Send confirmation to the client
+        try {
+          if (user.email) {
+            await sendEmail({
+              to:      user.email,
+              subject: 'Your HFA Portal Profile Has Been Updated',
+              html:    buildClientProfileUpdateConfirmationEmail({ client: clientSnap, changedFields, updatedAt }),
+              skipSuperadminBcc: true,
+            });
+          }
+        } catch (e) {
+          console.warn('[Auth] Client profile-update confirmation email error:', e.message);
+        }
+      })();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     res.json({ user, profile: user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/profile/change-password
+// Lets a client change their own password (requires current password for verification)
+router.post('/profile/change-password', authenticateToken, async (req, res) => {
+  if (req.user.is_impersonation || req.is_impersonation) {
+    return res.status(403).json({ error: 'Action forbidden. Password changes are not permitted in impersonated sessions.' });
+  }
+
+  const isClient = req.userModelType !== 'Admin' && (!req.user.role || req.user.role === 'client');
+  if (!isClient) {
+    return res.status(403).json({ error: 'This endpoint is for client accounts only.' });
+  }
+
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Both current password and new password are required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect. Please try again.' });
+    }
+
+    user.password = newPassword;
+    await user.save(); // bcrypt hashing handled by pre-save hook
+
+    // Fire-and-forget: notify all staff + confirm to client
+    const updatedAt = new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' });
+    const adminPortalUrl = getAdminUrl(req);
+    const clientSnap = {
+      company_name: user.company_name,
+      full_name:    user.full_name,
+      email:        user.email,
+    };
+
+    (async () => {
+      try {
+        const staffEmails = await getAllStaffEmails();
+        if (staffEmails.length > 0) {
+          await sendEmail({
+            to:      staffEmails,
+            subject: `[HFA] Security Alert — Client Password Changed: ${clientSnap.company_name || clientSnap.full_name || clientSnap.email}`,
+            html:    buildClientPasswordChangedStaffEmail({ client: clientSnap, adminUrl: adminPortalUrl, updatedAt }),
+            skipSuperadminBcc: true,
+          });
+        }
+      } catch (e) {
+        console.warn('[Auth] Staff password-change notification email error:', e.message);
+      }
+      try {
+        if (user.email) {
+          await sendEmail({
+            to:      user.email,
+            subject: 'Security Notice: Your HFA Portal Password Has Been Changed',
+            html:    buildClientPasswordChangedConfirmationEmail({ client: clientSnap, updatedAt }),
+            skipSuperadminBcc: true,
+          });
+        }
+      } catch (e) {
+        console.warn('[Auth] Client password-change confirmation email error:', e.message);
+      }
+    })();
+
+    res.json({ message: 'Password updated successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
