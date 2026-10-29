@@ -94,6 +94,20 @@ export function generateProductApprovalHtml({ formData = {}, product = {}, compa
     pkg && (pkg.packaging_material || pkg.chemical_composition || pkg.migration_certificate || pkg.suitability)
   );
 
+  // Filter valid supporting documents
+  const supportingDocuments = (Array.isArray(form.supporting_documents) ? form.supporting_documents : [])
+    .filter(Boolean)
+    .map((doc, idx) => {
+      if (typeof doc === 'string') {
+        const rawName = doc.split('/').pop() || `Supporting_Document_${idx + 1}.pdf`;
+        return { name: decodeURIComponent(rawName.replace(/^\d+_[a-z0-9]+_/i, '')), url: doc };
+      }
+      const url = doc.url || doc.file_url || '';
+      const rawFallback = url ? (url.split('/').pop() || '').replace(/^\d+_[a-z0-9]+_/i, '') : `Supporting_Document_${idx + 1}.pdf`;
+      return { name: doc.name || doc.file_name || decodeURIComponent(rawFallback) || `Supporting_Document_${idx + 1}.pdf`, url };
+    })
+    .filter(d => Boolean(d.url));
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -831,6 +845,28 @@ export function generateProductApprovalHtml({ formData = {}, product = {}, compa
         ` : `
           <div class="empty-notice">No food contact packaging specifications registered.</div>
         `}
+
+        ${supportingDocuments.length > 0 ? `
+          <div style="font-size: 10.5px; font-weight: 800; color: #0f172a; margin: 12px 0 4px;">
+            13. Attached Supporting Documents (${supportingDocuments.length}):
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 26px; text-align: center;">#</th>
+                <th>Document Name</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${supportingDocuments.map((doc, idx) => `
+                <tr>
+                  <td style="text-align: center; font-weight: 700;">${idx + 1}</td>
+                  <td style="font-weight: 600;">${escapeHtml(doc.name)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
 
       </div>
     </div>
