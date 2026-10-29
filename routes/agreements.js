@@ -122,7 +122,7 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('agreeme
     await createNotification(
       data.client_id,
       'Certification Agreement Sent 📄',
-      `Your certification agreement "${data.title}" is ready. Please review and sign it.`,
+      `Your certification agreement "${data.title}" has been issued and is now available to view and download in your portal.`,
       'info',
       '/agreements'
     );
@@ -145,7 +145,7 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('agreeme
                 <h3 style="color: #1e293b; margin-top: 0;">Certification Agreement is Ready</h3>
                 <p style="font-size: 14px; color: #475569; line-height: 1.6;">
                   Dear Partner,<br/><br/>
-                  The certification agreement for your application <strong>${appNumber}</strong> is ready for review.
+                  The certification agreement for your application <strong>${appNumber}</strong> has been issued by HFA and is now available to view and download in your portal.
                 </p>
                 <div style="background-color: #f1f5f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
                   <table style="width: 100%; font-size: 13.5px; color: #475569;">
@@ -155,7 +155,7 @@ router.post('/', authenticateToken, requireSchemeManager, upload.single('agreeme
                 </div>
                 <div style="text-align: center; margin-top: 24px;">
                   <a href="${clientPortalUrl}/agreements" style="display: inline-block; padding: 12px 24px; background-color: #15803d; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
-                    Review & Sign Agreement
+                    View & Download Agreement
                   </a>
                 </div>
               </div>
