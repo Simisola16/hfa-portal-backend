@@ -262,7 +262,7 @@ router.get('/application/:appId', authenticateToken, async (req, res) => {
 });
 
 // POST /api/invoices — accountant creates/uploads invoice (supports file upload & revision override)
-router.post('/', authenticateToken, requireAccountant, upload.single('invoice_file'), async (req, res) => {
+router.post('/', authenticateToken, requireAccountant, upload.fields([{ name: 'invoice_file', maxCount: 1 }, { name: 'supporting_files', maxCount: 10 }]), async (req, res) => {
   try {
     const invoiceData = { ...req.body };
 
@@ -286,8 +286,12 @@ router.post('/', authenticateToken, requireAccountant, upload.single('invoice_fi
       invoiceData.application_id = validAppId;
     }
 
+    // Extract files from upload.fields
+    const primaryInvoiceFile = req.files?.['invoice_file']?.[0] || (req.file || null);
+    const supportingFiles = req.files?.['supporting_files'] || [];
+
     // Invoice PDF document is strictly required for ALL invoices (no auto-generation)
-    if (!req.file && !invoiceData.invoice_url) {
+    if (!primaryInvoiceFile && !invoiceData.invoice_url) {
       let existingInv = null;
       if (validAppId) {
         existingInv = await Invoice.findOne({
@@ -319,13 +323,36 @@ router.post('/', authenticateToken, requireAccountant, upload.single('invoice_fi
     invoiceData.amount = parsedAmount;
 
     // Upload invoice PDF if attached
-    if (req.file) {
+    if (primaryInvoiceFile) {
       invoiceData.invoice_url = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
+        primaryInvoiceFile.buffer,
+        primaryInvoiceFile.originalname,
+        primaryInvoiceFile.mimetype,
         'invoices'
       );
+    }
+
+    // Process & upload supporting documents if attached
+    let newlyUploadedSupportingDocs = [];
+    if (supportingFiles && supportingFiles.length > 0) {
+      for (const sFile of supportingFiles) {
+        try {
+          const docUrl = await uploadToS3(
+            sFile.buffer,
+            sFile.originalname,
+            sFile.mimetype,
+            'invoices/supporting-docs'
+          );
+          newlyUploadedSupportingDocs.push({
+            name: sFile.originalname,
+            url: docUrl,
+            size: sFile.size,
+            uploaded_at: new Date()
+          });
+        } catch (sErr) {
+          console.error('Failed to upload supporting document:', sFile.originalname, sErr);
+        }
+      }
     }
 
     let data;
@@ -368,6 +395,12 @@ router.post('/', authenticateToken, requireAccountant, upload.single('invoice_fi
         existingInvoice.payment_proof_url = null;
         existingInvoice.paid_at = null;
         existingInvoice.version = (existingInvoice.version || 1) + 1;
+        if (newlyUploadedSupportingDocs.length > 0) {
+          existingInvoice.supporting_documents = [
+            ...(existingInvoice.supporting_documents || []),
+            ...newlyUploadedSupportingDocs
+          ];
+        }
 
         data = await existingInvoice.save();
 
@@ -407,6 +440,9 @@ router.post('/', authenticateToken, requireAccountant, upload.single('invoice_fi
       }
 
       invoiceData.status = 'unpaid';
+      if (newlyUploadedSupportingDocs.length > 0) {
+        invoiceData.supporting_documents = newlyUploadedSupportingDocs;
+      }
       const invoice = new Invoice(invoiceData);
       data = await invoice.save();
     }
