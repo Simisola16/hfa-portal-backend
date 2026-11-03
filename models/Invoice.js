@@ -21,6 +21,12 @@ const invoiceSchema = new mongoose.Schema({
   version: { type: Number, default: 1 },
   last_reminded_at: Date,
   reminder_count: { type: Number, default: 0 },
+  supporting_documents: [{
+    name: { type: String },
+    url: { type: String },
+    size: { type: Number },
+    uploaded_at: { type: Date, default: Date.now }
+  }],
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },
