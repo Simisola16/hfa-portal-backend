@@ -442,7 +442,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const [total, data, totalCount, reviewCount, activeCount, expiringCount, expiredCount] = await Promise.all([
       Certificate.countDocuments(query),
       Certificate.find(query)
-        .select('-product_details -products_covered')
+        .select('-product_details')
         .populate('site_id', 'name est_name trading_name')
         .populate('application_id', 'establishment_name site_name scope status application_type category')
         .sort({ issue_date: -1, createdAt: -1 })
@@ -884,7 +884,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
         ]
       })
         .populate('site_id', 'name est_name trading_name')
-        .sort({ created_at: -1 })
+        .sort({ created_at: 1, _id: 1 })
         .lean();
 
       siteScopedProducts.forEach(p => {
@@ -900,7 +900,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
         ]
       })
         .populate('site_id', 'name est_name trading_name')
-        .sort({ created_at: -1 })
+        .sort({ created_at: 1, _id: 1 })
         .lean();
 
       clientScopedProducts.forEach(p => {
@@ -931,7 +931,7 @@ router.get('/:id/site-products', authenticateToken, requireAdmin, async (req, re
       }
       const certLinked = await Product.find(certLinkedQuery)
         .populate('site_id', 'name est_name trading_name')
-        .sort({ created_at: -1 })
+        .sort({ created_at: 1, _id: 1 })
         .lean();
       certLinked.forEach(p => {
         if (!seenProductIds.has(p._id.toString())) {

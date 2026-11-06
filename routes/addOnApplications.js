@@ -118,18 +118,28 @@ async function regenerateCertPdf(certificate) {
     const application = await Application.findById(certificate.application_id);
     const client = await User.findById(certificate.client_id);
 
-    const productCategories = (certificate.products_covered || []).map((p, idx) => ({
-      code: `GEN-${String(idx + 1).padStart(2, '0')}`,
-      name: p
-    }));
+    const productsList = (Array.isArray(certificate.product_details) && certificate.product_details.length > 0)
+      ? certificate.product_details.map((p, idx) => ({
+        code: p.code || `GEN-${String(idx + 1).padStart(2, '0')}`,
+        name: typeof p === 'string' ? p : (p.name || p.title || ''),
+        description: typeof p === 'object' ? (p.description || '') : ''
+      }))
+      : (certificate.products_covered || []).map((p, idx) => ({
+        code: typeof p === 'object' && p.code ? p.code : `GEN-${String(idx + 1).padStart(2, '0')}`,
+        name: typeof p === 'string' ? p : (p.name || '')
+      }));
 
     const certData = {
       businessName: client ? (client.company_name || client.full_name || '') : (application?.establishment_name || ''),
       businessAddress: application?.establishment_address || '',
       manufacturerAddress: application?.manufacturer_address || '',
       certificateNumber: certificate.certificate_number,
-      scopeOfCertification: application?.scope || '',
-      productCategories,
+      certificateType: certificate.certificate_type || 'HFA Scheme',
+      scopeOfCertification: application?.scope || certificate.scope || '',
+      productCategory: certificate.product_category || certificate.scope || '',
+      productCategories: productsList,
+      products: productsList,
+      productTableColumns: certificate.product_table_columns || 1,
       issueDate: certificate.issue_date || new Date(),
       expiryDate: certificate.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
     };
@@ -1749,15 +1759,33 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     }
 
     let products = Array.isArray(cert.products_covered) ? [...cert.products_covered] : [];
+    let productDetails = Array.isArray(cert.product_details) ? [...cert.product_details] : [];
 
-    // Apply each product entry's action to the certificate's products_covered array and Product collection
+    // Apply each product entry's action to the certificate's products_covered array, product_details array, and Product collection
     for (const p of app.products) {
       if (p.type === 'Add product') {
         const prodName = p.new_name || p.name;
         if (prodName) {
           if (!products.includes(prodName)) {
+            // Push to the end so it always stays at the bottom
             products.push(prodName);
           }
+          // Also append to product_details at the end (bottom)
+          const existingDetailIdx = productDetails.findIndex(pd => (pd.name || '').trim().toLowerCase() === prodName.trim().toLowerCase());
+          const newCode = p.new_code || p.code || '';
+          if (existingDetailIdx === -1) {
+            productDetails.push({
+              name: prodName,
+              code: newCode,
+              category: cert.scope || cert.product_category || 'Halal Certified',
+              description: p.description || '',
+              barcode: newCode
+            });
+          } else if (newCode) {
+            productDetails[existingDetailIdx].code = newCode;
+            productDetails[existingDetailIdx].barcode = newCode;
+          }
+
           // Add or activate in Product collection
           await Product.findOneAndUpdate(
             { client_id: app.client_id, name: prodName },
@@ -1775,6 +1803,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
       } else if (p.type === 'Remove product') {
         const targetName = p.original_name || p.name;
         products = products.filter(pr => pr !== targetName);
+        productDetails = productDetails.filter(pd => (pd.name || '').trim().toLowerCase() !== targetName.trim().toLowerCase());
         // Remove from Product collection so only approved products show
         await Product.deleteMany({ client_id: app.client_id, name: targetName });
       } else if (p.type === 'Change name/code') {
@@ -1783,6 +1812,17 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
         const newCode = p.new_code || p.code || '';
         
         products = products.map(pr => pr === oldName ? (newCode ? `${newCode} - ${newName}` : newName) : pr);
+        productDetails = productDetails.map(pd => {
+          if ((pd.name || '').trim().toLowerCase() === oldName.trim().toLowerCase()) {
+            return {
+              ...pd,
+              name: newName,
+              code: newCode || pd.code,
+              barcode: newCode || pd.barcode
+            };
+          }
+          return pd;
+        });
         
         // Update product in Product collection
         await Product.findOneAndUpdate(
@@ -1798,6 +1838,7 @@ router.put('/:id/complete', authenticateToken, requireFoodTechManagerOrAdmin, as
     }
 
     cert.products_covered = products;
+    cert.product_details = productDetails;
     cert.updated_at = new Date();
     await cert.save();
 
