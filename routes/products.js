@@ -188,6 +188,16 @@ router.get('/', authenticateToken, async (req, res) => {
       query.category = req.query.category.trim();
     }
 
+    // Determine sort order: for clients, default to oldest-first (created_at: 1, _id: 1) so newly added products stay at the bottom
+    let sortOptions = { created_at: -1, _id: -1 };
+    const sortParam = (req.query.sort || req.query.order || '').toLowerCase().trim();
+    if (sortParam === 'asc' || sortParam === 'oldest' || !isAdmin) {
+      sortOptions = { created_at: 1, _id: 1 };
+    }
+    if (sortParam === 'desc' || sortParam === 'newest') {
+      sortOptions = { created_at: -1, _id: -1 };
+    }
+
     // Branch A: Direct MongoDB Paginated Query (Fast DB-level pagination & count)
     if (isPaginated) {
       const currentPage = Math.max(1, !isNaN(page) && page > 0 ? page : 1);
@@ -197,7 +207,7 @@ router.get('/', authenticateToken, async (req, res) => {
         Product.countDocuments(query),
         Product.find(query)
           .populate('site_id', 'name est_name trading_name address_1')
-          .sort({ created_at: -1 })
+          .sort(sortOptions)
           .skip((currentPage - 1) * pageSize)
           .limit(pageSize)
           .lean()
@@ -222,7 +232,7 @@ router.get('/', authenticateToken, async (req, res) => {
     // Branch B: Unpaginated Query (Preserves legacy deduplication for certificate dropdowns & generators)
     let productQuery = Product.find(query)
       .populate('site_id', 'name est_name trading_name address_1')
-      .sort({ created_at: -1 });
+      .sort(sortOptions);
 
     // Safety guard: if caller did not filter by client or site or pass all=true, cap at 100 to prevent event-loop freeze
     if (!query.client_id && !query.site_id && req.query.all !== 'true') {
