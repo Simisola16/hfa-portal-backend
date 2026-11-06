@@ -188,14 +188,14 @@ router.get('/', authenticateToken, async (req, res) => {
       query.category = req.query.category.trim();
     }
 
-    // Determine sort order: for clients, default to oldest-first (created_at: 1, _id: 1) so newly added products stay at the bottom
-    let sortOptions = { created_at: -1, _id: -1 };
+    // Determine sort order: default to oldest-first / chronological ascending (created_at: 1, _id: 1)
+    // so newly added products always stay at the bottom across all views, certificates, and exports
+    let sortOptions = { created_at: 1, _id: 1 };
     const sortParam = (req.query.sort || req.query.order || '').toLowerCase().trim();
-    if (sortParam === 'asc' || sortParam === 'oldest' || !isAdmin) {
-      sortOptions = { created_at: 1, _id: 1 };
-    }
     if (sortParam === 'desc' || sortParam === 'newest') {
       sortOptions = { created_at: -1, _id: -1 };
+    } else if (sortParam === 'asc' || sortParam === 'oldest') {
+      sortOptions = { created_at: 1, _id: 1 };
     }
 
     // Branch A: Direct MongoDB Paginated Query (Fast DB-level pagination & count)
