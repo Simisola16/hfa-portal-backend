@@ -17,6 +17,33 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const clientPortalUrl = getClientUrl();
 
+export function isAuditConcluded(audit, app) {
+  if (!audit) return false;
+  const auditStatus = String(audit.status || '').toLowerCase();
+  if (['audit_completed', 'completed', 'audit_successful'].includes(auditStatus)) {
+    return true;
+  }
+  const appStatus = String(app?.status || '').toLowerCase();
+  if ([
+    'audit_completed',
+    'audit_report_submitted',
+    'logsheet_created',
+    'logsheet_signed',
+    'application_successful',
+    'agreement_sent',
+    'agreement_signed',
+    'agreement_finalised',
+    'final_invoice_sent',
+    'final_invoice_paid',
+    'ready_for_certificate',
+    'certificate_issued',
+    'done'
+  ].includes(appStatus)) {
+    return true;
+  }
+  return false;
+}
+
 const sendClientEmail = async (clientId, subject, html) => {
   if (!clientId) return;
   try {
@@ -349,6 +376,9 @@ router.post('/propose-dates', authenticateToken, requireAuditorOrManager, async 
     }
 
     let audit = await Audit.findOne({ application_id, stage: stage || 1 });
+    if (audit && isAuditConcluded(audit, targetApp)) {
+      return res.status(400).json({ error: 'Audit has already been concluded/completed. Audit dates and auditors can no longer be modified.' });
+    }
     if (!audit) {
       audit = new Audit({ application_id, client_id: resolvedClientId, stage: stage || 1 });
     }
@@ -537,6 +567,11 @@ router.post('/finalize-date', authenticateToken, requireAuditorOrManager, async 
     const audit = await Audit.findById(audit_id);
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
+    const targetApp = await Application.findById(audit.application_id);
+    if (isAuditConcluded(audit, targetApp)) {
+      return res.status(400).json({ error: 'Audit has already been concluded/completed. Audit dates and auditors can no longer be modified.' });
+    }
+
     const chosenDate = finalized_date || audit.finalized_date || (audit.selected_dates && audit.selected_dates[0]);
     if (!chosenDate) {
       return res.status(400).json({ error: 'No audit date provided to finalize' });
@@ -603,6 +638,290 @@ router.post('/finalize-date', authenticateToken, requireAuditorOrManager, async 
   }
 });
 
+
+// POST /api/audits/reschedule-date (Audit Manager or Auditor reschedules date to a specific date)
+router.post('/reschedule-date', authenticateToken, requireAuditorOrManager, async (req, res) => {
+  try {
+    const { audit_id, application_id, stage, new_date, reason } = req.body;
+    if (!new_date) {
+      return res.status(400).json({ error: 'Please provide a valid new audit date' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const targetDate = new Date(new_date);
+    targetDate.setHours(0, 0, 0, 0);
+    if (isNaN(targetDate.getTime()) || targetDate < today) {
+      return res.status(400).json({ error: 'Rescheduled date cannot be in the past. Please select a valid future date.' });
+    }
+
+    let audit = null;
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id);
+    }
+    if (!audit && application_id && mongoose.Types.ObjectId.isValid(application_id)) {
+      audit = await Audit.findOne({ application_id, ...(stage ? { stage: Number(stage) } : {}) }).sort({ stage: 1 });
+    }
+    if (!audit) return res.status(404).json({ error: 'Audit record not found' });
+
+    const app = await Application.findById(audit.application_id);
+    if (isAuditConcluded(audit, app)) {
+      return res.status(400).json({ error: 'Audit has already been concluded/completed. Audit dates and auditors can no longer be modified.' });
+    }
+
+    const previousDate = audit.finalized_date || audit.scheduled_date;
+    const prevDateStr = previousDate ? new Date(previousDate).toDateString() : 'Pending';
+    const newDateObj = new Date(new_date);
+    const dateStr = newDateObj.toDateString();
+
+    audit.finalized_date = newDateObj;
+    audit.scheduled_date = newDateObj;
+    audit.selected_dates = [newDateObj];
+    audit.proposed_dates = [newDateObj];
+    audit.client_unavailable = false;
+
+    const hasAuditors = Array.isArray(audit.auditors) && audit.auditors.length > 0;
+    audit.status = hasAuditors ? 'auditors_assigned' : 'date_finalized';
+    await audit.save();
+
+    const targetAppStatus = hasAuditors ? 'audit_assigned' : 'date_finalized';
+    const reasonStr = reason && reason.trim() ? ` (Reason: ${reason.trim()})` : '';
+    const note = `Audit date rescheduled from ${prevDateStr} to ${dateStr}${reasonStr}.`;
+
+    const updatedApp = await Application.findByIdAndUpdate(
+      audit.application_id,
+      {
+        status: targetAppStatus,
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: targetAppStatus,
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note
+          }
+        }
+      },
+      { new: true }
+    ).populate('client_id');
+    if (updatedApp) emitApplicationUpdate(updatedApp, targetAppStatus);
+
+    // Notify client in-app
+    await createNotification(
+      audit.client_id,
+      'Audit Date Rescheduled 📅',
+      `Your audit date has been rescheduled to ${dateStr}${reasonStr}.`,
+      'info',
+      '/applications'
+    );
+
+    const appRef = updatedApp?.application_number || 'HFA Audit';
+    const companyName = updatedApp?.client_id?.company_name || updatedApp?.company_name || updatedApp?.establishment_name || 'HFA Client Facility';
+
+    // Email client
+    await sendClientEmail(
+      audit.client_id,
+      `Audit Date Rescheduled: ${dateStr} (${appRef}) 📅`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #1d4ed8, #1e40af); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Date Rescheduled</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #1e293b; margin-top: 0;">Audit Reschedule Notification</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              Please be advised that the audit date for application <strong>${appRef}</strong> has been rescheduled to:
+            </p>
+            <div style="background-color: #eff6ff; border: 1.5px solid #bfdbfe; padding: 16px; border-radius: 8px; margin: 16px 0; text-align: center;">
+              <span style="font-size: 18px; font-weight: 800; color: #1e40af;">📅 ${dateStr}</span>
+              ${reason ? `<div style="font-size: 13px; color: #475569; margin-top: 8px;"><strong>Reason:</strong> ${reason.trim()}</div>` : ''}
+            </div>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${clientPortalUrl}/audits" style="display: inline-block; padding: 12px 24px; background-color: #1d4ed8; color: white; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px;">
+                View Audit Schedule
+              </a>
+            </div>
+          </div>
+        </div>
+      `
+    );
+
+    // Email assigned auditors about the reschedule
+    if (hasAuditors) {
+      for (const auditor of audit.auditors) {
+        if (!auditor?.email) continue;
+        try {
+          await sendEmail({
+            to: auditor.email.trim(),
+            subject: `Audit Rescheduled: ${companyName} (${appRef}) - New Date: ${dateStr}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                <div style="background: linear-gradient(135deg, #1d4ed8, #1e40af); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+                  <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+                  <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Schedule Update</p>
+                </div>
+                <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+                  <h3 style="color: #1e293b; margin-top: 0;">Audit Rescheduled</h3>
+                  <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                    Hello <strong>${auditor.name || 'Auditor'}</strong>,<br/><br/>
+                    The audit session for <strong>${companyName}</strong> (${appRef}) has been rescheduled.
+                  </p>
+                  <div style="background-color: #eff6ff; border: 1.5px solid #bfdbfe; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                    <div style="font-size: 14px; color: #1e40af; font-weight: 700;">New Audit Date: ${dateStr}</div>
+                    ${previousDate ? `<div style="font-size: 12.5px; color: #64748b; margin-top: 4px;">Previous Date: ${prevDateStr}</div>` : ''}
+                    ${reason ? `<div style="font-size: 12.5px; color: #475569; margin-top: 4px;">Reason: ${reason.trim()}</div>` : ''}
+                  </div>
+                </div>
+              </div>
+            `
+          });
+        } catch (_) {}
+      }
+    }
+
+    res.json({ data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/audits/cancel-date (Audit Manager or Auditor cancels finalized/scheduled date)
+router.post('/cancel-date', authenticateToken, requireAuditorOrManager, async (req, res) => {
+  try {
+    const { audit_id, application_id, stage, reason } = req.body;
+    let audit = null;
+    if (audit_id && mongoose.Types.ObjectId.isValid(audit_id)) {
+      audit = await Audit.findById(audit_id);
+    }
+    if (!audit && application_id && mongoose.Types.ObjectId.isValid(application_id)) {
+      audit = await Audit.findOne({ application_id, ...(stage ? { stage: Number(stage) } : {}) }).sort({ stage: 1 });
+    }
+    if (!audit) return res.status(404).json({ error: 'Audit record not found' });
+
+    const app = await Application.findById(audit.application_id);
+    if (isAuditConcluded(audit, app)) {
+      return res.status(400).json({ error: 'Audit has already been concluded/completed. Audit dates and auditors can no longer be modified.' });
+    }
+
+    const previousDate = audit.finalized_date || audit.scheduled_date;
+    const prevDateStr = previousDate ? new Date(previousDate).toDateString() : 'N/A';
+
+    audit.finalized_date = null;
+    audit.scheduled_date = null;
+    audit.selected_dates = [];
+    audit.proposed_dates = [];
+    audit.status = 'cancelled';
+    audit.client_unavailable = false;
+    audit.client_availability_note = reason && reason.trim() ? `Cancelled by Admin: ${reason.trim()}` : 'Audit date cancelled by Administration';
+    await audit.save();
+
+    // Check if other stages exist and are active
+    const otherAudits = await Audit.find({ application_id: app._id, _id: { $ne: audit._id } });
+    const hasOtherActiveDate = otherAudits.some(a => a.status !== 'cancelled' && a.finalized_date);
+
+    let newAppStatus = app.status;
+    if (!hasOtherActiveDate) {
+      const typeLower = String(app.application_type || '').toLowerCase();
+      const isRenewal = typeLower.includes('renewal') || app.is_renewal;
+      const isSurv = typeLower.includes('surveillance') || app.is_surveillance;
+      if (isRenewal || isSurv) {
+        newAppStatus = 'approved';
+      } else if (app.status === 'initial_product_approved' || app.is_initial_product_approved) {
+        newAppStatus = 'initial_product_approved';
+      } else if (app.initial_payment_confirmed || app.initial_invoice_paid) {
+        newAppStatus = 'payment_received';
+      } else {
+        newAppStatus = 'approved';
+      }
+    }
+
+    const reasonStr = reason && reason.trim() ? ` (Reason: ${reason.trim()})` : '';
+    const note = `Audit date (${prevDateStr}) cancelled by administration${reasonStr}. Awaiting new audit date proposal.`;
+
+    const updatedApp = await Application.findByIdAndUpdate(
+      app._id,
+      {
+        status: newAppStatus,
+        updated_at: new Date(),
+        $push: {
+          statusHistory: {
+            status: newAppStatus,
+            changedAt: new Date(),
+            changedBy: req.user._id,
+            note
+          }
+        }
+      },
+      { new: true }
+    ).populate('client_id');
+    if (updatedApp) emitApplicationUpdate(updatedApp, newAppStatus);
+
+    // Notify client in-app
+    await createNotification(
+      audit.client_id,
+      'Audit Date Cancelled ⚠️',
+      `The scheduled audit date (${prevDateStr}) has been cancelled by administration${reasonStr}. A new date will be scheduled shortly.`,
+      'warning',
+      '/applications'
+    );
+
+    const appRef = updatedApp?.application_number || 'HFA Audit';
+    const companyName = updatedApp?.client_id?.company_name || updatedApp?.company_name || updatedApp?.establishment_name || 'HFA Client Facility';
+
+    // Email client
+    await sendClientEmail(
+      audit.client_id,
+      `Audit Date Cancelled: ${appRef} ⚠️`,
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <div style="background: linear-gradient(135deg, #dc2626, #b91c1c); border-radius: 8px 8px 0 0; padding: 24px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Halal Food Authority</h2>
+            <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Audit Date Cancelled</p>
+          </div>
+          <div style="padding: 24px; background: white; border-radius: 0 0 8px 8px;">
+            <h3 style="color: #1e293b; margin-top: 0;">Audit Schedule Update</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+              Please be informed that the scheduled audit date (<strong>${prevDateStr}</strong>) for application <strong>${appRef}</strong> has been cancelled by administration.
+            </p>
+            ${reason ? `<div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin: 16px 0; font-size: 13px; color: #991b1b;"><strong>Reason:</strong> ${reason.trim()}</div>` : ''}
+            <p style="font-size: 13px; color: #64748b;">A new audit date will be proposed or scheduled for your facility shortly.</p>
+          </div>
+        </div>
+      `
+    );
+
+    // Email auditors
+    if (Array.isArray(audit.auditors) && audit.auditors.length > 0) {
+      for (const auditor of audit.auditors) {
+        if (!auditor?.email) continue;
+        try {
+          await sendEmail({
+            to: auditor.email.trim(),
+            subject: `Audit Session Cancelled: ${companyName} (${appRef})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                <div style="padding: 24px; background: white; border-radius: 8px;">
+                  <h3 style="color: #dc2626; margin-top: 0;">Audit Session Cancelled</h3>
+                  <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                    Hello <strong>${auditor.name || 'Auditor'}</strong>,<br/><br/>
+                    The audit session for <strong>${companyName}</strong> (${appRef}) previously scheduled for <strong>${prevDateStr}</strong> has been cancelled.
+                  </p>
+                  ${reason ? `<p style="font-size: 13px; color: #64748b;">Reason: ${reason.trim()}</p>` : ''}
+                </div>
+              </div>
+            `
+          });
+        } catch (_) {}
+      }
+    }
+
+    res.json({ data: audit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/audits/assign-auditors (Audit Manager ONLY)
 router.post('/assign-auditors', authenticateToken, requireAuditManager, async (req, res) => {
   try {
@@ -621,6 +940,12 @@ router.post('/assign-auditors', authenticateToken, requireAuditManager, async (r
     }
     if (!audit) return res.status(404).json({ error: 'Audit not found' });
 
+    const targetApp = audit.application_id?._id ? audit.application_id : await Application.findById(audit.application_id);
+    if (isAuditConcluded(audit, targetApp)) {
+      return res.status(400).json({ error: 'Audit has already been concluded/completed. Assigned auditors can no longer be modified.' });
+    }
+
+    const wasAlreadyAssigned = Array.isArray(audit.auditors) && audit.auditors.length > 0;
     audit.auditors = Array.isArray(auditors) ? auditors : [];
     audit.status = 'auditors_assigned';
     await audit.save();
@@ -630,7 +955,7 @@ router.post('/assign-auditors', authenticateToken, requireAuditManager, async (r
       status: targetStatus,
       changedAt: new Date(),
       changedBy: req.user._id,
-      note: `Auditors assigned: ${auditors.map(a => a.name).filter(Boolean).join(', ')}`,
+      note: wasAlreadyAssigned ? `Auditors reassigned/updated: ${auditors.map(a => a.name).filter(Boolean).join(', ')}` : `Auditors assigned: ${auditors.map(a => a.name).filter(Boolean).join(', ')}`,
     };
 
     // Update application status to audit_assigned
