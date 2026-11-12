@@ -98,7 +98,7 @@ const applicationLogsheetSchema = new mongoose.Schema({
   status_date: Date,
 
   // Tab 4: Comment
-  comment: String,
+  comment: { type: String, default: '' },
   
   confirmed: { type: Boolean, default: false },
   is_seed: { type: Boolean, default: false },
