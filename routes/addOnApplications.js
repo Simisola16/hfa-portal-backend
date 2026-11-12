@@ -259,9 +259,9 @@ router.post('/', authenticateToken, upload.any(), async (req, res) => {
     const typeTitle = resolvedAddonType === 'remove_product'
       ? 'Remove Product Request'
       : resolvedAddonType === 'change_ingredients'
-      ? 'Change Ingredients Request'
+      ? 'Ingredients Update Request'
       : resolvedAddonType === 'change_supplier'
-      ? 'Change Supplier/Manufacturer Request'
+      ? 'Supplier/Manufacturer Update Request'
       : 'Add-on Product Application';
 
     // Notify admins
