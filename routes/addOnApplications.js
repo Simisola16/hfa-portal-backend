@@ -110,6 +110,202 @@ async function notifyAdmins(title, body) {
   }
 }
 
+async function resolveAddOnContext(appDocOrId) {
+  const id = appDocOrId?._id || appDocOrId;
+  const populatedApp = await AddOnApplication.findById(id)
+    .populate('client_id', 'company_name full_name email phone address')
+    .populate('site_id', 'name est_name trading_name address address_1 city postcode country')
+    .populate('certificate_id', 'certificate_number site_name company_name site_id')
+    .populate('application_id', 'application_number establishment_name site_name company_name manufacturer_name')
+    .populate('assigned_food_techs', 'full_name email phone')
+    .populate('assigned_food_tech', 'full_name email phone');
+
+  const a = populatedApp || appDocOrId || {};
+  const companyName = (
+    a.client_id?.company_name ||
+    a.certificate_id?.company_name ||
+    a.application_id?.company_name ||
+    a.application_id?.establishment_name ||
+    a.site_id?.est_name ||
+    a.client_id?.full_name ||
+    a.contact_name ||
+    'Client Company'
+  ).trim();
+
+  let siteName = (
+    a.site_id?.name ||
+    a.site_id?.est_name ||
+    a.site_id?.trading_name ||
+    a.certificate_id?.site_name ||
+    a.application_id?.site_name ||
+    a.application_id?.establishment_name ||
+    ''
+  ).trim();
+
+  if (!siteName && a.client_id) {
+    try {
+      const Site = mongoose.model('Site');
+      const clientIdStr = String(a.client_id._id || a.client_id);
+      const firstSite = await Site.findOne({
+        $or: [
+          { client_id: clientIdStr },
+          ...(mongoose.Types.ObjectId.isValid(clientIdStr) ? [{ client_id: new mongoose.Types.ObjectId(clientIdStr) }] : [])
+        ]
+      }).select('name est_name trading_name').lean();
+      if (firstSite) {
+        siteName = (firstSite.name || firstSite.est_name || firstSite.trading_name || '').trim();
+      }
+    } catch (_) {}
+  }
+  if (!siteName) siteName = companyName || 'Main Manufacturing Site';
+
+  const appRef = a.application_number || a.application_id?.application_number || `ADDON-${String(a._id || '').slice(-6).toUpperCase()}`;
+  const certNo = a.certificate_id?.certificate_number || '—';
+
+  const rawType = String(a.addon_type || '').toLowerCase();
+  const appNumUpper = String(appRef).toUpperCase();
+  const isRemove = rawType === 'remove_product' || appNumUpper.includes('-RP-') || appNumUpper.includes('-RM-');
+  const isIngredients = rawType === 'change_ingredients' || appNumUpper.includes('-CI-');
+  const isSupplier = rawType === 'change_supplier' || rawType === 'change_supplier_manufacturer' || appNumUpper.includes('-CS-');
+
+  const requestTypeLabel = isRemove
+    ? 'Remove Product'
+    : isIngredients
+    ? 'Ingredients Update'
+    : isSupplier
+    ? 'Supplier/Manufacturer Update'
+    : 'Add-on Product';
+
+  const processingPath = isRemove
+    ? `/addon-applications/${a._id}/processing-remove`
+    : isIngredients
+    ? `/addon-applications/${a._id}/processing-ingredients`
+    : isSupplier
+    ? `/addon-applications/${a._id}/processing-supplier`
+    : `/addon-applications/${a._id}/processing`;
+
+  const productsList = Array.isArray(a.products) && a.products.length > 0
+    ? a.products.map(p => `${p.name || 'Product'}${p.code ? ` (${p.code})` : ''}`).join(', ')
+    : '—';
+
+  return {
+    populatedApp: a,
+    companyName,
+    siteName,
+    appRef,
+    certNo,
+    requestTypeLabel,
+    processingPath,
+    productsList,
+    productCount: Array.isArray(a.products) ? a.products.length : 0
+  };
+}
+
+async function notifyAssignedFoodTechs(appDocOrId, { subject, heading, messageHtml }) {
+  try {
+    const ctx = await resolveAddOnContext(appDocOrId);
+    const a = ctx.populatedApp;
+    const adminBaseUrl = getAdminUrl();
+    const actionUrl = `${adminBaseUrl}${ctx.processingPath}`;
+
+    const recipientsMap = new Map();
+    if (Array.isArray(a.assigned_food_techs)) {
+      for (const ft of a.assigned_food_techs) {
+        if (ft && ft.email) {
+          recipientsMap.set(ft.email.toLowerCase().trim(), {
+            email: ft.email.trim(),
+            name: ft.full_name || ft.email,
+            id: ft._id
+          });
+        }
+      }
+    }
+    if (a.assigned_food_tech && a.assigned_food_tech.email) {
+      const em = a.assigned_food_tech.email.toLowerCase().trim();
+      if (!recipientsMap.has(em)) {
+        recipientsMap.set(em, {
+          email: a.assigned_food_tech.email.trim(),
+          name: a.assigned_food_tech.full_name || a.assigned_food_tech.email,
+          id: a.assigned_food_tech._id
+        });
+      }
+    }
+    if (a.assigned_ft_custom?.email) {
+      const em = a.assigned_ft_custom.email.toLowerCase().trim();
+      if (!recipientsMap.has(em)) {
+        recipientsMap.set(em, {
+          email: a.assigned_ft_custom.email.trim(),
+          name: a.assigned_ft_custom.name || 'Food Technologies Specialist',
+          id: null
+        });
+      }
+    }
+
+    for (const r of recipientsMap.values()) {
+      if (r.id) {
+        try {
+          await createNotification(
+            r.id,
+            heading || subject,
+            `${ctx.companyName} (${ctx.siteName}) — ${ctx.appRef}`,
+            'info',
+            ctx.processingPath
+          );
+        } catch (_) {}
+      }
+      await sendContactEmail({
+        contactEmail: r.email,
+        contactName: r.name,
+        subject: `${subject} — ${ctx.companyName} (${ctx.siteName})`,
+        bodyHtml: `
+          ${messageHtml}
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;margin:18px 0">
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#0e7490;letter-spacing:0.05em;margin-bottom:10px">Application &amp; Facility Details</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;color:#1e293b">
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700;width:40%">Company Name:</td>
+                <td style="padding:5px 0;font-weight:800;color:#0f172a">${ctx.companyName}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Manufacturing Site:</td>
+                <td style="padding:5px 0;font-weight:700;color:#0f172a">${ctx.siteName}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Application Ref:</td>
+                <td style="padding:5px 0;font-weight:700;color:#0e7490">${ctx.appRef}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Request Type:</td>
+                <td style="padding:5px 0;font-weight:600">${ctx.requestTypeLabel}</td>
+              </tr>
+              ${ctx.certNo && ctx.certNo !== '—' ? `
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Certificate No:</td>
+                <td style="padding:5px 0;font-weight:600">${ctx.certNo}</td>
+              </tr>` : ''}
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700;vertical-align:top">Products (${ctx.productCount}):</td>
+                <td style="padding:5px 0;font-weight:600">${ctx.productsList}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Contact Person:</td>
+                <td style="padding:5px 0">${a.contact_name || '—'}${a.contact_email ? ` (${a.contact_email})` : ''}</td>
+              </tr>
+            </table>
+          </div>
+          <div style="margin-top:20px;text-align:center">
+            <a href="${actionUrl}" style="display:inline-block;padding:12px 24px;background:#0e7490;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:13.5px">
+              Open Application in Admin Portal &rarr;
+            </a>
+          </div>
+        `
+      });
+    }
+  } catch (err) {
+    console.error('[AddOn] Failed to notify assigned FTs:', err.message);
+  }
+}
+
 // ─── Regenerate Certificate PDF helper ────────────────────────────────────────
 
 async function regenerateCertPdf(certificate) {
@@ -477,34 +673,32 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (r
     const data = await app.save();
     emitAddOnUpdate(data, 'ft_assigned');
 
-    // Notify each newly assigned FT user
-    for (const ft of ftUsers) {
-      if (ft.email) {
-        await sendContactEmail({
-          contactEmail: ft.email,
-          contactName: ft.full_name,
-          subject: '🔍 New Add-on Application FT Assignment',
-          bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for Add-on Application (${app.contact_name || 'Client'}). Please log in to the HFA Admin Portal to proceed.</p>`
-        });
-      }
-    }
-
-    // Notify typed custom FT email if provided
-    if (customFtEmail) {
-      await sendContactEmail({
-        contactEmail: customFtEmail,
-        contactName: customFtName || 'Food Technologies Specialist',
-        subject: '🔍 New Add-on Application FT Assignment',
-        bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for Add-on Application (${app.contact_name || 'Client'}).</p>`
-      });
-    }
+    // Notify each newly assigned FT user and/or custom FT email with full Company Name & Manufacturing Site details
+    await notifyAssignedFoodTechs(data, {
+      subject: '🔍 New Add-on Application FT Assignment',
+      heading: 'New Add-on Application Assigned 🔍',
+      messageHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          You have been assigned as a <strong>Food Technologies Specialist</strong> for the Add-on Application below. Please log in to the HFA Admin Portal to review the product details and proceed with evaluation.
+        </p>
+        ${customFtNotes ? `<p style="font-size:13px;color:#475569;background:#fffbeb;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;margin:12px 0"><strong>Assignment Notes:</strong> ${customFtNotes}</p>` : ''}
+      `
+    });
 
     // Notify client contact person
+    const ctx = await resolveAddOnContext(data);
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: '👷 HFA: Food Technologies Staff Assigned',
-      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (${ftLabels.join(', ')}) have been assigned to your add-on application. The team is now reviewing your product request. You will be notified when the Product Approval Form is ready.</p>`
+      subject: `👷 HFA: Food Technologies Staff Assigned — ${ctx.companyName} (${ctx.siteName})`,
+      bodyHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          Food Technologies staff (<strong>${ftLabels.join(', ')}</strong>) have been assigned to your ${ctx.requestTypeLabel.toLowerCase()} request for <strong>${ctx.companyName}</strong> (Site: <strong>${ctx.siteName}</strong>).
+        </p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The team is now reviewing your product request. You will be notified as your application progresses.
+        </p>
+      `
     });
 
     res.json({ data });
@@ -826,14 +1020,25 @@ const handleReplyMoreInfoRoute = async (req, res) => {
       console.warn('[AddOn] Failed to emit socket update:', e.message);
     }
 
-    // Notify admins
+    // Notify admins & assigned FTs
     try {
+      const ctx = await resolveAddOnContext(data);
       await notifyAdmins(
         'Client Replied to Information Request 📋',
-        `Client responded with explanation and documents for add-on application (${app.contact_name}).`
+        `Client (${ctx.companyName} — ${ctx.siteName}) responded with explanation and documents for add-on application ${ctx.appRef}.`
       );
+      await notifyAssignedFoodTechs(data, {
+        subject: '📋 Client Replied to Information Request',
+        heading: 'Client Replied to Information Request 📋',
+        messageHtml: `
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            The client has submitted a reply and/or uploaded supporting documents in response to the information request for this application.
+          </p>
+          ${reply_text.trim() ? `<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:12px 16px;margin:12px 0;border-radius:6px;font-size:13.5px;color:#14532d"><strong>Client Reply:</strong><br/>${reply_text.trim()}</div>` : ''}
+        `
+      });
     } catch (e) {
-      console.warn('[AddOn] Failed to notify admins:', e.message);
+      console.warn('[AddOn] Failed to notify admins/FTs:', e.message);
     }
 
     res.json({ data, message: 'Your reply and documents have been submitted to HFA successfully.' });
@@ -1108,10 +1313,21 @@ router.post('/:id/reply-more-documents', authenticateToken, upload.any(), async 
       console.warn('[AddOn] Failed to emit socket update:', e.message);
     }
 
+    const ctx = await resolveAddOnContext(data);
     await notifyAdmins(
       'Client Replied to Document Request 📎',
-      `Client uploaded ${uploadedDocs.length} document(s) for add-on request (${app.application_number || app._id}).`
+      `Client (${ctx.companyName} — ${ctx.siteName}) uploaded ${uploadedDocs.length} document(s) for add-on request (${ctx.appRef}).`
     );
+    await notifyAssignedFoodTechs(data, {
+      subject: '📎 Client Replied to Document Request',
+      heading: 'Client Replied to Document Request 📎',
+      messageHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The client has replied to your document request with <strong>${uploadedDocs.length} attachment(s)</strong>.
+        </p>
+        ${reply_note ? `<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:12px 16px;margin:12px 0;border-radius:6px;font-size:13.5px;color:#14532d"><strong>Client Note:</strong><br/>${reply_note}</div>` : ''}
+      `
+    });
 
     res.json({ data, message: 'Your reply and documents have been submitted to HFA successfully.' });
   } catch (err) {
@@ -1154,11 +1370,21 @@ router.put('/:id/submit-all-responses', authenticateToken, async (req, res) => {
     const data = await app.save();
     emitAddOnUpdate(data, 'form_submitted');
 
-    // Notify admins
+    // Notify admins & assigned FTs
+    const ctx = await resolveAddOnContext(data);
     await notifyAdmins(
       'Product Approval Form Received 📋',
-      `Client has submitted Product Approval Form responses for all ${productCount} product(s).`
+      `Client (${ctx.companyName} — ${ctx.siteName}) has submitted Product Approval Form responses for all ${productCount} product(s) (${ctx.appRef}).`
     );
+    await notifyAssignedFoodTechs(data, {
+      subject: '📋 Product Approval Form Submitted by Client',
+      heading: 'Product Approval Form Submitted 📋',
+      messageHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The client has completed and submitted Product Approval Form responses for all <strong>${productCount} product(s)</strong>. Please review the submission and proceed to create the Logsheet.
+        </p>
+      `
+    });
 
     // Confirm to contact person
     await sendContactEmail({
@@ -1246,7 +1472,15 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
         addon_application_id: app._id,
         updated_at: new Date()
       };
-      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+      const shouldClearSigs = Boolean(
+        (req.body.clear_signatures === true || logsheetData.clear_signatures === true) &&
+        !req.body.is_redo &&
+        !logsheetData.is_redo
+      );
+      delete updatePayload.clear_signatures;
+      delete updatePayload.is_redo;
+
+      if (shouldClearSigs) {
         updatePayload.mufti_signature = null;
         updatePayload.mufti_sign_name = null;
         updatePayload.mufti_sign_date = null;
@@ -1260,8 +1494,29 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
         updatePayload.mufti2_sign_name = null;
         updatePayload.mufti2_sign_date = null;
         updatePayload.status = 'Waiting for Signature';
-      } else if (!logsheet.status) {
-        updatePayload.status = 'Waiting for Signature';
+      } else {
+        // Preserve existing signed signatures when redoing/updating logsheet
+        if (logsheet.mufti_signature) {
+          updatePayload.mufti_signature = logsheet.mufti_signature;
+          updatePayload.mufti_sign_name = logsheet.mufti_sign_name;
+          updatePayload.mufti_sign_date = logsheet.mufti_sign_date;
+        }
+        if (logsheet.ceo_signature) {
+          updatePayload.ceo_signature = logsheet.ceo_signature;
+          updatePayload.ceo_sign_name = logsheet.ceo_sign_name;
+          updatePayload.ceo_sign_date = logsheet.ceo_sign_date;
+        }
+        if (logsheet.manager_signature) {
+          updatePayload.manager_signature = logsheet.manager_signature;
+          updatePayload.manager_sign_name = logsheet.manager_sign_name;
+          updatePayload.manager_sign_date = logsheet.manager_sign_date;
+        }
+        if (logsheet.mufti2_signature) {
+          updatePayload.mufti2_signature = logsheet.mufti2_signature;
+          updatePayload.mufti2_sign_name = logsheet.mufti2_sign_name;
+          updatePayload.mufti2_sign_date = logsheet.mufti2_sign_date;
+        }
+        updatePayload.status = logsheet.status || 'Waiting for Signature';
       }
 
       logsheet = await ApplicationLogsheet.findByIdAndUpdate(
@@ -1285,8 +1540,10 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
     }
 
     app.logsheet_id = logsheet._id;
-    app.status = 'logsheet_created';
-    await pushHistory(app, 'logsheet_created', isRedo ? 'Logsheet updated / redone. Awaiting Shari\'a Board signatures.' : 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
+    if (!isRedo || !['product_form_approved', 'ready_for_certificate', 'completed'].includes(app.status)) {
+      app.status = 'logsheet_created';
+    }
+    await pushHistory(app, app.status, isRedo ? 'Logsheet details updated (existing signatures preserved).' : 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
 
     const data = await app.save();
     emitAddOnUpdate(data, 'logsheet_created');
