@@ -326,7 +326,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
       if (Array.isArray(audit_reports)) logsheet.audit_reports = audit_reports;
       if (Array.isArray(nc_reports_files)) logsheet.nc_reports_files = nc_reports_files;
 
-      if (req.body.clear_signatures || req.body.is_redo) {
+      if (req.body.clear_signatures === true && !req.body.is_redo) {
         logsheet.mufti_signature = null;
         logsheet.mufti_sign_name = null;
         logsheet.mufti_sign_date = null;
@@ -582,7 +582,7 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
       if (Array.isArray(document_urls)) logsheet.document_urls = document_urls;
       if (Array.isArray(audit_reports)) logsheet.audit_reports = audit_reports;
       if (Array.isArray(products_list)) logsheet.products_list = products_list;
-      if (req.body.clear_signatures || req.body.is_redo) {
+      if (req.body.clear_signatures === true && !req.body.is_redo) {
         logsheet.mufti_signature = null;
         logsheet.mufti_sign_name = null;
         logsheet.mufti_sign_date = null;
@@ -823,7 +823,15 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         updated_at: new Date()
       };
 
-      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+      const shouldClearSigs = Boolean(
+        (req.body.clear_signatures === true || logsheetData.clear_signatures === true) &&
+        !req.body.is_redo &&
+        !logsheetData.is_redo
+      );
+      delete updatePayload.clear_signatures;
+      delete updatePayload.is_redo;
+
+      if (shouldClearSigs) {
         updatePayload.mufti_signature = null;
         updatePayload.mufti_sign_name = null;
         updatePayload.mufti_sign_date = null;
@@ -837,6 +845,31 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
         updatePayload.mufti2_sign_name = null;
         updatePayload.mufti2_sign_date = null;
         updatePayload.status = 'Waiting for Signature';
+      } else {
+        // Preserve existing signed signatures when redoing/updating logsheet
+        if (logsheet.mufti_signature) {
+          updatePayload.mufti_signature = logsheet.mufti_signature;
+          updatePayload.mufti_sign_name = logsheet.mufti_sign_name;
+          updatePayload.mufti_sign_date = logsheet.mufti_sign_date;
+        }
+        if (logsheet.ceo_signature) {
+          updatePayload.ceo_signature = logsheet.ceo_signature;
+          updatePayload.ceo_sign_name = logsheet.ceo_sign_name;
+          updatePayload.ceo_sign_date = logsheet.ceo_sign_date;
+        }
+        if (logsheet.manager_signature) {
+          updatePayload.manager_signature = logsheet.manager_signature;
+          updatePayload.manager_sign_name = logsheet.manager_sign_name;
+          updatePayload.manager_sign_date = logsheet.manager_sign_date;
+        }
+        if (logsheet.mufti2_signature) {
+          updatePayload.mufti2_signature = logsheet.mufti2_signature;
+          updatePayload.mufti2_sign_name = logsheet.mufti2_sign_name;
+          updatePayload.mufti2_sign_date = logsheet.mufti2_sign_date;
+        }
+        if (logsheet.status && logsheet.status !== 'Waiting for Signature') {
+          updatePayload.status = logsheet.status;
+        }
       }
 
       if (clientIdVal) updatePayload.client_id = clientIdVal;
@@ -1092,7 +1125,18 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     delete updates.created_at;
     delete updates.updated_at;
 
-    if (updates.clear_signatures || updates.is_redo || req.body.clear_signatures || req.body.is_redo) {
+    const existingLogsheet = await ApplicationLogsheet.findById(req.params.id);
+    if (!existingLogsheet) return res.status(404).json({ error: 'Logsheet not found' });
+
+    const shouldClearSigs = Boolean(
+      (updates.clear_signatures === true || req.body.clear_signatures === true) &&
+      !updates.is_redo &&
+      !req.body.is_redo
+    );
+    delete updates.clear_signatures;
+    delete updates.is_redo;
+
+    if (shouldClearSigs) {
       updates.mufti_signature = null;
       updates.mufti_sign_name = null;
       updates.mufti_sign_date = null;
@@ -1106,8 +1150,31 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       updates.mufti2_sign_name = null;
       updates.mufti2_sign_date = null;
       updates.status = 'Waiting for Signature';
-      delete updates.clear_signatures;
-      delete updates.is_redo;
+    } else {
+      // Preserve existing signed signatures when redoing/updating logsheet
+      if (existingLogsheet.mufti_signature) {
+        updates.mufti_signature = existingLogsheet.mufti_signature;
+        updates.mufti_sign_name = existingLogsheet.mufti_sign_name;
+        updates.mufti_sign_date = existingLogsheet.mufti_sign_date;
+      }
+      if (existingLogsheet.ceo_signature) {
+        updates.ceo_signature = existingLogsheet.ceo_signature;
+        updates.ceo_sign_name = existingLogsheet.ceo_sign_name;
+        updates.ceo_sign_date = existingLogsheet.ceo_sign_date;
+      }
+      if (existingLogsheet.manager_signature) {
+        updates.manager_signature = existingLogsheet.manager_signature;
+        updates.manager_sign_name = existingLogsheet.manager_sign_name;
+        updates.manager_sign_date = existingLogsheet.manager_sign_date;
+      }
+      if (existingLogsheet.mufti2_signature) {
+        updates.mufti2_signature = existingLogsheet.mufti2_signature;
+        updates.mufti2_sign_name = existingLogsheet.mufti2_sign_name;
+        updates.mufti2_sign_date = existingLogsheet.mufti2_sign_date;
+      }
+      if (existingLogsheet.status && existingLogsheet.status !== 'Waiting for Signature') {
+        updates.status = existingLogsheet.status;
+      }
     }
     updates.updated_at = new Date();
 
@@ -1840,8 +1907,13 @@ router.put('/:id/sign', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: `Invalid role selected: ${singleRole}` });
     }
 
-    if (comment) {
-      logsheet.comment = comment;
+    if (comment && String(comment).trim()) {
+      const trimmedComment = String(comment).trim();
+      if (!logsheet.comment) {
+        logsheet.comment = trimmedComment;
+      } else if (!logsheet.comment.includes(trimmedComment)) {
+        logsheet.comment = `${logsheet.comment}\n[${signerFullName}]: ${trimmedComment}`;
+      }
     }
 
     // Keep state in "Waiting for Signature" to allow further role sign-offs one-by-one

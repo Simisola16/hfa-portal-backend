@@ -90,6 +90,164 @@ async function notifyAdmins(title, body) {
   }
 }
 
+async function resolveInitialProductContext(appDocOrId) {
+  const id = appDocOrId?._id || appDocOrId;
+  const populatedApp = await InitialProductApplication.findById(id)
+    .populate('client_id', 'company_name full_name email phone address')
+    .populate('site_id', 'name est_name trading_name address address_1 city postcode country')
+    .populate('application_id', 'application_number establishment_name site_name company_name category manufacturer_name')
+    .populate('assigned_food_techs', 'full_name email phone')
+    .populate('assigned_food_tech', 'full_name email phone');
+
+  const a = populatedApp || appDocOrId || {};
+  const companyName = (
+    a.client_id?.company_name ||
+    a.application_id?.company_name ||
+    a.application_id?.establishment_name ||
+    a.site_id?.est_name ||
+    a.client_id?.full_name ||
+    a.contact_name ||
+    'Client Company'
+  ).trim();
+
+  let siteName = (
+    a.site_id?.name ||
+    a.site_id?.est_name ||
+    a.site_id?.trading_name ||
+    a.application_id?.site_name ||
+    a.application_id?.establishment_name ||
+    ''
+  ).trim();
+
+  if (!siteName && a.client_id) {
+    try {
+      const Site = mongoose.model('Site');
+      const clientIdStr = String(a.client_id._id || a.client_id);
+      const firstSite = await Site.findOne({
+        $or: [
+          { client_id: clientIdStr },
+          ...(mongoose.Types.ObjectId.isValid(clientIdStr) ? [{ client_id: new mongoose.Types.ObjectId(clientIdStr) }] : [])
+        ]
+      }).select('name est_name trading_name').lean();
+      if (firstSite) {
+        siteName = (firstSite.name || firstSite.est_name || firstSite.trading_name || '').trim();
+      }
+    } catch (_) {}
+  }
+  if (!siteName) siteName = companyName || 'Main Manufacturing Site';
+
+  const appRef = a.application_id?.application_number || `IP-${String(a._id || '').slice(-6).toUpperCase()}`;
+  const productName = a.product?.name || 'Initial Product';
+  const productCode = a.product?.code || '';
+  const processingPath = `/admin/initial-products/${a._id}/processing`;
+
+  return {
+    populatedApp: a,
+    companyName,
+    siteName,
+    appRef,
+    productName,
+    productCode,
+    processingPath
+  };
+}
+
+async function notifyAssignedFoodTechsInitial(appDocOrId, { subject, heading, messageHtml }) {
+  try {
+    const ctx = await resolveInitialProductContext(appDocOrId);
+    const a = ctx.populatedApp;
+    const adminBaseUrl = getAdminUrl();
+    const actionUrl = `${adminBaseUrl}${ctx.processingPath}`;
+
+    const recipientsMap = new Map();
+    if (Array.isArray(a.assigned_food_techs)) {
+      for (const ft of a.assigned_food_techs) {
+        if (ft && ft.email) {
+          recipientsMap.set(ft.email.toLowerCase().trim(), {
+            email: ft.email.trim(),
+            name: ft.full_name || ft.email,
+            id: ft._id
+          });
+        }
+      }
+    }
+    if (a.assigned_food_tech && a.assigned_food_tech.email) {
+      const em = a.assigned_food_tech.email.toLowerCase().trim();
+      if (!recipientsMap.has(em)) {
+        recipientsMap.set(em, {
+          email: a.assigned_food_tech.email.trim(),
+          name: a.assigned_food_tech.full_name || a.assigned_food_tech.email,
+          id: a.assigned_food_tech._id
+        });
+      }
+    }
+    if (a.assigned_ft_custom?.email) {
+      const em = a.assigned_ft_custom.email.toLowerCase().trim();
+      if (!recipientsMap.has(em)) {
+        recipientsMap.set(em, {
+          email: a.assigned_ft_custom.email.trim(),
+          name: a.assigned_ft_custom.name || 'Food Technologies Specialist',
+          id: null
+        });
+      }
+    }
+
+    for (const r of recipientsMap.values()) {
+      if (r.id) {
+        try {
+          await createNotification(
+            r.id,
+            heading || subject,
+            `${ctx.companyName} (${ctx.siteName}) — ${ctx.productName}`,
+            'info',
+            ctx.processingPath
+          );
+        } catch (_) {}
+      }
+      await sendContactEmail({
+        contactEmail: r.email,
+        contactName: r.name,
+        subject: `${subject} — ${ctx.companyName} (${ctx.siteName})`,
+        bodyHtml: `
+          ${messageHtml}
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;margin:18px 0">
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#059669;letter-spacing:0.05em;margin-bottom:10px">Initial Product &amp; Facility Details</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;color:#1e293b">
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700;width:40%">Company Name:</td>
+                <td style="padding:5px 0;font-weight:800;color:#0f172a">${ctx.companyName}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Manufacturing Site:</td>
+                <td style="padding:5px 0;font-weight:700;color:#0f172a">${ctx.siteName}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Application Ref:</td>
+                <td style="padding:5px 0;font-weight:700;color:#059669">${ctx.appRef}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Initial Product:</td>
+                <td style="padding:5px 0;font-weight:700">${ctx.productName}${ctx.productCode ? ` (${ctx.productCode})` : ''}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:#64748b;font-weight:700">Contact Person:</td>
+                <td style="padding:5px 0">${a.contact_name || '—'}${a.contact_email ? ` (${a.contact_email})` : ''}</td>
+              </tr>
+            </table>
+          </div>
+          <div style="margin-top:20px;text-align:center">
+            <a href="${actionUrl}" style="display:inline-block;padding:12px 24px;background:#059669;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:13.5px">
+              Open Initial Product in Admin Portal &rarr;
+            </a>
+          </div>
+        `
+      });
+    }
+  } catch (err) {
+    console.error('[InitialProduct] Failed to notify assigned FTs:', err.message);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -643,24 +801,25 @@ router.put('/:id/assign-ft', authenticateToken, requireFoodTechManager, async (r
     const data = await app.save();
     emitInitialProductUpdate(data, 'ft_assigned');
 
-    // Notify assigned FT users
-    for (const ft of ftUsers) {
-      if (ft.email) {
-        await sendContactEmail({
-          contactEmail: ft.email,
-          contactName: ft.full_name,
-          subject: '🔍 New Initial Product FT Assignment',
-          bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">You have been assigned as a Food Technologies staff member for Initial Product "${app.product?.name}" (${app.contact_name || 'Client'}). Please log in to proceed.</p>`
-        });
-      }
-    }
+    // Notify assigned FT users and/or custom FT email with full Company Name & Manufacturing Site details
+    await notifyAssignedFoodTechsInitial(data, {
+      subject: '🔍 New Initial Product FT Assignment',
+      heading: 'New Initial Product Assigned 🔍',
+      messageHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          You have been assigned as a <strong>Food Technologies Specialist</strong> for the Initial Product application below. Please log in to the HFA Admin Portal to review the product details and enable the Product Approval Form.
+        </p>
+        ${customFtNotes ? `<p style="font-size:13px;color:#475569;background:#fffbeb;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;margin:12px 0"><strong>Assignment Notes:</strong> ${customFtNotes}</p>` : ''}
+      `
+    });
 
     // Notify client contact person
+    const ctx = await resolveInitialProductContext(data);
     await sendContactEmail({
       contactEmail: app.contact_email,
       contactName: app.contact_name,
-      subject: '👷 HFA: Food Technologies Staff Assigned for Initial Product',
-      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (${ftLabels.join(', ')}) have been assigned directly to your Initial Product (<strong>${app.product?.name}</strong>). The team is now preparing the Product Approval Form.</p>`
+      subject: `👷 HFA: Food Technologies Staff Assigned for Initial Product — ${ctx.companyName} (${ctx.siteName})`,
+      bodyHtml: `<p style="font-size:14px;color:#334155;line-height:1.6">Food Technologies staff (<strong>${ftLabels.join(', ')}</strong>) have been assigned directly to your Initial Product (<strong>${ctx.productName}</strong>) for <strong>${ctx.companyName}</strong> (Site: <strong>${ctx.siteName}</strong>). The team is now preparing the Product Approval Form.</p>`
     });
 
     res.json({ data });
@@ -835,11 +994,21 @@ router.put('/:id/submit-response', authenticateToken, async (req, res) => {
     const data = await app.save();
     emitInitialProductUpdate(data, 'form_submitted');
 
-    // Notify admins
+    // Notify admins & assigned FTs
+    const ctx = await resolveInitialProductContext(data);
     await notifyAdmins(
       'Initial Product Form Submitted 📋',
-      `Product Approval Form submitted by client for Initial Product "${app.product?.name}" (${app.contact_name}). Awaiting receipt confirmation.`
+      `Product Approval Form submitted by client (${ctx.companyName} — ${ctx.siteName}) for Initial Product "${ctx.productName}". Awaiting receipt confirmation.`
     );
+    await notifyAssignedFoodTechsInitial(data, {
+      subject: '📋 Initial Product Approval Form Submitted by Client',
+      heading: 'Initial Product Form Submitted 📋',
+      messageHtml: `
+        <p style="font-size:14px;color:#334155;line-height:1.6">
+          The client has completed and submitted the Product Approval Form for their Initial Product (<strong>${ctx.productName}</strong>). Please review the submission and confirm receipt.
+        </p>
+      `
+    });
 
     // Confirm to contact person
     await sendContactEmail({
@@ -956,6 +1125,26 @@ router.put('/:id/client-reply', authenticateToken, upload.any(), async (req, res
     const data = await app.save();
     emitInitialProductUpdate(data, 'client_replied');
 
+    try {
+      const ctx = await resolveInitialProductContext(data);
+      await notifyAdmins(
+        'Client Replied to Initial Product Info Request 📋',
+        `Client (${ctx.companyName} — ${ctx.siteName}) replied to the information request for Initial Product "${ctx.productName}".`
+      );
+      await notifyAssignedFoodTechsInitial(data, {
+        subject: '📋 Client Replied to Initial Product Info Request',
+        heading: 'Client Replied to Info Request 📋',
+        messageHtml: `
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            The client has submitted a reply and/or supporting document for the Initial Product information request.
+          </p>
+          ${reply_text ? `<div style="background:#f0fdf4;border-left:4px solid #059669;padding:12px 16px;margin:12px 0;border-radius:6px;font-size:13.5px;color:#14532d"><strong>Client Reply:</strong><br/>${reply_text}</div>` : ''}
+        `
+      });
+    } catch (e) {
+      console.warn('[InitialProduct] Failed to notify assigned FTs on client-reply:', e.message);
+    }
+
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1066,7 +1255,15 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
       };
       if (newName) updatePayload.product_name = newName;
       if (newCode !== undefined) updatePayload.product_code = newCode;
-      if (req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo) {
+      const shouldClearSigs = Boolean(
+        (req.body.clear_signatures === true || logsheetData.clear_signatures === true) &&
+        !req.body.is_redo &&
+        !logsheetData.is_redo
+      );
+      delete updatePayload.clear_signatures;
+      delete updatePayload.is_redo;
+
+      if (shouldClearSigs) {
         updatePayload.mufti_signature = null;
         updatePayload.mufti_sign_name = null;
         updatePayload.mufti_sign_date = null;
@@ -1080,8 +1277,29 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
         updatePayload.mufti2_sign_name = null;
         updatePayload.mufti2_sign_date = null;
         updatePayload.status = 'Waiting for Signature';
-      } else if (!logsheet.status) {
-        updatePayload.status = 'Waiting for Signature';
+      } else {
+        // Preserve existing signed signatures when redoing/updating logsheet
+        if (logsheet.mufti_signature) {
+          updatePayload.mufti_signature = logsheet.mufti_signature;
+          updatePayload.mufti_sign_name = logsheet.mufti_sign_name;
+          updatePayload.mufti_sign_date = logsheet.mufti_sign_date;
+        }
+        if (logsheet.ceo_signature) {
+          updatePayload.ceo_signature = logsheet.ceo_signature;
+          updatePayload.ceo_sign_name = logsheet.ceo_sign_name;
+          updatePayload.ceo_sign_date = logsheet.ceo_sign_date;
+        }
+        if (logsheet.manager_signature) {
+          updatePayload.manager_signature = logsheet.manager_signature;
+          updatePayload.manager_sign_name = logsheet.manager_sign_name;
+          updatePayload.manager_sign_date = logsheet.manager_sign_date;
+        }
+        if (logsheet.mufti2_signature) {
+          updatePayload.mufti2_signature = logsheet.mufti2_signature;
+          updatePayload.mufti2_sign_name = logsheet.mufti2_sign_name;
+          updatePayload.mufti2_sign_date = logsheet.mufti2_sign_date;
+        }
+        updatePayload.status = logsheet.status || 'Waiting for Signature';
       }
 
       logsheet = await ApplicationLogsheet.findByIdAndUpdate(
@@ -1109,9 +1327,12 @@ router.post('/:id/create-logsheet', authenticateToken, requireFoodTech, async (r
 
     await logsheet.save();
 
+    const isRedo = Boolean(req.body.clear_signatures || req.body.is_redo || logsheetData.clear_signatures || logsheetData.is_redo);
     app.logsheet_id = logsheet._id;
-    app.status = 'logsheet_created';
-    await pushHistory(app, 'logsheet_created', 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
+    if (!isRedo || app.status !== 'initial_product_approved') {
+      app.status = 'logsheet_created';
+    }
+    await pushHistory(app, app.status, isRedo ? 'Logsheet details updated (existing signatures preserved).' : 'Logsheet created. Awaiting Shari\'a Board signatures.', req.user._id);
 
     const data = await app.save();
     emitInitialProductUpdate(data, 'logsheet_created');

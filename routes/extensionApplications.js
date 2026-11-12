@@ -567,8 +567,9 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
     logsheet.extension_days = parsedDays;
     logsheet.signatures_required = sigsRequired;
     if (comments !== undefined) logsheet.comments = comments;
+    else if (req.body.comment !== undefined) logsheet.comments = req.body.comment;
 
-    if (req.body.clear_signatures || req.body.is_redo) {
+    if (req.body.clear_signatures === true && !req.body.is_redo) {
       logsheet.single_signature = null;
       logsheet.single_sign_name = '';
       logsheet.single_sign_role = 'Authorized Officer / CEO';
@@ -590,13 +591,17 @@ router.post('/:id/logsheet', authenticateToken, requireStaff, async (req, res) =
     }
 
     if (submit_for_signature) {
-      logsheet.status = 'Waiting for Signature';
-      app.status = 'waiting_signature';
+      if (logsheet.status !== 'Signed' && logsheet.status !== 'Completed') {
+        logsheet.status = 'Waiting for Signature';
+      }
+      if (!['logsheet_signed', 'extension_approved', 'certificate_issued', 'completed'].includes(app.status)) {
+        app.status = 'waiting_signature';
+      }
       app.statusHistory.push({
-        status: 'waiting_signature',
+        status: app.status,
         changedAt: new Date(),
         changedBy: req.user.id,
-        note: `Logsheet ${req.body.is_redo ? 'redone and ' : ''}submitted for signatures (${parsedDays} days extension, ${sigsRequired} signature${sigsRequired > 1 ? 's' : ''} required)`
+        note: `Logsheet ${req.body.is_redo ? 'updated (existing signatures preserved) and ' : ''}submitted (${parsedDays} days extension, ${sigsRequired} signature${sigsRequired > 1 ? 's' : ''} required)`
       });
       await app.save();
     } else if (logsheet.status === 'Draft') {
