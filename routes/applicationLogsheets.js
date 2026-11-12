@@ -409,7 +409,7 @@ router.post('/direct', authenticateToken, requireAdmin, async (req, res) => {
         agreement_signed: agreement_signed || 'Yes',
         status_date: status_date || new Date(),
 
-        comment: comment || 'Direct Logsheet generated for Halal certification endorsement.',
+        comment: comment !== undefined ? comment : '',
         status: 'Waiting for Signature'
       });
     }
@@ -645,7 +645,7 @@ router.post('/kfc', authenticateToken, requireAdmin, async (req, res) => {
         new_client: (is_new_client === 'Yes' || is_new_client === true) ? 'Yes' : 'No',
         agreement_signed: agreement_signed || 'Yes',
         status_date: status_date || new Date(),
-        comment: comment || 'KFC Logsheet generated for Halal committee endorsement.',
+        comment: comment !== undefined ? comment : '',
         status: 'Waiting for Signature'
       });
     }
