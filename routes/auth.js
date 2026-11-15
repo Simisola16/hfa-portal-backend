@@ -14,6 +14,7 @@ import { sendEmail } from '../lib/mailer.js';
 import UserActivityLog from '../models/UserActivityLog.js';
 import { emitToSuperadmins } from '../lib/socket.js';
 import { resolveGeoLocation, cleanIpAddress } from '../lib/geo.js';
+import { verifyRecaptchaToken } from '../lib/recaptcha.js';
 
 dotenv.config();
 
@@ -145,8 +146,16 @@ function buildVerificationEmail(fullName, verificationUrl) {
 
 
 router.post('/register', async (req, res) => {
-  const { email, password, full_name, company_name, phone, country } = req.body;
+  const { email, password, full_name, company_name, phone, country, recaptchaToken } = req.body;
   try {
+    const captchaCheck = await verifyRecaptchaToken(
+      recaptchaToken,
+      cleanIpAddress(req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress)
+    );
+    if (!captchaCheck.ok) {
+      return res.status(captchaCheck.status).json({ error: captchaCheck.error });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ error: 'Email already exists' });
 
@@ -299,8 +308,16 @@ router.post('/resend-verification', async (req, res) => {
 
 // POST /api/auth/login  (client portal — User collection only)
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, recaptchaToken } = req.body;
   try {
+    const captchaCheck = await verifyRecaptchaToken(
+      recaptchaToken,
+      cleanIpAddress(req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress)
+    );
+    if (!captchaCheck.ok) {
+      return res.status(captchaCheck.status).json({ error: captchaCheck.error });
+    }
+
     const searchEmail = email?.trim();
     if (!searchEmail) {
       return res.status(401).json({ error: 'Email is required' });
@@ -422,8 +439,16 @@ router.post('/login', async (req, res) => {
 
 // POST /api/auth/admin/login  (admin portal only — Admin collection, username or email)
 router.post('/admin/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, recaptchaToken } = req.body;
   try {
+    const captchaCheck = await verifyRecaptchaToken(
+      recaptchaToken,
+      cleanIpAddress(req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress)
+    );
+    if (!captchaCheck.ok) {
+      return res.status(captchaCheck.status).json({ error: captchaCheck.error });
+    }
+
     const searchVal = username?.trim();
     if (!searchVal || !password) {
       return res.status(401).json({ error: 'Username or email and password are required' });
