@@ -29,6 +29,8 @@ const certificateSchema = new mongoose.Schema({
   }],
   product_table_columns: { type: Number, enum: [1, 2, 3], default: 2 },
   certificate_url: String,
+  is_custom_upload: { type: Boolean, default: false },
+  uploaded_filename: String,
   status: { 
     type: String, 
     enum: ['under_review', 'draft', 'active', 'expired', 'revoked', 'renewed', 'outdated', 'superseded', 'inactive', 'approved'], 

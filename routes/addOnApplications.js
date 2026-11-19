@@ -310,6 +310,10 @@ async function notifyAssignedFoodTechs(appDocOrId, { subject, heading, messageHt
 
 async function regenerateCertPdf(certificate) {
   try {
+    if (certificate.is_custom_upload) {
+      console.log(`[AddOn] Skipping certificate regeneration for ${certificate.certificate_number} because it is an admin-uploaded custom certificate.`);
+      return;
+    }
     const { default: Application } = await import('../models/Application.js');
     const application = await Application.findById(certificate.application_id);
     const client = await User.findById(certificate.client_id);

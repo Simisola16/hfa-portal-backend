@@ -1465,46 +1465,66 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
     let resolvedProductCategory = (req.body.product_category || product_category || resolvedScope || '').trim();
 
     let certificate_url = null;
+    let is_custom_upload = false;
+    let uploaded_filename = null;
+
     if (req.file) {
       certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
+      is_custom_upload = true;
+      uploaded_filename = req.file.originalname;
     } else {
-      // Auto-generate initial PDF preview
-      try {
-        const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p, idx) => ({
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
-          description: typeof p === 'object' ? (p.description || p.name) : p
-        }));
-        const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
-        const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
+      // Check if existing certificate draft already has an admin-uploaded custom PDF
+      let existingDraftCert = null;
+      if (resolvedAppId) {
+        existingDraftCert = await Certificate.findOne({ application_id: resolvedAppId, status: { $in: ['under_review', 'draft'] } });
+      } else if (resolvedLogsheetId) {
+        existingDraftCert = await Certificate.findOne({ logsheet_id: resolvedLogsheetId, status: { $in: ['under_review', 'draft'] } });
+      }
 
-        const filename = `${certNo}.pdf`;
-        const s3Key = generateS3Key('certificates', filename);
-        const certPath = getS3PathFromKey(s3Key);
-        const fullCertUrl = resolveCertificateUrl(certPath);
+      if (existingDraftCert?.is_custom_upload && existingDraftCert?.certificate_url) {
+        console.log(`[Certificate] Preserving existing custom uploaded PDF for cert ${existingDraftCert.certificate_number}`);
+        certificate_url = existingDraftCert.certificate_url;
+        is_custom_upload = true;
+        uploaded_filename = existingDraftCert.uploaded_filename;
+      } else {
+        // Auto-generate initial PDF preview
+        try {
+          const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+            description: typeof p === 'object' ? (p.description || p.name) : p
+          }));
+          const rawTableCols = parseInt(req.body.product_table_columns || req.body.table_layout || req.body.productTableColumns || req.body.tableLayout, 10);
+          const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : undefined;
 
-        const pdfBuffer = await generateCertificate({
-          certificateType: resolvedScheme,
-          businessName: resolvedCompanyName,
-          businessAddress: resolvedCompanyAddress,
-          manufacturerAddress: resolvedManufacturingAddress,
-          certificateNumber: certNo,
-          scopeOfCertification: resolvedScope,
-          productCategory: req.body.product_category || resolvedScope,
-          productCategories,
-          products: productCategories,
-          productTableColumns: resolvedTableCols,
-          issueDate: issue_date || new Date(),
-          expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          auditDate: audit_date || certification_start_date || issue_date || new Date(),
-          certificationStartDate: certification_start_date || issue_date || new Date(),
-          currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
-          originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
-          certificate_url: fullCertUrl
-        });
-        certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
-      } catch (genErr) {
-        console.warn('Initial PDF auto-generation in POST /certificates warning:', genErr.message);
+          const filename = `${certNo}.pdf`;
+          const s3Key = generateS3Key('certificates', filename);
+          const certPath = getS3PathFromKey(s3Key);
+          const fullCertUrl = resolveCertificateUrl(certPath);
+
+          const pdfBuffer = await generateCertificate({
+            certificateType: resolvedScheme,
+            businessName: resolvedCompanyName,
+            businessAddress: resolvedCompanyAddress,
+            manufacturerAddress: resolvedManufacturingAddress,
+            certificateNumber: certNo,
+            scopeOfCertification: resolvedScope,
+            productCategory: req.body.product_category || resolvedScope,
+            productCategories,
+            products: productCategories,
+            productTableColumns: resolvedTableCols,
+            issueDate: issue_date || new Date(),
+            expiryDate: expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            auditDate: audit_date || certification_start_date || issue_date || new Date(),
+            certificationStartDate: certification_start_date || issue_date || new Date(),
+            currentCycleStartDate: current_cycle_start_date || issue_date || new Date(),
+            originalCycleStartDate: original_cycle_start_date || issue_date || new Date(),
+            certificate_url: fullCertUrl
+          });
+          certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
+        } catch (genErr) {
+          console.warn('Initial PDF auto-generation in POST /certificates warning:', genErr.message);
+        }
       }
     }
 
@@ -1567,6 +1587,10 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       certificate.product_details = parsedProductDetails;
       if (resolvedTableCols) certificate.product_table_columns = resolvedTableCols;
       if (certificate_url) certificate.certificate_url = certificate_url;
+      if (is_custom_upload) {
+        certificate.is_custom_upload = true;
+        certificate.uploaded_filename = uploaded_filename;
+      }
       certificate.status = initialStatus;
       certificate.review_notes = review_notes || certificate.review_notes;
       certificate.is_add_on = isAddOn;
@@ -1598,6 +1622,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
         product_details: parsedProductDetails,
         product_table_columns: resolvedTableCols || 2,
         certificate_url,
+        is_custom_upload,
+        uploaded_filename,
         status: initialStatus,
         is_add_on: isAddOn,
         is_extension: Boolean(req.body.is_extension || resolvedExtApp),
@@ -1961,6 +1987,15 @@ router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.
     if (req.file) {
       const newUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
       cert.certificate_url = newUrl;
+      cert.is_custom_upload = true;
+      cert.uploaded_filename = req.file.originalname;
+    }
+
+    if (req.body.is_custom_upload !== undefined) {
+      cert.is_custom_upload = req.body.is_custom_upload === true || req.body.is_custom_upload === 'true';
+    }
+    if (req.body.uploaded_filename !== undefined) {
+      cert.uploaded_filename = req.body.uploaded_filename;
     }
 
     cert.updated_at = new Date();
@@ -2023,6 +2058,26 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
     }
     if (req.body.product_table_columns !== undefined) {
       cert.product_table_columns = Number(req.body.product_table_columns);
+    }
+
+    // If this certificate has an admin-uploaded custom PDF and force is not explicitly requested, PRESERVE IT!
+    if (cert.is_custom_upload && cert.certificate_url && !req.body.force && !req.body.force_regenerate) {
+      console.log(`[Certificate] Preserving admin-uploaded certificate PDF for ${cert.certificate_number} during regenerate call.`);
+      cert.updated_at = new Date();
+      await cert.save();
+      return res.json({
+        success: true,
+        message: 'Admin-uploaded certificate preserved. System did not overwrite your file.',
+        certificateUrl: cert.certificate_url,
+        data: cert,
+        is_custom_upload: true
+      });
+    }
+
+    // If forced to regenerate from template, clear custom upload flag
+    if (req.body.force || req.body.force_regenerate) {
+      cert.is_custom_upload = false;
+      cert.uploaded_filename = null;
     }
 
     const prods = (cert.product_details && cert.product_details.length > 0)
@@ -2154,50 +2209,62 @@ const handleApproveAndSendCertificate = async (req, res) => {
       }
     }
 
-    // Regenerate final PDF to ensure it is 100% up-to-date with reviewer edits
-    try {
-      const prods = (cert.product_details && cert.product_details.length > 0)
-        ? cert.product_details
-        : (cert.products_covered || []).map((p, idx) => ({
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
-          description: typeof p === 'object' ? (p.description || p.name) : p
-        }));
+    // Determine PDF source: Admin uploaded file VS Preserved upload VS Template generation
+    if (req.file) {
+      const uploadedUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
+      cert.certificate_url = uploadedUrl;
+      cert.is_custom_upload = true;
+      cert.uploaded_filename = req.file.originalname;
+      console.log(`[Certificate] Admin uploaded replacement certificate PDF on approval for ${cert.certificate_number}`);
+    } else if (cert.is_custom_upload && cert.certificate_url) {
+      // PRESERVE ADMIN UPLOADED CERTIFICATE EXACTLY AS UPLOADED — DO NOT OVERWRITE
+      console.log(`[Certificate] Preserving admin-uploaded certificate PDF for ${cert.certificate_number} on approval & send.`);
+    } else {
+      // Regenerate final PDF to ensure it is 100% up-to-date with reviewer edits
+      try {
+        const prods = (cert.product_details && cert.product_details.length > 0)
+          ? cert.product_details
+          : (cert.products_covered || []).map((p, idx) => ({
+            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+            name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+            description: typeof p === 'object' ? (p.description || p.name) : p
+          }));
 
-      const filename = `${cert.certificate_number}.pdf`;
-      const s3Key = generateS3Key('certificates', filename);
-      const certPath = getS3PathFromKey(s3Key);
-      const fullCertUrl = resolveCertificateUrl(certPath);
+        const filename = `${cert.certificate_number}.pdf`;
+        const s3Key = generateS3Key('certificates', filename);
+        const certPath = getS3PathFromKey(s3Key);
+        const fullCertUrl = resolveCertificateUrl(certPath);
 
-      // Derive the normalised scheme to get its defaultColumns
-      const approveNormScheme = normalizeCertificateType(cert.certificate_type || 'HFA Scheme', cert.scope || cert.product_category || '');
-      const approveSchemeDef = CERTIFICATE_SCHEMES[approveNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
-      // Respect any explicitly stored column count; otherwise use the scheme default (HFA=1, GSO/SMIIC=2)
-      const approveTableCols = [1, 2, 3].includes(Number(cert.product_table_columns))
-        ? Number(cert.product_table_columns)
-        : approveSchemeDef.defaultColumns;
+        // Derive the normalised scheme to get its defaultColumns
+        const approveNormScheme = normalizeCertificateType(cert.certificate_type || 'HFA Scheme', cert.scope || cert.product_category || '');
+        const approveSchemeDef = CERTIFICATE_SCHEMES[approveNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
+        // Respect any explicitly stored column count; otherwise use the scheme default (HFA=1, GSO/SMIIC=2)
+        const approveTableCols = [1, 2, 3].includes(Number(cert.product_table_columns))
+          ? Number(cert.product_table_columns)
+          : approveSchemeDef.defaultColumns;
 
-      const pdfBuffer = await generateCertificate({
-        certificateType: cert.certificate_type || 'HFA Scheme',
-        businessName: cert.company_name || '',
-        businessAddress: cert.company_address || '',
-        manufacturerAddress: cert.manufacturing_address || '',
-        certificateNumber: cert.certificate_number,
-        scopeOfCertification: cert.scope || '',
-        productCategory: cert.scope,
-        productCategories: prods,
-        products: prods,
-        productTableColumns: approveTableCols,
-        issueDate: cert.issue_date || new Date(),
-        expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
-        currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
-        originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
-        certificate_url: fullCertUrl
-      });
-      cert.certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
-    } catch (genErr) {
-      console.warn('PDF re-render during approve-and-send warning:', genErr.message);
+        const pdfBuffer = await generateCertificate({
+          certificateType: cert.certificate_type || 'HFA Scheme',
+          businessName: cert.company_name || '',
+          businessAddress: cert.company_address || '',
+          manufacturerAddress: cert.manufacturing_address || '',
+          certificateNumber: cert.certificate_number,
+          scopeOfCertification: cert.scope || '',
+          productCategory: cert.scope,
+          productCategories: prods,
+          products: prods,
+          productTableColumns: approveTableCols,
+          issueDate: cert.issue_date || new Date(),
+          expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
+          currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
+          originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
+          certificate_url: fullCertUrl
+        });
+        cert.certificate_url = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
+      } catch (genErr) {
+        console.warn('PDF re-render during approve-and-send warning:', genErr.message);
+      }
     }
 
     cert.status = 'active';
@@ -2228,10 +2295,10 @@ const handleApproveAndSendCertificate = async (req, res) => {
 };
 
 // Aliases for approve endpoints to ensure compatibility across all admin pages
-router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
-router.put('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
-router.put('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
-router.post('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, handleApproveAndSendCertificate);
+router.post('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, upload.single('certificate_file'), handleApproveAndSendCertificate);
+router.put('/:id/approve-and-send', authenticateToken, requireReviewCertificatePrivilege, upload.single('certificate_file'), handleApproveAndSendCertificate);
+router.put('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, upload.single('certificate_file'), handleApproveAndSendCertificate);
+router.post('/:id/approve', authenticateToken, requireReviewCertificatePrivilege, upload.single('certificate_file'), handleApproveAndSendCertificate);
 
 // Helper function to build cert data from Application
 async function buildCertDataFromApplication(application) {
@@ -2412,6 +2479,25 @@ router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertif
     if (current_cycle_start_date) certificate.current_cycle_start_date = current_cycle_start_date;
     if (original_cycle_start_date) certificate.original_cycle_start_date = original_cycle_start_date;
     if (req.body.product_table_columns) certificate.product_table_columns = Number(req.body.product_table_columns);
+
+    // If this certificate has an admin-uploaded custom PDF and force is not explicitly requested, PRESERVE IT!
+    if (certificate.is_custom_upload && certificate.certificate_url && !req.body.force && !req.body.force_regenerate) {
+      console.log(`[Certificate] Preserving admin-uploaded certificate PDF for ${certificate.certificate_number} during regenerate call.`);
+      certificate.updated_at = new Date();
+      await certificate.save();
+      return res.json({
+        success: true,
+        message: 'Admin-uploaded certificate preserved. System did not overwrite your file.',
+        certificateUrl: certificate.certificate_url,
+        data: certificate,
+        is_custom_upload: true
+      });
+    }
+
+    if (req.body.force || req.body.force_regenerate) {
+      certificate.is_custom_upload = false;
+      certificate.uploaded_filename = null;
+    }
 
     let parsedProducts = certificate.products_covered || [];
     if (products_covered) {
@@ -2792,8 +2878,12 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     const resolvedTableCols = (rawTableCols >= 1 && rawTableCols <= 3) ? rawTableCols : 2;
 
     let certificate_url = null;
+    let is_custom_upload = false;
+    let uploaded_filename = null;
     if (req.file) {
       certificate_url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'certificates');
+      is_custom_upload = true;
+      uploaded_filename = req.file.originalname;
     } else if (auto_generate_pdf === 'true' || auto_generate_pdf === true || !req.file) {
       const filename = `${certNumber}.pdf`;
       const s3Key = generateS3Key('certificates', filename);
@@ -2852,6 +2942,8 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       product_details: cleanProducts,
       product_table_columns: resolvedTableCols,
       certificate_url,
+      is_custom_upload,
+      uploaded_filename,
       status: status || 'active',
       is_direct_issuance: true,
       is_add_on: isAddOn,
