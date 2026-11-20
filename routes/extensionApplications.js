@@ -658,10 +658,6 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
       logsheet.single_sign_name = signName;
       logsheet.single_sign_role = signature_role || 'Authorized Signatory / CEO';
       logsheet.single_sign_date = now;
-      // Mirror to ceo_signature so standard 4-signature checks or views also find the signature
-      logsheet.ceo_signature = signature_data;
-      logsheet.ceo_sign_name = signName;
-      logsheet.ceo_sign_date = now;
       logsheet.status = 'Signed';
     } else {
       // 4 Signatures mode (>30-day extension)
@@ -670,11 +666,6 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
         logsheet.ceo_signature = signature_data;
         logsheet.ceo_sign_name = signName;
         logsheet.ceo_sign_date = now;
-        // Mirror to single_signature
-        logsheet.single_signature = signature_data;
-        logsheet.single_sign_name = signName;
-        logsheet.single_sign_role = 'Authorized Signatory / CEO';
-        logsheet.single_sign_date = now;
       } else if (role.includes('manager')) {
         logsheet.manager_signature = signature_data;
         logsheet.manager_sign_name = signName;
@@ -690,17 +681,8 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
         logsheet.mufti_sign_date = now;
       }
 
-      // Also ensure single_signature is set if it's currently null
-      if (!logsheet.single_signature) {
-        logsheet.single_signature = signature_data;
-        logsheet.single_sign_name = signName;
-        logsheet.single_sign_role = signature_role || 'Authorized Signatory';
-        logsheet.single_sign_date = now;
-      }
-
-      // Check if all 4 signed (ceo accepts either ceo_signature or single_signature)
-      const hasCeo = Boolean(logsheet.ceo_signature || logsheet.single_signature);
-      const isComplete = Boolean(logsheet.mufti_signature && hasCeo && logsheet.manager_signature && logsheet.mufti2_signature);
+      // Check if all 4 required committee roles signed
+      const isComplete = Boolean(logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature);
       if (isComplete) {
         logsheet.status = 'Signed';
       }
@@ -751,7 +733,7 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
     const is30Days = logsheet.extension_duration_type === '30_days' || (logsheet.extension_days && logsheet.extension_days <= 30) || logsheet.signatures_required === 1;
     const isComplete = is30Days
       ? Boolean(logsheet.single_signature || logsheet.ceo_signature)
-      : Boolean(logsheet.mufti_signature && (logsheet.ceo_signature || logsheet.single_signature) && logsheet.manager_signature && logsheet.mufti2_signature);
+      : Boolean(logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature);
 
     if (!isComplete && logsheet.status !== 'Signed') {
       return res.status(400).json({
