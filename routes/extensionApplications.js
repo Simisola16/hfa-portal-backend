@@ -653,15 +653,19 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
     const signName = signer_name || req.user.full_name || req.user.name || req.user.email;
     const now = new Date();
 
-    if (logsheet.signatures_required === 1 || logsheet.extension_duration_type === '30_days') {
-      // Single signature
+    const is30Days = logsheet.signatures_required === 1 ||
+      logsheet.extension_duration_type === '30_days' ||
+      (logsheet.extension_days && Number(logsheet.extension_days) <= 30);
+
+    if (is30Days) {
+      // Single signature mode (30-day extension)
       logsheet.single_signature = signature_data;
       logsheet.single_sign_name = signName;
       logsheet.single_sign_role = signature_role || 'Authorized Signatory / CEO';
       logsheet.single_sign_date = now;
       logsheet.status = 'Signed';
     } else {
-      // 4 Signatures
+      // 4 Signatures mode (>30-day extension)
       const role = (signature_role || '').toLowerCase();
       if (role.includes('ceo') || role.includes('director')) {
         logsheet.ceo_signature = signature_data;
@@ -682,8 +686,8 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
         logsheet.mufti_sign_date = now;
       }
 
-      // Check if all 4 signed
-      const isComplete = logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature;
+      // Check if all 4 required committee roles signed
+      const isComplete = Boolean(logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature);
       if (isComplete) {
         logsheet.status = 'Signed';
       }
@@ -695,6 +699,16 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
     }
 
     await logsheet.save();
+
+    // Record status history on application
+    app.statusHistory.push({
+      status: 'waiting_signature',
+      changedAt: now,
+      changedBy: req.user.id,
+      note: `Extension Logsheet signed by ${signName} (${signature_role || (is30Days ? 'Authorized Signatory / CEO' : 'Committee Signatory')})`
+    });
+    await app.save();
+
     emitExtensionUpdate(app, 'logsheet_signed');
 
     res.json({
@@ -721,10 +735,10 @@ router.post('/:id/issue-certificate', authenticateToken, requireStaff, async (re
       return res.status(400).json({ error: 'Cannot issue certificate: No extension logsheet found for this application.' });
     }
 
-    const is30Days = logsheet.extension_duration_type === '30_days' || (logsheet.extension_days && logsheet.extension_days <= 30);
+    const is30Days = logsheet.extension_duration_type === '30_days' || (logsheet.extension_days && logsheet.extension_days <= 30) || logsheet.signatures_required === 1;
     const isComplete = is30Days
-      ? !!logsheet.single_signature
-      : (logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature);
+      ? Boolean(logsheet.single_signature || logsheet.ceo_signature)
+      : Boolean(logsheet.mufti_signature && logsheet.ceo_signature && logsheet.manager_signature && logsheet.mufti2_signature);
 
     if (!isComplete && logsheet.status !== 'Signed') {
       return res.status(400).json({
