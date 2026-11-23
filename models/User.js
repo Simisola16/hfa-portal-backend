@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema({
   client_role: {
     type:    String,
     enum:    ['admin', 'editor', 'viewer', 'owner', 'member'],
-    default: 'member',
+    default: 'owner',
   },
   // Lifecycle
   company_category: {

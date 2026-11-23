@@ -460,8 +460,7 @@ router.get('/companies-directory', authenticateToken, async (req, res) => {
     const [clients, sites] = await Promise.all([
       User.find({
         role: 'client',
-        $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
-        client_role: { $ne: 'member' }
+        $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }]
       }).select('_id company_name full_name').lean(),
       Site.find({}).select('_id client_id name est_name trading_name address_1').lean()
     ]);
@@ -658,7 +657,6 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         role: 'client',
         is_active: { $ne: false },
         $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
-        client_role: { $ne: 'member' },
         $and: [
           { $or: [{ suspension_reason: null }, { suspension_reason: '' }, { suspension_reason: { $exists: false } }] }
         ]
@@ -675,8 +673,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     // ── Client categories: query User collection ────────────────────────────────
     const matchQuery = {
       $and: [
-        { $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }] },
-        { client_role: { $ne: 'member' } }
+        { $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }] }
       ]
     };
 
@@ -725,8 +722,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 
     const basePrimaryFilter = {
       role: 'client',
-      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
-      client_role: { $ne: 'member' }
+      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }]
     };
 
     // Fast path for unpaginated selector/dropdown callers

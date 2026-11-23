@@ -1669,6 +1669,14 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
 
 // Helper function to perform issuance actions (email, notifications, status updates, superseding)
 async function performCertificateIssuance({ certificate, application_id, client_id, site_id, certNo, user }) {
+  // Auto-promote company lifecycle category to 'certified' once an active certificate is issued
+  if (client_id && mongoose.Types.ObjectId.isValid(String(client_id))) {
+    await User.updateOne(
+      { _id: client_id },
+      { $set: { company_category: 'certified' } }
+    ).catch(() => {});
+  }
+
   // If this is a renewal application, mark the old certificate as renewed
   const app = await Application.findById(application_id);
   const isRen = app && (
@@ -2952,6 +2960,14 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     });
 
     const savedCert = await certificate.save();
+
+    // Auto-promote company lifecycle category to 'certified' when an active certificate is issued directly
+    if (savedCert.status === 'active' && targetClientId && mongoose.Types.ObjectId.isValid(String(targetClientId))) {
+      await User.updateOne(
+        { _id: targetClientId },
+        { $set: { company_category: 'certified' } }
+      ).catch(() => {});
+    }
 
     // Mark previous active certificates for this site / client as superseded / inactive
     const prevSiteFilter = [];

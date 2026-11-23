@@ -618,6 +618,17 @@ router.post('/', authenticateToken, upload.fields([
 
     const data = await application.save();
 
+    // Auto-promote company lifecycle category from 'signup' -> 'processing' when an application is submitted
+    if (effectiveCompanyId && mongoose.Types.ObjectId.isValid(String(effectiveCompanyId))) {
+      await User.updateOne(
+        {
+          _id: effectiveCompanyId,
+          $or: [{ company_category: 'signup' }, { company_category: null }, { company_category: { $exists: false } }]
+        },
+        { $set: { company_category: 'processing' } }
+      ).catch(() => {});
+    }
+
     // Emit real-time application update
     emitApplicationUpdate(data, 'created');
 

@@ -177,6 +177,8 @@ router.post('/register', async (req, res) => {
       phone,
       country,
       role: 'client',
+      client_role: 'owner',
+      company_category: 'signup',
       verification_token: verificationToken,
       verification_token_expiry: verificationExpiry,
       is_verified: false,

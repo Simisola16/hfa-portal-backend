@@ -256,8 +256,7 @@ const getReportStats = async (req, res) => {
     // 6. Clients & Users Statistics
     const baseClientFilter = {
       role: 'client',
-      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }],
-      client_role: { $ne: 'member' }
+      $or: [{ parent_client_id: null }, { parent_client_id: { $exists: false } }]
     };
     const totalClients = await User.countDocuments(baseClientFilter);
     const activeClients = await User.countDocuments({ ...baseClientFilter, is_active: true });
