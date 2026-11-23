@@ -144,6 +144,54 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
 }
 
 /**
+ * Computes wrapped cell lines and whether a product row needs 2 lines of height.
+ */
+function getProductRowLines(p, colDefs, numColumns, fontBold, fontRegular, cellFontSize, rowNumber) {
+  const colLines = [];
+  let rowNeedsTwoLines = false;
+
+  colDefs.forEach((col, cIdx) => {
+    if (cIdx === 0) {
+      colLines.push([String(rowNumber)]);
+    } else if (numColumns === 1) {
+      const descVal = p.description || p.name;
+      const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+      if (lines.length > 1) rowNeedsTwoLines = true;
+      colLines.push(lines);
+    } else if (numColumns === 2) {
+      if (cIdx === 1) {
+        const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
+        if (lines.length > 1) rowNeedsTwoLines = true;
+        colLines.push(lines);
+      } else {
+        const descVal = p.description || p.name;
+        const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+        if (lines.length > 1) rowNeedsTwoLines = true;
+        colLines.push(lines);
+      }
+    } else if (numColumns === 3) {
+      if (cIdx === 1) {
+        const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
+        if (lines.length > 1) rowNeedsTwoLines = true;
+        colLines.push(lines);
+      } else if (cIdx === 2) {
+        const descVal = p.description || p.name;
+        const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+        if (lines.length > 1) rowNeedsTwoLines = true;
+        colLines.push(lines);
+      } else if (cIdx === 3) {
+        const catVal = p.category || 'Halal Certified';
+        const lines = wrapTextLines(catVal, col.width - 16.0, fontRegular, cellFontSize, 2);
+        if (lines.length > 1) rowNeedsTwoLines = true;
+        colLines.push(lines);
+      }
+    }
+  });
+
+  return { colLines, rowNeedsTwoLines };
+}
+
+/**
  * Dynamically computes optimal table column widths based on the actual length
  * of product codes, descriptions/names, and categories across all products in the certificate.
  * Adjusts each column tightly to where the text finishes, and ensures the table is centralized.
@@ -692,28 +740,6 @@ export async function generateCertificate(certData) {
   }
   // Do NOT add dummy placeholder product if no products are selected - keep it blank
 
-  // Page 1 has company info, declaration & dates. Fits exactly up to 5 products with generous breathing room above signatures.
-  // Subsequent pages fit up to 15 products per page cleanly above seals and signatures.
-  const PAGE1_LIMIT = 5;
-  const SUBSEQUENT_PAGE_LIMIT = 15;
-
-  let pagesProducts = [];
-  if (allProducts.length === 0) {
-    pagesProducts = [[]];
-  } else if (allProducts.length <= PAGE1_LIMIT) {
-    pagesProducts = [allProducts];
-  } else {
-    pagesProducts.push(allProducts.slice(0, PAGE1_LIMIT));
-    let remaining = allProducts.slice(PAGE1_LIMIT);
-    while (remaining.length > 0) {
-      pagesProducts.push(remaining.slice(0, SUBSEQUENT_PAGE_LIMIT));
-      remaining = remaining.slice(SUBSEQUENT_PAGE_LIMIT);
-    }
-  }
-
-  const totalPages = pagesProducts.length;
-
-
   // Create destination multi-page PDF document
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
@@ -821,6 +847,61 @@ export async function generateCertificate(certData) {
   const tableColDefs = computeProductTableColumns(allProducts, numColumns, fontBold, fontRegular);
   const dynamicTableWidth = tableColDefs.reduce((sum, c) => sum + c.width, 0);
   const dynamicTableLeftX = Math.round((PAGE_WIDTH - dynamicTableWidth) / 2);
+
+  // Pre-compute Page 1 address wrapping & dynamic table capacity so long addresses push down
+  // rows cleanly and reduce (even to 0) the number of products placed on Page 1.
+  const maxValW = 550.0 - 236.0; // 314 pt
+  const rowValSize = 10.5;
+  const page1AddrLines = resolvedAddress ? wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 20) : [];
+  const page1MfgLines = resolvedMfgAddress ? wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 20) : [];
+  const page1ScopeLines = resolvedScope ? wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2) : [];
+
+  const page1R2DividerY = page1AddrLines.length <= 1
+    ? 432.0
+    : (456.0 - ((page1AddrLines.length - 1) * 13.0) - 11.0);
+  const page1R3Label1Y = page1R2DividerY - 18.0;
+  const page1MfgBlockLines = Math.max(2, page1MfgLines.length);
+  const page1R3DividerY = page1R3Label1Y - ((page1MfgBlockLines - 1) * 13.0) - 15.0;
+  const page1R4Y = page1R3DividerY - 18.0;
+  const page1R4DividerY = page1R4Y - 24.0;
+  const page1HeaderBottomY = page1R4DividerY - 16.0 - 18.0;
+
+  const PAGE1_MAX = 5;
+  const SUBSEQUENT_PAGE_LIMIT = 15;
+  const MIN_PAGE1_TABLE_BOTTOM_Y = 215.0;
+  const cellFontSize = 9.0;
+  const rowHeight = 17.5;
+
+  let page1Count = 0;
+  let availCurY = page1HeaderBottomY;
+  for (let i = 0; i < Math.min(allProducts.length, PAGE1_MAX); i++) {
+    const { rowNeedsTwoLines } = getProductRowLines(
+      allProducts[i],
+      tableColDefs,
+      numColumns,
+      fontBold,
+      fontRegular,
+      cellFontSize,
+      i + 1
+    );
+    const thisH = rowNeedsTwoLines ? 23.5 : rowHeight;
+    if (availCurY - thisH < MIN_PAGE1_TABLE_BOTTOM_Y) break;
+    availCurY -= thisH;
+    page1Count++;
+  }
+
+  let pagesProducts = [];
+  if (allProducts.length === 0) {
+    pagesProducts = [[]];
+  } else {
+    pagesProducts.push(allProducts.slice(0, page1Count));
+    let remaining = allProducts.slice(page1Count);
+    while (remaining.length > 0) {
+      pagesProducts.push(remaining.slice(0, SUBSEQUENT_PAGE_LIMIT));
+      remaining = remaining.slice(SUBSEQUENT_PAGE_LIMIT);
+    }
+  }
+  const totalPages = pagesProducts.length;
 
   let globalProductIndex = 0;
 
@@ -1056,15 +1137,18 @@ export async function generateCertificate(certData) {
     }
 
     // 4. Products Table Layout (Dynamic 1, 2, or 3 columns, adjusted to text finish and centralized)
+    // Skip drawing an empty table on Page 1 if all products overflowed to Page 2+ due to long addresses
+    const shouldDrawTable = currentProducts.length > 0 || allProducts.length === 0;
     const tableLeftX = dynamicTableLeftX;
     const tableWidth = dynamicTableWidth;
     const headerHeight = 18.0;
-    const rowHeight = 17.5;
 
     // Page 1: Table top is 16.0 pt below Product Category divider (default y=328.0 -> headerBottomY=310.0 pt).
     // Subsequent pages: Table top is at y=560.0 pt, headerBottomY = 560.0 - 18.0 = 542.0 pt.
     let headerBottomY = isFirstPage ? (r4DividerY - 16.0 - headerHeight) : 542.0;
+    let curRowY = headerBottomY;
 
+    if (shouldDrawTable) {
     // Use dynamically computed column definitions based on product lengths
     const colDefs = tableColDefs;
 
@@ -1117,52 +1201,19 @@ export async function generateCertificate(certData) {
     });
 
     // Draw Table Rows
-    const cellFontSize = 9.0;
-    let curRowY = headerBottomY;
-
     currentProducts.forEach((p) => {
       globalProductIndex++;
 
       // Pre-compute wrapped lines for all cells in this row
-      const colLines = [];
-      let rowNeedsTwoLines = false;
-
-      colDefs.forEach((col, cIdx) => {
-        if (cIdx === 0) {
-          colLines.push([String(globalProductIndex)]);
-        } else if (numColumns === 1) {
-          const lines = wrapTextLines(p.name, col.width - 16.0, fontRegular, cellFontSize, 2);
-          if (lines.length > 1) rowNeedsTwoLines = true;
-          colLines.push(lines);
-        } else if (numColumns === 2) {
-          if (cIdx === 1) {
-            const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
-            if (lines.length > 1) rowNeedsTwoLines = true;
-            colLines.push(lines);
-          } else {
-            const descVal = p.description || p.name;
-            const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
-            if (lines.length > 1) rowNeedsTwoLines = true;
-            colLines.push(lines);
-          }
-        } else if (numColumns === 3) {
-          if (cIdx === 1) {
-            const lines = wrapTextLines(p.code, col.width - 12.0, fontBold, cellFontSize, 2);
-            if (lines.length > 1) rowNeedsTwoLines = true;
-            colLines.push(lines);
-          } else if (cIdx === 2) {
-            const descVal = p.description || p.name;
-            const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
-            if (lines.length > 1) rowNeedsTwoLines = true;
-            colLines.push(lines);
-          } else if (cIdx === 3) {
-            const catVal = p.category || 'Halal Certified';
-            const lines = wrapTextLines(catVal, col.width - 16.0, fontRegular, cellFontSize, 2);
-            if (lines.length > 1) rowNeedsTwoLines = true;
-            colLines.push(lines);
-          }
-        }
-      });
+      const { colLines, rowNeedsTwoLines } = getProductRowLines(
+        p,
+        colDefs,
+        numColumns,
+        fontBold,
+        fontRegular,
+        cellFontSize,
+        globalProductIndex
+      );
 
       const thisRowHeight = rowNeedsTwoLines ? 23.5 : rowHeight;
       curRowY -= thisRowHeight;
@@ -1285,6 +1336,7 @@ export async function generateCertificate(certData) {
       font: fontBold,
       color: cDark
     });
+    }
 
     // 5. Dynamic QR Code (Bottom Left)
     const qrSize = 52;
