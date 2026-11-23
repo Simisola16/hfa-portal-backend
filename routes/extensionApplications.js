@@ -7,6 +7,7 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import Site from '../models/Site.js';
+import Signature from '../models/Signature.js';
 import { generateHfaId } from '../lib/idGenerator.js';
 import { authenticateToken, requireAdmin, requireStaff, isStaffUser } from '../middleware/auth.js';
 import { createNotification } from '../lib/notifications.js';
@@ -650,7 +651,43 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
       return res.status(404).json({ error: 'Logsheet or application not found.' });
     }
 
-    const signName = signer_name || req.user.full_name || req.user.name || req.user.email;
+    // Resolve the authenticated user's own signature from Signature collection first
+    // (prevents any stale/misconfigured client fallback from applying another admin's signature)
+    let resolvedSignatureData = signature_data;
+    let resolvedPersonalSigName = '';
+    try {
+      const allSigs = await Signature.find({}).sort({ created_at: -1 }).lean();
+      const uid = String(req.user?._id || req.user?.id || '');
+      const uUsername = (req.user?.username || '').trim().toLowerCase();
+      const uEmail = (req.user?.email || '').trim().toLowerCase();
+      const uEmailPrefix = uEmail ? uEmail.split('@')[0].trim() : '';
+      const uFullName = (req.user?.full_name || req.user?.name || '').trim().toLowerCase();
+
+      const personalSig =
+        allSigs.find(s => s.user_id && uid && String(s.user_id) === uid) ||
+        allSigs.find(s => {
+          const su = (s.username || '').trim().toLowerCase();
+          if (!su) return false;
+          return (
+            (uUsername && su === uUsername) ||
+            (uEmail && su === uEmail) ||
+            (uEmailPrefix && su === uEmailPrefix)
+          );
+        }) ||
+        allSigs.find(s => {
+          const sn = (s.name || '').trim().toLowerCase();
+          return Boolean(sn && uFullName && sn === uFullName);
+        });
+
+      if (personalSig?.signature_url) {
+        resolvedSignatureData = personalSig.signature_url;
+        resolvedPersonalSigName = personalSig.name || '';
+      }
+    } catch (sigLookupErr) {
+      console.error('Signature lookup notice:', sigLookupErr.message);
+    }
+
+    const signName = req.user.full_name || resolvedPersonalSigName || req.user.name || signer_name || req.user.email;
     const now = new Date();
 
     const is30Days = logsheet.signatures_required === 1 ||
@@ -659,7 +696,7 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
 
     if (is30Days) {
       // Single signature mode (30-day extension)
-      logsheet.single_signature = signature_data;
+      logsheet.single_signature = resolvedSignatureData;
       logsheet.single_sign_name = signName;
       logsheet.single_sign_role = signature_role || 'Authorized Signatory / CEO';
       logsheet.single_sign_date = now;
@@ -668,20 +705,20 @@ router.put('/:id/logsheet/sign', authenticateToken, requireStaff, async (req, re
       // 4 Signatures mode (>30-day extension)
       const role = (signature_role || '').toLowerCase();
       if (role.includes('ceo') || role.includes('director')) {
-        logsheet.ceo_signature = signature_data;
+        logsheet.ceo_signature = resolvedSignatureData;
         logsheet.ceo_sign_name = signName;
         logsheet.ceo_sign_date = now;
       } else if (role.includes('manager')) {
-        logsheet.manager_signature = signature_data;
+        logsheet.manager_signature = resolvedSignatureData;
         logsheet.manager_sign_name = signName;
         logsheet.manager_sign_date = now;
       } else if (role.includes('mufti2') || role.includes('shariah 2') || role.includes('second')) {
-        logsheet.mufti2_signature = signature_data;
+        logsheet.mufti2_signature = resolvedSignatureData;
         logsheet.mufti2_sign_name = signName;
         logsheet.mufti2_sign_date = now;
       } else {
         // default to mufti 1
-        logsheet.mufti_signature = signature_data;
+        logsheet.mufti_signature = resolvedSignatureData;
         logsheet.mufti_sign_name = signName;
         logsheet.mufti_sign_date = now;
       }
