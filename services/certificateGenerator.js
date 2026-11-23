@@ -113,32 +113,39 @@ function wrapTextLines(text, maxWidth, font, size, maxLines = 2) {
   if (!text) return [];
   const sanitized = sanitizeForPdf(text);
   if (!sanitized) return [];
-  const words = sanitized.split(/\s+/);
+  const paragraphs = sanitized.split(/\r?\n/);
   const lines = [];
-  let currentLine = '';
 
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    try {
-      if (font.widthOfTextAtSize(testLine, size) <= maxWidth) {
-        currentLine = testLine;
-      } else {
-        if (currentLine) lines.push(currentLine);
-        if (lines.length === maxLines - 1) {
-          const remainingWords = words.slice(i).join(' ');
-          lines.push(truncateToWidth(remainingWords, maxWidth, font, size));
-          currentLine = '';
-          break;
+  for (let pIdx = 0; pIdx < paragraphs.length; pIdx++) {
+    const para = paragraphs[pIdx].trim();
+    if (!para) continue;
+    const words = para.split(/\s+/);
+    let currentLine = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      try {
+        if (font.widthOfTextAtSize(testLine, size) <= maxWidth) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          if (lines.length === maxLines - 1) {
+            const remainingWords = words.slice(i).join(' ');
+            lines.push(truncateToWidth(remainingWords, maxWidth, font, size));
+            currentLine = '';
+            break;
+          }
+          currentLine = word;
         }
+      } catch (e) {
         currentLine = word;
       }
-    } catch (e) {
-      currentLine = word;
     }
-  }
-  if (currentLine && lines.length < maxLines) {
-    lines.push(truncateToWidth(currentLine, maxWidth, font, size));
+    if (currentLine && lines.length < maxLines) {
+      lines.push(truncateToWidth(currentLine, maxWidth, font, size));
+    }
+    if (lines.length >= maxLines) break;
   }
   return lines;
 }
