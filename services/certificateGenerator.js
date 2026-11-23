@@ -766,13 +766,10 @@ export async function generateCertificate(certData) {
     businessAddress ||
     certData.company_address ||
     certData.companyAddress ||
-    certData.registered_address ||
-    certData.address ||
-    (certData.application_id && certData.application_id.establishment_address) ||
     ''
   ).trim();
   const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
-  const resolvedAddress = isCompanyAddrEmpty ? '' : sanitizeForPdf(rawCompanyAddr.toUpperCase());
+  const resolvedAddress = isCompanyAddrEmpty ? '' : sanitizeForPdf(rawCompanyAddr);
 
   const explicitMfg = (manufacturingAddress !== undefined && manufacturingAddress !== null)
     ? manufacturingAddress
@@ -780,21 +777,11 @@ export async function generateCertificate(certData) {
       ? manufacturerAddress
       : (certData.manufacturing_address !== undefined && certData.manufacturing_address !== null)
         ? certData.manufacturing_address
-        : null;
+        : (certData.manufacturer_address !== undefined && certData.manufacturer_address !== null)
+          ? certData.manufacturer_address
+          : '';
 
-  const rawMfg = (explicitMfg !== null
-    ? explicitMfg
-    : (
-        certData.manufacturer_address ||
-        certData.manufacturing_facility_address ||
-        certData.facility_address ||
-        certData.facilityAddress ||
-        certData.manufacturingFacility ||
-        certData.manufacturing_facility ||
-        certData.site_address ||
-        ''
-      )
-  ).trim();
+  const rawMfg = String(explicitMfg || '').trim();
 
   const isMfgEmpty = (
     !rawMfg ||
@@ -807,15 +794,15 @@ export async function generateCertificate(certData) {
     rawMfg.toUpperCase() === 'SAME AS ABOVE' ||
     rawMfg.toUpperCase() === 'NOT APPLICABLE'
   );
-  let resolvedMfgAddress = isMfgEmpty ? '' : sanitizeForPdf(rawMfg.toUpperCase());
+  let resolvedMfgAddress = isMfgEmpty ? '' : sanitizeForPdf(rawMfg);
 
   const rawName = (companyName || businessName || certData.company_name || '').trim();
   const isNameEmpty = !rawName || rawName === '-' || rawName === '—' || rawName.toUpperCase() === 'N/A';
-  const resolvedName = isNameEmpty ? '' : sanitizeForPdf(rawName.toUpperCase());
+  const resolvedName = isNameEmpty ? '' : sanitizeForPdf(rawName);
 
   const rawScope = (scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || '').trim();
   const isScopeEmpty = !rawScope || rawScope === '-' || rawScope === '—' || rawScope.toUpperCase() === 'N/A';
-  const resolvedScope = isScopeEmpty ? '' : sanitizeForPdf(rawScope.toUpperCase());
+  const resolvedScope = isScopeEmpty ? '' : sanitizeForPdf(rawScope);
 
   // Generate QR Code PNG pointing to public verification gate so active/inactive status is enforced
   const qrUrl = `${getBackendUrl()}/api/certificates/public/${encodeURIComponent(sanitizedCertNo)}`;
@@ -953,6 +940,8 @@ export async function generateCertificate(certData) {
       page.drawText(formattedOrigCycle, { x: origStartX + origLabelW + dateLabelGap, y: dateY2, size: dateSize, font: fontRegular, color: cDark });
     }
 
+    // Row 1: COMPANY NAME
+    let r4DividerY = 344.0;
     if (isFirstPage) {
       // 2.5 Scheme Declaration Lines (Centered dynamically between Dates and Company details)
       if (scheme.declarationLines && scheme.declarationLines.length > 0) {
@@ -1003,60 +992,64 @@ export async function generateCertificate(certData) {
         color: cDivider
       });
 
-      // Row 2: COMPANY ADDRESS
+      // Row 2: COMPANY ADDRESS (wrap cleanly across as many lines as needed without truncation)
       const r2Y = 456.0;
       page.drawText('COMPANY ADDRESS:', { x: labelStartX, y: r2Y, size: rowLabelSize, font: fontRegular, color: cDark });
-      if (resolvedAddress) {
-        const addrLines = wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 2);
-        if (addrLines.length > 1) {
-          if (addrLines[0]) page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
-          if (addrLines[1]) page.drawText(addrLines[1], { x: valStartX, y: r2Y - 13.0, size: rowValSize, font: fontRegular, color: cDark });
-        } else if (addrLines[0]) {
-          page.drawText(addrLines[0], { x: valStartX, y: r2Y, size: rowValSize, font: fontRegular, color: cDark });
+      const addrLines = resolvedAddress ? wrapTextLines(resolvedAddress, maxValW, fontRegular, rowValSize, 20) : [];
+      addrLines.forEach((line, idx) => {
+        if (line) {
+          page.drawText(line, { x: valStartX, y: r2Y - (idx * 13.0), size: rowValSize, font: fontRegular, color: cDark });
         }
-      }
+      });
+      const r2DividerY = addrLines.length <= 1
+        ? 432.0
+        : (r2Y - ((addrLines.length - 1) * 13.0) - 11.0);
       page.drawLine({
-        start: { x: dividerLeftX, y: 432.0 },
-        end: { x: dividerRightX, y: 432.0 },
+        start: { x: dividerLeftX, y: r2DividerY },
+        end: { x: dividerRightX, y: r2DividerY },
         thickness: 0.5,
         color: cDivider
       });
 
-      // Row 3: MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT):
-      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: 414.0, size: rowLabelSize, font: fontRegular, color: cDark });
-      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: 401.0, size: rowLabelSize, font: fontRegular, color: cDark });
-      if (resolvedMfgAddress) {
-        const mfgLines = wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 2);
-        if (mfgLines.length > 1) {
-          if (mfgLines[0]) page.drawText(mfgLines[0], { x: valStartX, y: 414.0, size: rowValSize, font: fontRegular, color: cDark });
-          if (mfgLines[1]) page.drawText(mfgLines[1], { x: valStartX, y: 401.0, size: rowValSize, font: fontRegular, color: cDark });
-        } else if (mfgLines[0]) {
-          page.drawText(mfgLines[0], { x: valStartX, y: 407.0, size: rowValSize, font: fontRegular, color: cDark });
-        }
+      // Row 3: MANUFACTURING FACILITY(IES) ADDRESS (IF DIFFERENT) (wrap cleanly without truncation)
+      const r3Label1Y = r2DividerY - 18.0;
+      const r3Label2Y = r3Label1Y - 13.0;
+      page.drawText('MANUFACTURING FACILITY(IES)', { x: labelStartX, y: r3Label1Y, size: rowLabelSize, font: fontRegular, color: cDark });
+      page.drawText('ADDRESS (IF DIFFERENT):', { x: labelStartX, y: r3Label2Y, size: rowLabelSize, font: fontRegular, color: cDark });
+      const mfgLines = resolvedMfgAddress ? wrapTextLines(resolvedMfgAddress, maxValW, fontRegular, rowValSize, 20) : [];
+      if (mfgLines.length === 1) {
+        if (mfgLines[0]) page.drawText(mfgLines[0], { x: valStartX, y: r3Label1Y - 7.0, size: rowValSize, font: fontRegular, color: cDark });
+      } else {
+        mfgLines.forEach((line, idx) => {
+          if (line) {
+            page.drawText(line, { x: valStartX, y: r3Label1Y - (idx * 13.0), size: rowValSize, font: fontRegular, color: cDark });
+          }
+        });
       }
+      const mfgBlockLines = Math.max(2, mfgLines.length);
+      const r3DividerY = r3Label1Y - ((mfgBlockLines - 1) * 13.0) - 15.0;
       page.drawLine({
-        start: { x: dividerLeftX, y: 386.0 },
-        end: { x: dividerRightX, y: 386.0 },
+        start: { x: dividerLeftX, y: r3DividerY },
+        end: { x: dividerRightX, y: r3DividerY },
         thickness: 0.5,
         color: cDivider
       });
 
       // Row 4: PRODUCT CATEGORY
-      const r4Y = 368.0;
+      const r4Y = r3DividerY - 18.0;
       page.drawText('PRODUCT CATEGORY:', { x: labelStartX, y: r4Y, size: rowLabelSize, font: fontRegular, color: cDark });
-      if (resolvedScope) {
-        const scopeLines = wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2);
-        if (scopeLines.length > 1) {
-          if (scopeLines[0]) page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
-          if (scopeLines[1]) page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 13.0, size: rowValSize, font: fontRegular, color: cDark });
-        } else if (scopeLines[0]) {
-          page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
-        }
+      const scopeLines = resolvedScope ? wrapTextLines(resolvedScope, maxValW, fontRegular, rowValSize, 2) : [];
+      if (scopeLines.length > 1) {
+        if (scopeLines[0]) page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
+        if (scopeLines[1]) page.drawText(scopeLines[1], { x: valStartX, y: r4Y - 13.0, size: rowValSize, font: fontRegular, color: cDark });
+      } else if (scopeLines[0]) {
+        page.drawText(scopeLines[0], { x: valStartX, y: r4Y, size: rowValSize, font: fontRegular, color: cDark });
       }
       // Product Category divider line positioned with clear spacing above the table
+      r4DividerY = r4Y - 24.0;
       page.drawLine({
-        start: { x: dividerLeftX, y: 344.0 },
-        end: { x: dividerRightX, y: 344.0 },
+        start: { x: dividerLeftX, y: r4DividerY },
+        end: { x: dividerRightX, y: r4DividerY },
         thickness: 0.5,
         color: cDivider
       });
@@ -1068,10 +1061,9 @@ export async function generateCertificate(certData) {
     const headerHeight = 18.0;
     const rowHeight = 17.5;
 
-    // Page 1: Table top is at y=328.0 pt leaving a generous 16.0 pt spacing below Product Category divider (344.0 pt).
-    // headerBottomY = 328.0 - 18.0 = 310.0 pt.
+    // Page 1: Table top is 16.0 pt below Product Category divider (default y=328.0 -> headerBottomY=310.0 pt).
     // Subsequent pages: Table top is at y=560.0 pt, headerBottomY = 560.0 - 18.0 = 542.0 pt.
-    let headerBottomY = isFirstPage ? 310.0 : 542.0;
+    let headerBottomY = isFirstPage ? (r4DividerY - 16.0 - headerHeight) : 542.0;
 
     // Use dynamically computed column definitions based on product lengths
     const colDefs = tableColDefs;
@@ -1380,12 +1372,10 @@ export async function buildCertificateHtml(certData) {
     businessAddress ||
     certData.company_address ||
     certData.companyAddress ||
-    certData.registered_address ||
-    certData.address ||
     ''
   ).trim();
   const isCompanyAddrEmpty = !rawCompanyAddr || rawCompanyAddr === '-' || rawCompanyAddr === '—' || rawCompanyAddr.toUpperCase() === 'N/A';
-  const resolvedAddress = isCompanyAddrEmpty ? '' : rawCompanyAddr.toUpperCase();
+  const resolvedAddress = isCompanyAddrEmpty ? '' : rawCompanyAddr;
 
   const explicitMfg = (manufacturingAddress !== undefined && manufacturingAddress !== null)
     ? manufacturingAddress
@@ -1393,21 +1383,11 @@ export async function buildCertificateHtml(certData) {
       ? manufacturerAddress
       : (certData.manufacturing_address !== undefined && certData.manufacturing_address !== null)
         ? certData.manufacturing_address
-        : null;
+        : (certData.manufacturer_address !== undefined && certData.manufacturer_address !== null)
+          ? certData.manufacturer_address
+          : '';
 
-  const rawMfg = (explicitMfg !== null
-    ? explicitMfg
-    : (
-        certData.manufacturer_address ||
-        certData.manufacturing_facility_address ||
-        certData.facility_address ||
-        certData.facilityAddress ||
-        certData.manufacturingFacility ||
-        certData.manufacturing_facility ||
-        certData.site_address ||
-        ''
-      )
-  ).trim();
+  const rawMfg = String(explicitMfg || '').trim();
 
   const isMfgEmpty = (
     !rawMfg ||
@@ -1420,15 +1400,15 @@ export async function buildCertificateHtml(certData) {
     rawMfg.toUpperCase() === 'SAME AS ABOVE' ||
     rawMfg.toUpperCase() === 'NOT APPLICABLE'
   );
-  let resolvedMfgAddress = isMfgEmpty ? '' : rawMfg.toUpperCase();
+  let resolvedMfgAddress = isMfgEmpty ? '' : rawMfg;
 
   const rawName = (companyName || businessName || certData.company_name || '').trim();
   const isNameEmpty = !rawName || rawName === '-' || rawName === '—' || rawName.toUpperCase() === 'N/A';
-  const resolvedName = isNameEmpty ? '' : rawName.toUpperCase();
+  const resolvedName = isNameEmpty ? '' : rawName;
 
   const rawScope = (scope || scopeOfCertification || productCategory || certData.scope || certData.scopeOfCertification || certData.productCategory || '').trim();
   const isScopeEmpty = !rawScope || rawScope === '-' || rawScope === '—' || rawScope.toUpperCase() === 'N/A';
-  const resolvedScope = isScopeEmpty ? '' : rawScope.toUpperCase();
+  const resolvedScope = isScopeEmpty ? '' : rawScope;
 
   const normalizedScheme = normalizeCertificateType(certificateType || certData.certificate_type);
   const scheme = CERTIFICATE_SCHEMES[normalizedScheme] || CERTIFICATE_SCHEMES['GSO MEAT'];
