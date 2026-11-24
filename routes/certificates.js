@@ -1991,6 +1991,9 @@ router.put('/:id', authenticateToken, requireReviewCertificatePrivilege, upload.
       cert.uploaded_filename = req.file.originalname;
     }
 
+    if (req.body.certificate_url !== undefined && req.body.certificate_url) {
+      cert.certificate_url = req.body.certificate_url;
+    }
     if (req.body.is_custom_upload !== undefined) {
       cert.is_custom_upload = req.body.is_custom_upload === true || req.body.is_custom_upload === 'true';
     }
@@ -2028,100 +2031,132 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       products_covered,
       product_details,
       certificate_type,
-      certificate_number
+      certificate_number,
+      preview_only
     } = req.body;
 
-    if (certificate_number) cert.certificate_number = certificate_number;
-    if (certificate_type) cert.certificate_type = certificate_type;
-    if (company_name) cert.company_name = company_name;
-    if (company_address) cert.company_address = company_address;
-    if (manufacturing_address !== undefined) cert.manufacturing_address = (manufacturing_address || '').trim();
-    if (product_category) {
-      cert.product_category = product_category;
-      cert.scope = product_category;
-    } else if (scope) {
-      cert.scope = scope;
-    }
-    if (issue_date) cert.issue_date = issue_date;
-    if (expiry_date) cert.expiry_date = expiry_date;
-    if (audit_date !== undefined) cert.audit_date = audit_date;
-    else if (certification_start_date) cert.audit_date = certification_start_date;
-    if (certification_start_date) cert.certification_start_date = certification_start_date;
-    if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
-    if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
+    const isPreviewOnly = preview_only === true || preview_only === 'true';
 
-    if (products_covered && Array.isArray(products_covered)) {
-      cert.products_covered = products_covered;
-    }
-    if (product_details && Array.isArray(product_details)) {
-      cert.product_details = product_details;
-    }
-    if (req.body.product_table_columns !== undefined) {
-      cert.product_table_columns = Number(req.body.product_table_columns);
+    // Build effective values without mutating/saving the DB document when preview_only is true
+    const effCertNumber = certificate_number || cert.certificate_number;
+    const effCertType = certificate_type || cert.certificate_type;
+    const effCompanyName = company_name || cert.company_name;
+    const effCompanyAddress = company_address !== undefined ? company_address : cert.company_address;
+    const effMfgAddress = manufacturing_address !== undefined ? (manufacturing_address || '').trim() : cert.manufacturing_address;
+    const effScope = product_category || scope || cert.scope;
+    const effIssueDate = issue_date || cert.issue_date;
+    const effExpiryDate = expiry_date || cert.expiry_date;
+    const effAuditDate = audit_date !== undefined ? audit_date : (certification_start_date || cert.audit_date);
+    const effCertStartDate = certification_start_date || cert.certification_start_date;
+    const effCurrentCycleDate = current_cycle_start_date || cert.current_cycle_start_date;
+    const effOriginalCycleDate = original_cycle_start_date || cert.original_cycle_start_date;
+    const effProductsCovered = (products_covered && Array.isArray(products_covered)) ? products_covered : cert.products_covered;
+    const effProductDetails = (product_details && Array.isArray(product_details)) ? product_details : cert.product_details;
+    const effTableColsInput = req.body.product_table_columns !== undefined ? Number(req.body.product_table_columns) : cert.product_table_columns;
+
+    if (!isPreviewOnly) {
+      if (certificate_number) cert.certificate_number = certificate_number;
+      if (certificate_type) cert.certificate_type = certificate_type;
+      if (company_name) cert.company_name = company_name;
+      if (company_address !== undefined) cert.company_address = company_address;
+      if (manufacturing_address !== undefined) cert.manufacturing_address = (manufacturing_address || '').trim();
+      if (product_category) {
+        cert.product_category = product_category;
+        cert.scope = product_category;
+      } else if (scope) {
+        cert.scope = scope;
+      }
+      if (issue_date) cert.issue_date = issue_date;
+      if (expiry_date) cert.expiry_date = expiry_date;
+      if (audit_date !== undefined) cert.audit_date = audit_date;
+      else if (certification_start_date) cert.audit_date = certification_start_date;
+      if (certification_start_date) cert.certification_start_date = certification_start_date;
+      if (current_cycle_start_date) cert.current_cycle_start_date = current_cycle_start_date;
+      if (original_cycle_start_date) cert.original_cycle_start_date = original_cycle_start_date;
+
+      if (products_covered && Array.isArray(products_covered)) {
+        cert.products_covered = products_covered;
+      }
+      if (product_details && Array.isArray(product_details)) {
+        cert.product_details = product_details;
+      }
+      if (req.body.product_table_columns !== undefined) {
+        cert.product_table_columns = Number(req.body.product_table_columns);
+      }
+
+      // If this certificate has an admin-uploaded custom PDF and force is not explicitly requested, PRESERVE IT!
+      if (cert.is_custom_upload && cert.certificate_url && !req.body.force && !req.body.force_regenerate) {
+        console.log(`[Certificate] Preserving admin-uploaded certificate PDF for ${cert.certificate_number} during regenerate call.`);
+        cert.updated_at = new Date();
+        await cert.save();
+        return res.json({
+          success: true,
+          message: 'Admin-uploaded certificate preserved. System did not overwrite your file.',
+          certificateUrl: cert.certificate_url,
+          data: cert,
+          is_custom_upload: true
+        });
+      }
+
+      // If forced to regenerate from template, clear custom upload flag
+      if (req.body.force || req.body.force_regenerate) {
+        cert.is_custom_upload = false;
+        cert.uploaded_filename = null;
+      }
     }
 
-    // If this certificate has an admin-uploaded custom PDF and force is not explicitly requested, PRESERVE IT!
-    if (cert.is_custom_upload && cert.certificate_url && !req.body.force && !req.body.force_regenerate) {
-      console.log(`[Certificate] Preserving admin-uploaded certificate PDF for ${cert.certificate_number} during regenerate call.`);
-      cert.updated_at = new Date();
-      await cert.save();
-      return res.json({
-        success: true,
-        message: 'Admin-uploaded certificate preserved. System did not overwrite your file.',
-        certificateUrl: cert.certificate_url,
-        data: cert,
-        is_custom_upload: true
-      });
-    }
-
-    // If forced to regenerate from template, clear custom upload flag
-    if (req.body.force || req.body.force_regenerate) {
-      cert.is_custom_upload = false;
-      cert.uploaded_filename = null;
-    }
-
-    const prods = (cert.product_details && cert.product_details.length > 0)
-      ? cert.product_details
-      : (cert.products_covered || []).map((p, idx) => ({
+    const prods = (effProductDetails && effProductDetails.length > 0)
+      ? effProductDetails
+      : (effProductsCovered || []).map((p, idx) => ({
         code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
         name: typeof p === 'string' ? p : (p.name || p.title || p.description),
         description: typeof p === 'object' ? (p.description || p.name) : p
       }));
 
-    const filename = `${cert.certificate_number}.pdf`;
-    const s3Key = generateS3Key('certificates', filename);
+    const filename = `${effCertNumber}.pdf`;
+    const s3Key = generateS3Key(isPreviewOnly ? 'certificates/previews' : 'certificates', filename);
     const certPath = getS3PathFromKey(s3Key);
     const fullCertUrl = resolveCertificateUrl(certPath);
 
     // Derive the normalised scheme to get its defaultColumns
-    const regenNormScheme = normalizeCertificateType(cert.certificate_type || 'HFA Scheme', cert.scope || cert.product_category || '');
+    const regenNormScheme = normalizeCertificateType(effCertType || 'HFA Scheme', effScope || '');
     const regenSchemeDef = CERTIFICATE_SCHEMES[regenNormScheme] || CERTIFICATE_SCHEMES['HFA SCHEME NON MEAT'];
     // Respect any explicitly stored column count; otherwise use the scheme default (HFA=1, GSO/SMIIC=2)
-    const regenTableCols = [1, 2, 3].includes(Number(cert.product_table_columns))
-      ? Number(cert.product_table_columns)
+    const regenTableCols = [1, 2, 3].includes(Number(effTableColsInput))
+      ? Number(effTableColsInput)
       : regenSchemeDef.defaultColumns;
 
     const pdfBuffer = await generateCertificate({
-      certificateType: cert.certificate_type || 'HFA Scheme',
-      businessName: cert.company_name || '',
-      businessAddress: cert.company_address || '',
-      manufacturerAddress: cert.manufacturing_address || '',
-      certificateNumber: cert.certificate_number,
-      scopeOfCertification: cert.scope || '',
-      productCategory: cert.scope,
+      certificateType: effCertType || 'HFA Scheme',
+      businessName: effCompanyName || '',
+      businessAddress: effCompanyAddress || '',
+      manufacturerAddress: effMfgAddress || '',
+      certificateNumber: effCertNumber,
+      scopeOfCertification: effScope || '',
+      productCategory: effScope,
       productCategories: prods,
       products: prods,
       productTableColumns: regenTableCols,
-      issueDate: cert.issue_date || new Date(),
-      expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      auditDate: cert.audit_date || cert.certification_start_date || cert.issue_date || new Date(),
-      certificationStartDate: cert.certification_start_date || cert.issue_date || new Date(),
-      currentCycleStartDate: cert.current_cycle_start_date || cert.issue_date || new Date(),
-      originalCycleStartDate: cert.original_cycle_start_date || cert.issue_date || new Date(),
+      issueDate: effIssueDate || new Date(),
+      expiryDate: effExpiryDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      auditDate: effAuditDate || effCertStartDate || effIssueDate || new Date(),
+      certificationStartDate: effCertStartDate || effIssueDate || new Date(),
+      currentCycleStartDate: effCurrentCycleDate || effIssueDate || new Date(),
+      originalCycleStartDate: effOriginalCycleDate || effIssueDate || new Date(),
       certificate_url: fullCertUrl
     });
 
-    const newUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', 'certificates', s3Key);
+    const newUrl = await uploadToS3(pdfBuffer, filename, 'application/pdf', isPreviewOnly ? 'certificates/previews' : 'certificates', s3Key);
+
+    if (isPreviewOnly) {
+      return res.json({
+        success: true,
+        previewOnly: true,
+        message: 'Certificate preview regenerated (not saved to database yet)',
+        certificateUrl: newUrl
+      });
+    }
+
     cert.certificate_url = newUrl;
     cert.updated_at = new Date();
     await cert.save();
