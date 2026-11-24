@@ -2,7 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Site from '../models/Site.js';
 import User from '../models/User.js';
-import { authenticateToken, isStaffUser } from '../middleware/auth.js';
+import { authenticateToken, isStaffUser, requireSuperAdmin } from '../middleware/auth.js';
 const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -178,12 +178,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
-    // Only admins can delete sites
-    if (!isStaffUser(req.user, req.userModelType)) {
-      return res.status(403).json({ error: 'Clients cannot delete registered sites. Please contact support.' });
-    }
     const result = await Site.findByIdAndDelete(req.params.id);
     if (!result) return res.status(404).json({ error: 'Site not found' });
     res.json({ message: 'Site deleted' });
