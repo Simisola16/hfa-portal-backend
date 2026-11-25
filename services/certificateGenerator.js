@@ -171,7 +171,7 @@ function getProductRowLines(p, colDefs, numColumns, fontBold, fontRegular, cellF
         if (lines.length > 1) rowNeedsTwoLines = true;
         colLines.push(lines);
       } else {
-        const descVal = p.description || p.name;
+        const descVal = p.name || p.description;
         const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
         if (lines.length > 1) rowNeedsTwoLines = true;
         colLines.push(lines);
@@ -182,7 +182,7 @@ function getProductRowLines(p, colDefs, numColumns, fontBold, fontRegular, cellF
         if (lines.length > 1) rowNeedsTwoLines = true;
         colLines.push(lines);
       } else if (cIdx === 2) {
-        const descVal = p.description || p.name;
+        const descVal = p.name || p.description;
         const lines = wrapTextLines(descVal, col.width - 16.0, fontRegular, cellFontSize, 2);
         if (lines.length > 1) rowNeedsTwoLines = true;
         colLines.push(lines);
@@ -726,7 +726,7 @@ export async function generateCertificate(certData) {
       } else if (p && typeof p === 'object') {
         code = p.code || p.product_code || p.barcode || `PRD-${String(idx + 1).padStart(2, '0')}`;
         name = (p.name || p.product_name || p.title || p.description || `Product ${idx + 1}`).trim();
-        description = (p.description || p.name || p.product_name || `Product ${idx + 1}`).trim();
+        description = (p.name || p.description || p.product_name || `Product ${idx + 1}`).trim();
         category = (p.category || 'Halal Certified').trim();
       } else {
         code = `PRD-${String(idx + 1).padStart(2, '0')}`;
