@@ -2105,13 +2105,16 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       }
     }
 
-    const prods = (effProductDetails && effProductDetails.length > 0)
+    const hasExplicitDetails = Array.isArray(product_details);
+    const prods = hasExplicitDetails
       ? effProductDetails
-      : (effProductsCovered || []).map((p, idx) => ({
-        code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
-        name: typeof p === 'string' ? p : (p.name || p.title || p.description),
-        description: typeof p === 'object' ? (p.description || p.name) : p
-      }));
+      : (effProductDetails && effProductDetails.length > 0)
+        ? effProductDetails
+        : (effProductsCovered || []).map((p, idx) => ({
+          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          name: typeof p === 'string' ? p : (p.name || p.title || p.description),
+          description: typeof p === 'object' ? (p.description || p.name) : p
+        }));
 
     const filename = `${effCertNumber}.pdf`;
     const s3Key = generateS3Key(isPreviewOnly ? 'certificates/previews' : 'certificates', filename);
