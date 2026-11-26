@@ -3025,12 +3025,22 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
     }
 
     // 7. Save / Link Products in Product collection linked to certificate
+    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const createdProductDocs = [];
     for (const prod of cleanProducts) {
       let existingProd = null;
       const prodId = prod._sourceId;
       if (prodId && mongoose.isValidObjectId(prodId)) {
         existingProd = await Product.findOne({ _id: prodId, client_id: targetClientId });
+      }
+      if (!existingProd && prod.name && prod.name.trim()) {
+        const nameRegex = new RegExp(`^${escapeRegex(prod.name.trim())}$`, 'i');
+        if (targetSiteId) {
+          existingProd = await Product.findOne({ client_id: targetClientId, site_id: targetSiteId, name: nameRegex });
+        }
+        if (!existingProd) {
+          existingProd = await Product.findOne({ client_id: targetClientId, name: nameRegex });
+        }
       }
 
       if (existingProd) {
@@ -3039,7 +3049,9 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
         existingProd.status = 'active';
         existingProd.source = existingProd.source || 'admin';
         existingProd.application_type = existingProd.application_type || 'Direct';
-        if (prod.code) existingProd.code = prod.code;
+        if (prod.code && !/^PRD-\d+$/i.test(String(prod.code).trim())) {
+          existingProd.code = prod.code;
+        }
         if (prod.barcode) existingProd.barcode = prod.barcode;
         if (prod.category) existingProd.category = prod.category;
         if (prod.product_type) existingProd.product_type = prod.product_type;
