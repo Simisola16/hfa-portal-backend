@@ -719,17 +719,17 @@ export async function generateCertificate(certData) {
       let description = '';
 
       if (typeof p === 'string') {
-        code = `PRD-${String(idx + 1).padStart(2, '0')}`;
+        code = '';
         name = p.trim();
         description = name;
         category = 'Halal Certified';
       } else if (p && typeof p === 'object') {
-        code = p.code || p.product_code || p.barcode || `PRD-${String(idx + 1).padStart(2, '0')}`;
+        code = p.code || p.product_code || p.barcode || '';
         name = (p.name || p.product_name || p.title || p.description || `Product ${idx + 1}`).trim();
         description = (p.name || p.description || p.product_name || `Product ${idx + 1}`).trim();
         category = (p.category || 'Halal Certified').trim();
       } else {
-        code = `PRD-${String(idx + 1).padStart(2, '0')}`;
+        code = '';
         name = `Product ${idx + 1}`;
         description = name;
         category = 'Halal Certified';
@@ -1493,14 +1493,14 @@ export async function buildCertificateHtml(certData) {
     ? rawProducts.map((p, idx) => {
       if (typeof p === 'string') {
         return {
-          code: `PRD-${String(idx + 1).padStart(2, '0')}`,
+          code: '',
           name: p,
           description: p,
           category: 'Halal Certified'
         };
       }
       return {
-        code: p.code || p.product_code || p.barcode || `PRD-${String(idx + 1).padStart(2, '0')}`,
+        code: p.code || p.product_code || p.barcode || '',
         name: p.name || p.product_name || p.description || `Product ${idx + 1}`,
         description: p.description || p.name || p.product_name || `Product ${idx + 1}`,
         category: p.category || 'Halal Certified'

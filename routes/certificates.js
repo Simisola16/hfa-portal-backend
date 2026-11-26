@@ -692,14 +692,14 @@ router.post('/preview-live', authenticateToken, requireAdmin, async (req, res) =
       }
     } else if (Array.isArray(products_covered) && products_covered.length > 0) {
       parsedProducts = products_covered.map((p, idx) => ({
-        code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+        code: typeof p === 'object' && p.code ? p.code : '',
         name: typeof p === 'string' ? p : (p.name || `Product ${idx + 1}`),
         description: typeof p === 'object' ? (p.description || p.name) : p
       }));
     }
 
-    const cleanProducts = parsedProducts.map((p, idx) => ({
-      code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+    const cleanProducts = parsedProducts.map((p) => ({
+      code: typeof p === 'object' && p.code ? p.code : '',
       name: typeof p === 'string' ? p.trim() : (p.name || '').trim(),
       description: typeof p === 'object' ? (p.description || p.name || '') : '',
       category: typeof p === 'object' ? (p.category || 'Halal Certified') : 'Halal Certified',
@@ -1416,9 +1416,9 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       try {
         parsedProductDetails = JSON.parse(product_details);
       } catch (e) {
-        parsedProductDetails = parsedProducts.map((p, idx) => ({
+        parsedProductDetails = parsedProducts.map((p) => ({
           name: typeof p === 'string' ? p : (p.name || p.title),
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          code: typeof p === 'object' && p.code ? p.code : '',
           description: typeof p === 'object' && p.description ? p.description : '',
           category: 'Halal Certified',
           barcode: ''
@@ -1489,8 +1489,8 @@ router.post('/', authenticateToken, requireAdmin, requireFinalInvoicePaidForCert
       } else {
         // Auto-generate initial PDF preview
         try {
-          const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p, idx) => ({
-            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          const productCategories = (parsedProductDetails.length > 0 ? parsedProductDetails : parsedProducts).map((p) => ({
+            code: typeof p === 'object' && p.code ? p.code : '',
             name: typeof p === 'string' ? p : (p.name || p.title || p.description),
             description: typeof p === 'object' ? (p.description || p.name) : p
           }));
@@ -1831,8 +1831,9 @@ async function performCertificateIssuance({ certificate, application_id, client_
     }
   }
 
-  // Sync products covered to Product collection
+  // Sync products covered to Product collection (match by ID or case-insensitive name so codeless products are not duplicated)
   try {
+    const escapeSyncRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const prodsToSync = (certificate.product_details && certificate.product_details.length > 0)
       ? certificate.product_details
       : (certificate.products_covered || []).map(p => (typeof p === 'string' ? { name: p } : p));
@@ -1840,33 +1841,51 @@ async function performCertificateIssuance({ certificate, application_id, client_
     for (const prod of prodsToSync) {
       const prodName = typeof prod === 'string' ? prod.trim() : (prod.name || prod.product_name || prod.title || '').trim();
       if (!prodName) continue;
-      const prodCode = typeof prod === 'object' ? (prod.code || prod.barcode || '') : '';
+      const prodCode = typeof prod === 'object' ? (prod.code || prod.barcode || '').trim() : '';
+      const isAutoPlaceholderCode = /^PRD-\d+$/i.test(prodCode);
       const prodDesc = typeof prod === 'object' ? (prod.description || '') : '';
       const prodCategory = typeof prod === 'object' ? (prod.category || 'Halal Certified') : 'Halal Certified';
       const prodType = typeof prod === 'object' ? (prod.product_type || 'Processed') : 'Processed';
+      const prodId = typeof prod === 'object' ? (prod._id || prod.id || prod._sourceId) : null;
 
-      const syncQuery = { client_id, name: prodName };
-      if (prodCode) syncQuery.code = prodCode;
-      if (site_id) syncQuery.site_id = site_id;
+      let existingProd = null;
+      if (prodId && mongoose.isValidObjectId(String(prodId))) {
+        existingProd = await Product.findOne({ _id: prodId, client_id });
+      }
+      if (!existingProd) {
+        const nameRegex = new RegExp(`^${escapeSyncRegex(prodName)}$`, 'i');
+        if (site_id) {
+          existingProd = await Product.findOne({ client_id, site_id, name: nameRegex });
+        }
+        if (!existingProd) {
+          existingProd = await Product.findOne({ client_id, name: nameRegex });
+        }
+      }
 
-      await Product.findOneAndUpdate(
-        syncQuery,
-        {
-          $set: {
-            client_id,
-            site_id: site_id || undefined,
-            certificate_id: certificate._id.toString(),
-            name: prodName,
-            code: prodCode,
-            category: prodCategory,
-            product_type: prodType,
-            description: prodDesc,
-            status: 'active',
-            updated_at: new Date()
-          }
-        },
-        { upsert: true, new: true }
-      );
+      if (existingProd) {
+        existingProd.certificate_id = certificate._id.toString();
+        if (site_id) existingProd.site_id = site_id;
+        if (prodCode && !isAutoPlaceholderCode) existingProd.code = prodCode;
+        if (prodCategory) existingProd.category = prodCategory;
+        if (prodType) existingProd.product_type = prodType;
+        if (prodDesc) existingProd.description = prodDesc;
+        existingProd.status = 'active';
+        existingProd.updated_at = new Date();
+        await existingProd.save();
+      } else {
+        await Product.create({
+          client_id,
+          site_id: site_id || undefined,
+          certificate_id: certificate._id.toString(),
+          name: prodName,
+          code: isAutoPlaceholderCode ? '' : prodCode,
+          category: prodCategory,
+          product_type: prodType,
+          description: prodDesc,
+          status: 'active',
+          updated_at: new Date()
+        });
+      }
     }
   } catch (syncErr) {
     console.warn('[Certificate] Product sync warning during issuance:', syncErr.message);
@@ -2110,8 +2129,8 @@ router.post('/:id/regenerate', authenticateToken, requireReviewCertificatePrivil
       ? effProductDetails
       : (effProductDetails && effProductDetails.length > 0)
         ? effProductDetails
-        : (effProductsCovered || []).map((p, idx) => ({
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+        : (effProductsCovered || []).map((p) => ({
+          code: typeof p === 'object' && p.code ? p.code : '',
           name: typeof p === 'string' ? p : (p.name || p.title || p.description),
           description: typeof p === 'object' ? (p.description || p.name) : p
         }));
@@ -2262,8 +2281,8 @@ const handleApproveAndSendCertificate = async (req, res) => {
       try {
         const prods = (cert.product_details && cert.product_details.length > 0)
           ? cert.product_details
-          : (cert.products_covered || []).map((p, idx) => ({
-            code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+          : (cert.products_covered || []).map((p) => ({
+            code: typeof p === 'object' && p.code ? p.code : '',
             name: typeof p === 'string' ? p : (p.name || p.title || p.description),
             description: typeof p === 'object' ? (p.description || p.name) : p
           }));
@@ -2376,8 +2395,8 @@ async function buildCertDataFromApplication(application) {
   else if (application?.category?.toLowerCase().includes('gso') || application?.category?.toLowerCase().includes('uae')) scheme = 'GSO non-meat';
   else if (application?.category?.toLowerCase().includes('non-meat') || application?.category?.toLowerCase().includes('non meat')) scheme = 'HFA Scheme (non-meat)';
 
-  const productCategories = (application.products || []).map((p, idx) => ({
-    code: p.brand || p.code || `PRD-${String(idx + 1).padStart(2, '0')}`,
+  const productCategories = (application.products || []).map((p) => ({
+    code: p.brand || p.code || '',
     name: p.name,
     description: p.description || p.name
   }));
@@ -2571,8 +2590,8 @@ router.post('/:certificateId/regenerate', authenticateToken, requireReviewCertif
     const prods = (certificate.product_details && certificate.product_details.length > 0)
       ? certificate.product_details
       : (Array.isArray(parsedProducts) && parsedProducts.length > 0 ? parsedProducts : ['Certified Halal Products'])
-        .map((p, idx) => ({
-          code: typeof p === 'object' && p.code ? p.code : `PRD-${String(idx + 1).padStart(2, '0')}`,
+        .map((p) => ({
+          code: typeof p === 'object' && p.code ? p.code : '',
           name: typeof p === 'string' ? p : (p?.name || p?.title || p?.description || String(p)),
           description: typeof p === 'object' ? (p?.description || p?.name) : p
         }));
@@ -2892,7 +2911,7 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
       cleanProducts.push({
         _sourceId: typeof p === 'object' ? (p._sourceId || p._id || p.id || null) : null,
         name,
-        code: typeof p === 'object' ? (p.code || p.barcode || `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`) : `GEN-${String(cleanProducts.length + 1).padStart(2, '0')}`,
+        code: typeof p === 'object' ? (p.code || p.barcode || '') : '',
         category: typeof p === 'object' ? (p.category || 'General Food') : 'General Food',
         product_type: typeof p === 'object' ? (p.product_type || 'Processed') : 'Processed',
         barcode: typeof p === 'object' ? (p.barcode || '') : '',
@@ -2937,10 +2956,10 @@ router.post('/direct-issue', authenticateToken, requireDirectCertificatePermissi
           scopeOfCertification: effectiveScope,
           productCategory: effectiveScope,
           productCategories: cleanProducts.length > 0
-            ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+            ? cleanProducts.map(p => ({ code: p.code || '', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
             : [],
           products: cleanProducts.length > 0
-            ? cleanProducts.map(p => ({ code: p.code || 'PRD-01', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
+            ? cleanProducts.map(p => ({ code: p.code || '', name: p.name, description: p.description || p.name, category: p.category || 'Halal Certified' }))
             : [],
           productTableColumns: resolvedTableCols,
           issueDate: parsedIssueDate,
