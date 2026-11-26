@@ -649,7 +649,7 @@ router.post('/direct-batch', authenticateToken, async (req, res) => {
       const name = p.name ? p.name.trim() : '';
       if (!name) return null;
 
-      const code = p.code && p.code.trim() ? p.code.trim() : `PRD-${String(index + 1).padStart(2, '0')}`;
+      const code = p.code && p.code.trim() ? p.code.trim() : '';
       const category = p.category && p.category.trim() ? p.category.trim() : 'General Food Products';
       const product_type = p.product_type && p.product_type.trim() ? p.product_type.trim() : 'Processed';
       const description = p.description ? p.description.trim() : '';
